@@ -2,6 +2,43 @@
 
 A template for building AI Agents in Python.
 
+## Project Overview: AI20K-026
+### Automated Literature Review — Multi-Agent Research Survey
+
+**Category:** University | **Topic:** Multi-Agent | **Complexity Score:** 3
+
+> [!IMPORTANT]
+> **Requirement Status:** The requirements outlined below are not fixed and may change in the future based on project evolution and feedback.
+
+#### The Problem 🎯
+PhD candidates often spend 2–4 months conducting literature reviews, reading 100–200 papers, many of which turn out to be irrelevant. Approximately 60% of research time is consumed by searching, reading, and synthesizing papers. Furthermore, advisor feedback frequently requires adding more papers on specific sub-topics, leading to repetitive and time-consuming search cycles.
+
+#### Proposed Solution 🔨
+A multi-agent system designed to automate the research workflow:
+- **Searcher Agent**: Sources papers from Semantic Scholar, arXiv, and PubMed using advanced query strategies.
+- **Reader Agent**: Summarizes each paper based on a template (methodology, findings, and relevance).
+- **Writer Agent**: Synthesizes the summaries into a literature review draft with a natural narrative flow.
+- **Quality Agent**: Ensures the coherence and quality of the generated output.
+
+#### Technical Stack
+- **Frameworks**: LangGraph / CrewAI
+- **LLMs**: OpenAI / Claude API
+- **Data Sources**: Semantic Scholar / arXiv API
+- **Output**: docx / LaTeX generation
+- **Platform**: Streamlit (UI), Railway (Deployment)
+
+#### Minimum Requirements 📜
+- **Complete Web Application**: Must be deployed online with a valid URL.
+- **Access Control**: Basic login and permission management.
+- **User Interface**: Polished UI/UX.
+- **User Management**: Basic CRUD for users.
+
+#### Prohibitions 🚫
+- NO demo notebooks.
+- NO CLI scripts.
+- Prototypes running only on localhost are NOT accepted.
+
+
 ## Structure
 
 ```
