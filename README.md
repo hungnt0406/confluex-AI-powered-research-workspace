@@ -25,8 +25,8 @@ A template for building AI Agents in Python.
 ### 1. Clone and setup
 
 ```bash
-git clone <repo-url>
-cd <repo>
+git clone https://github.com/a20-ai-thuc-chien/A20-App-143.git
+cd A20-App-143
 
 # Install git pre-push hook (required, run once)
 bash scripts/setup_hooks.sh
