@@ -1,118 +1,118 @@
-# Starter Code App
+# Automated Literature Review
 
-A template for building AI Agents in Python.
+[![CI](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml/badge.svg)](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml)
 
-## Project Overview: AI20K-026
-### Automated Literature Review — Multi-Agent Research Survey
+Phase 2 extends the foundation into a working Searcher + Reader pipeline. The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, LangGraph orchestration, pytest coverage, and a minimal Next.js 14 frontend shell.
 
-**Category:** University | **Topic:** Multi-Agent | **Complexity Score:** 3
+## Phase 2 scope
 
-> [!IMPORTANT]
-> **Requirement Status:** The requirements outlined below are not fixed and may change in the future based on project evolution and feedback.
+- Async FastAPI backend with `/auth`, `/projects`, and `/pipeline`
+- JWT register/login flow and project CRUD
+- SQLAlchemy 2.0 models plus Alembic migrations for project search settings, paper status, and summary error tracking
+- Semantic Scholar and arXiv search across expanded queries with deduplication and filtering
+- Relevance ranking via embeddings and structured summaries for top papers
+- LangGraph pipeline with `searcher -> reader -> writer -> qa` plus a warning branch when ranking returns too few papers
+- Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
+- Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
+- GitHub Actions CI for migrations, linting, type-checking, and tests
 
-#### The Problem 🎯
-PhD candidates often spend 2–4 months conducting literature reviews, reading 100–200 papers, many of which turn out to be irrelevant. Approximately 60% of research time is consumed by searching, reading, and synthesizing papers. Furthermore, advisor feedback frequently requires adding more papers on specific sub-topics, leading to repetitive and time-consuming search cycles.
+## Repository layout
 
-#### Proposed Solution 🔨
-A multi-agent system designed to automate the research workflow:
-- **Searcher Agent**: Sources papers from Semantic Scholar, arXiv, and PubMed using advanced query strategies.
-- **Reader Agent**: Summarizes each paper based on a template (methodology, findings, and relevance).
-- **Writer Agent**: Synthesizes the summaries into a literature review draft with a natural narrative flow.
-- **Quality Agent**: Ensures the coherence and quality of the generated output.
-
-#### Technical Stack
-- **Frameworks**: LangGraph / CrewAI
-- **LLMs**: OpenAI / Claude API
-- **Data Sources**: Semantic Scholar / arXiv API
-- **Output**: docx / LaTeX generation
-- **Platform**: Streamlit (UI), Railway (Deployment)
-
-#### Minimum Requirements 📜
-- **Complete Web Application**: Must be deployed online with a valid URL.
-- **Access Control**: Basic login and permission management.
-- **User Interface**: Polished UI/UX.
-- **User Management**: Basic CRUD for users.
-
-#### Prohibitions 🚫
-- NO demo notebooks.
-- NO CLI scripts.
-- Prototypes running only on localhost are NOT accepted.
-
-
-## Structure
-
-```
-├── src/
-│   ├── agent.py        # Main agent loop
-│   ├── tools.py        # Tool definitions
-│   └── config.py       # Configuration
-├── scripts/
-│   ├── setup_hooks.sh  # One-time hook installer
-│   ├── log_hook.py     # AI tool hook handler
-│   └── submit_log.py   # Submits logs on git push
-├── requirements.txt
-├── .env.example
-├── AGENTS.md           # Rules for using AI coding agents
-├── JOURNAL.md          # Weekly journal — product journey & learnings
-└── WORKLOG.md          # Technical decisions, task assignments, brainstorming
+```text
+backend/
+  agents/      LangGraph state and dummy pipeline nodes
+  api/         FastAPI routers, dependencies, and schemas
+  db/          SQLAlchemy models, sessions, and Alembic files
+  services/    External API clients for paper search
+frontend/      Next.js 14 App Router shell
+plans/         Delivery plans for each phase
+scripts/       AI logging and repository utility scripts
+tests/         Async pytest suite and fixtures
 ```
 
-## Getting Started
+## Local setup
 
-### 1. Clone and setup
+### 1. Install repository hooks
 
 ```bash
-git clone https://github.com/a20-ai-thuc-chien/A20-App-143.git
-cd A20-App-143
-
-# Install git pre-push hook (required, run once)
 bash scripts/setup_hooks.sh
 ```
 
-### 2. Configure environment
+### 2. Configure the environment
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and fill in your `ANTHROPIC_API_KEY`. The `AI_LOG_*` variables are pre-filled.
+Fill in the values you need locally, especially `DATABASE_URL`, `JWT_SECRET_KEY`, and `OPENROUTER_API_KEY`.
 
-### 3. Run
+### 3. Install Python dependencies
 
 ```bash
-python -m venv venv
-source venv/bin/activate       # Linux/Mac
-# or: venv\Scripts\activate    # Windows
-
-pip install -r requirements.txt
-python -m src.agent
+uv sync --extra dev
 ```
 
-## Weekly Journal
+If you prefer `pip`, the compatibility entrypoint remains available:
 
-Update **[JOURNAL.md](./JOURNAL.md)** at the end of every week to document your product-building journey:
+```bash
+pip install -r requirements.txt
+```
 
-- Features shipped
-- AI tools used and how they helped
-- Hardest problem of the week and how you solved it
-- What you'd do differently
-- Plan for next week
+### 4. Run the backend
 
-> JOURNAL.md **must be updated** before each PR. It is your learning record for the course.
+```bash
+uv run alembic upgrade head
+uv run uvicorn backend.main:app --reload
+```
 
-## Worklog
+### 5. Run the frontend
 
-Update **[WORKLOG.md](./WORKLOG.md)** whenever your team makes a technical decision or changes direction:
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-- **Technical decisions** — why did you choose this approach over alternatives?
-- **Task assignments** — who does what, by when
-- **Brainstorming** — options considered, pros/cons, conclusion
-- **Important bugs** — root cause and fix
+## API surface
 
-See each file for the format and examples.
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /projects`
+- `GET /projects`
+- `GET /projects/{id}`
+- `POST /projects/{id}/run`
+- `GET /projects/{id}/papers`
+- `GET /pipeline/health`
 
-## AI Logging
+`POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
 
-Prompts and tool calls are **automatically logged** when you use any supported AI tool (Claude Code, Cursor, Codex, Gemini, Copilot). No manual steps needed after running `setup_hooks.sh`.
+## Quality gates
 
-See [AGENTS.md](./AGENTS.md) for details.
+```bash
+uv run ruff check .
+uv run mypy backend/
+uv run pytest tests/ -x
+```
+
+## Notes
+
+- Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
+- Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
+- When those API keys are missing in local/dev/test environments, the pipeline falls back to deterministic offline behavior so the app and tests still run.
+- Live API smoke tests for Semantic Scholar and arXiv are opt-in:
+
+```bash
+RUN_LIVE_API_TESTS=1 uv run pytest tests/test_services.py -m integration
+```
+
+- The search-quality evaluation harness is also opt-in:
+
+```bash
+RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval
+```
+
+## Project hygiene
+
+- Update [JOURNAL.md](/Users/hungcucu/Documents/VinAI/A20-App-143/JOURNAL.md) before each PR with weekly learnings and shipped work.
+- Update [WORKLOG.md](/Users/hungcucu/Documents/VinAI/A20-App-143/WORKLOG.md) when the team makes meaningful technical decisions.
+- AI tool prompts are logged automatically. See [AGENTS.md](/Users/hungcucu/Documents/VinAI/A20-App-143/AGENTS.md) for repository rules.
