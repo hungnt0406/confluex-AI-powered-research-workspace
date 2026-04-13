@@ -11,9 +11,28 @@ build/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # OS
 .DS_Store
 
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
+
+# Data — large files, downloaded datasets
+data/arxiv-metadata/
+data/chroma_db/
+*.sqlite
+*.sqlite-journal
+
+# Output artifacts (generated during pipeline runs)
+*.docx
+*.tex
+*.pdf
+!src/output/templates/*.tex
+
+# JavaScript / Next.js
+frontend/.next/
+frontend/node_modules/

@@ -1,0 +1,273 @@
+from sqlalchemy import select
+
+from backend.agents.reader import ReaderAgent
+from backend.agents.searcher import SearcherAgent
+from backend.agents.state import AgentState
+from backend.db.models import Paper, Project, Summary
+from backend.services.llm import StructuredOutputError
+
+
+class FakeQueryPlanner:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def is_configured(self) -> bool:
+        return True
+
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+        return self.payload
+
+
+class FakeSearchClient:
+    def __init__(self, results_by_query):
+        self.results_by_query = results_by_query
+
+    async def search_papers(self, query, year_start, limit):
+        return self.results_by_query.get(query, [])[:limit]
+
+
+class FakeEmbeddingService:
+    def __init__(self, embeddings):
+        self.embeddings = embeddings
+
+    async def embed_texts(self, texts):
+        return self.embeddings
+
+    def embed_texts_locally(self, texts):
+        return self.embeddings
+
+
+class FakeSummaryGenerator:
+    def __init__(self):
+        self.calls = {}
+
+    def is_configured(self) -> bool:
+        return True
+
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+        if "Reliable Paper" in user_prompt:
+            return {
+                "problem": "Improve paper ranking",
+                "method": "Use a relevance scoring pipeline",
+                "result": "The system improved ranking quality",
+                "relevance": "It directly supports the literature review topic.",
+            }
+
+        call_count = self.calls.get(user_prompt, 0)
+        self.calls[user_prompt] = call_count + 1
+        raise StructuredOutputError("mock summary failure")
+
+
+async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
+    session_factory,
+    sample_project,
+) -> None:
+    query_payload = {
+        "queries": [
+            {"query": "multi agent systems", "focus": "broad"},
+            {"query": "multi agent systems survey", "focus": "survey"},
+            {"query": "multi agent systems ranking", "focus": "ranking"},
+            {"query": "multi agent systems benchmarks", "focus": "benchmark"},
+            {"query": "multi agent systems recent advances", "focus": "recent"},
+        ]
+    }
+    good_abstract = "This abstract is long enough to pass the quality filter. " * 4
+    search_results = {
+        "multi agent systems": [
+            {
+                "title": "Reliable Multi-Agent Review",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": "10.1000/reliable",
+                "source": "semantic_scholar",
+                "relevance_score": None,
+            },
+            {
+                "title": "Reliable Multi-Agent Review",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": None,
+                "source": "arxiv",
+                "relevance_score": None,
+            },
+            {
+                "title": "Outdated Paper",
+                "authors": ["John Doe"],
+                "year": 2010,
+                "abstract": good_abstract,
+                "doi": "10.1000/old",
+                "source": "semantic_scholar",
+                "relevance_score": None,
+            },
+            {
+                "title": "Short Abstract Paper",
+                "authors": ["John Doe"],
+                "year": 2024,
+                "abstract": "too short",
+                "doi": "10.1000/short",
+                "source": "semantic_scholar",
+                "relevance_score": None,
+            },
+        ],
+        "multi agent systems ranking": [
+            {
+                "title": "Ranking Agentic Workflows",
+                "authors": ["Alex Roe"],
+                "year": 2023,
+                "abstract": good_abstract,
+                "doi": "10.1000/ranking",
+                "source": "semantic_scholar",
+                "relevance_score": None,
+            }
+        ],
+    }
+
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(query_payload),
+        search_clients=[FakeSearchClient(search_results)],
+        minimum_abstract_length=100,
+        per_query_limit=10,
+    )
+
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        result = await searcher.run(
+            AgentState(project_id=project.id, topic=project.topic_description),
+            session,
+            project,
+        )
+        persisted_papers = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+
+    assert result["queries"][0] == "multi agent systems"
+    assert len(result["raw_papers"]) == 2
+    assert len(persisted_papers) == 2
+    assert {paper.title for paper in persisted_papers} == {
+        "Reliable Multi-Agent Review",
+        "Ranking Agentic Workflows",
+    }
+    assert all(paper.status == "candidate" for paper in persisted_papers)
+
+
+async def test_searcher_named_entity_topic_uses_conservative_queries() -> None:
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(
+            {
+                "queries": [
+                    {"query": '"TrackNet" AND "autonomous driving"', "focus": "hallucinated"},
+                ]
+            }
+        ),
+        search_clients=[],
+    )
+
+    queries, errors = await searcher.expand_queries("TrackNet")
+
+    assert errors == []
+    assert [query.query for query in queries] == [
+        "TrackNet",
+        "TrackNet paper",
+        "TrackNet model",
+        "TrackNet architecture",
+        "TrackNet benchmark",
+        "TrackNet survey",
+    ]
+
+
+async def test_searcher_sanitizes_boolean_queries_and_salvages_short_batches() -> None:
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(
+            {
+                "queries": [
+                    {
+                        "query": '"vision transformer" AND "medical image segmentation" AND ("3D imaging" OR "volumetric data")',
+                        "focus": "recent work angle " * 30,
+                    },
+                    {
+                        "query": '"vision transformer" AND "medical image segmentation"',
+                        "focus": "broad overview",
+                    },
+                ]
+            }
+        ),
+        search_clients=[],
+    )
+
+    queries, errors = await searcher.expand_queries("vision transformer medical image segmentation")
+
+    assert errors == []
+    assert queries[0].query == "vision transformer medical image segmentation 3D imaging volumetric data"
+    assert len(queries[0].focus) <= 255
+    assert len(queries) >= 5
+
+
+async def test_reader_agent_ranks_papers_and_records_summary_failures(
+    session_factory,
+    sample_project,
+) -> None:
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        project.summary_limit = 2
+
+        reliable_paper = Paper(
+            project_id=project.id,
+            title="Reliable Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper introduces a reliable ranking pipeline for multi-agent retrieval." * 3,
+            doi="10.1000/reliable",
+            source="semantic_scholar",
+            status="candidate",
+            relevance_score=None,
+        )
+        unstable_paper = Paper(
+            project_id=project.id,
+            title="Unstable Paper",
+            authors=["John Doe"],
+            year=2024,
+            abstract="This paper studies unstable summaries in retrieval pipelines." * 3,
+            doi="10.1000/unstable",
+            source="arxiv",
+            status="candidate",
+            relevance_score=None,
+        )
+        session.add_all([reliable_paper, unstable_paper])
+        await session.commit()
+
+        reader = ReaderAgent(
+            embedding_service=FakeEmbeddingService(
+                [
+                    [1.0, 0.0],
+                    [1.0, 0.0],
+                    [0.1, 1.0],
+                ]
+            ),
+            summary_generator=FakeSummaryGenerator(),
+            summary_concurrency=2,
+        )
+
+        result = await reader.run(
+            AgentState(project_id=project.id, topic=project.topic_description),
+            session,
+            project,
+        )
+        persisted_summaries = (
+            await session.execute(select(Summary).join(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+        persisted_papers = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+
+    assert len(result["ranked_papers"]) == 2
+    assert len(result["summaries"]) == 2
+    assert len(persisted_summaries) == 2
+    assert any(summary.has_error for summary in persisted_summaries)
+    assert any(not summary.has_error for summary in persisted_summaries)
+    assert {paper.status for paper in persisted_papers} == {"summarized", "summary_error"}

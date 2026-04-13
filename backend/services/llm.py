@@ -1,0 +1,133 @@
+import json
+from typing import Any
+
+import httpx
+
+from backend.config import get_settings
+from backend.services.research_utils import has_live_api_key
+
+
+class StructuredOutputError(RuntimeError):
+    """Raised when a structured output request fails."""
+
+
+class OpenRouterStructuredOutputService:
+    """Minimal OpenRouter structured-output client for research tasks."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
+        self.model = model if model is not None else settings.openrouter_model
+        self.base_url = (
+            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+        )
+        self.http_client = http_client
+        self.timeout_seconds = settings.external_api_timeout_seconds
+
+    def is_configured(self) -> bool:
+        """Return whether live OpenRouter requests are available."""
+
+        return has_live_api_key(self.api_key)
+
+    async def generate_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema: dict[str, Any],
+        max_tokens: int = 1_024,
+    ) -> dict[str, Any]:
+        """Generate a schema-constrained JSON payload with OpenRouter."""
+
+        if not self.is_configured():
+            raise StructuredOutputError("OpenRouter API credentials are not configured.")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key or ''}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+            "max_tokens": max_tokens,
+            "temperature": 0,
+            "provider": {
+                "require_parameters": True,
+                "sort": "price",
+            },
+        }
+
+        owns_client = self.http_client is None
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
+
+        try:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as error:
+            raise StructuredOutputError("OpenRouter structured output request failed.") from error
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        response_payload = response.json()
+        choices = response_payload.get("choices", [])
+        if not isinstance(choices, list) or not choices:
+            raise StructuredOutputError("OpenRouter response choices were missing.")
+
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            raise StructuredOutputError("OpenRouter response choice must be an object.")
+
+        finish_reason = choice.get("finish_reason")
+        if finish_reason == "length":
+            raise StructuredOutputError("OpenRouter response exceeded max_tokens before completing.")
+
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise StructuredOutputError("OpenRouter response message was missing.")
+
+        content = message.get("content")
+        if isinstance(content, list):
+            content = "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        if not isinstance(content, str) or not content.strip():
+            raise StructuredOutputError("OpenRouter response did not contain text content.")
+
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as error:
+            raise StructuredOutputError("OpenRouter returned invalid JSON.") from error
+
+        if not isinstance(parsed, dict):
+            raise StructuredOutputError("OpenRouter JSON output must be an object.")
+
+        return parsed
+
+
+# Backwards-compatible alias so the agent code does not need to change immediately.
+ClaudeStructuredOutputService = OpenRouterStructuredOutputService
