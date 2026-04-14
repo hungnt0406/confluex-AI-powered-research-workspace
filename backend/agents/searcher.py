@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete
@@ -85,6 +85,20 @@ class ArxivSearchClient:
         return await arxiv.search_papers(query, year_start, limit)
 
 
+def get_candidate_metadata(
+    candidate: PaperRecord,
+    field_name: Literal["source_paper_id", "source_url", "pdf_url"],
+) -> str | None:
+    """Read optional candidate metadata without assuming legacy payloads include the key."""
+
+    raw_value = candidate.get(field_name)
+    if raw_value is None:
+        return None
+
+    normalized_value = str(raw_value).strip()
+    return normalized_value or None
+
+
 def serialize_paper_record(paper: Paper) -> dict[str, object]:
     """Serialize a paper ORM object into graph state."""
 
@@ -153,9 +167,9 @@ class SearcherAgent:
                 abstract=candidate["abstract"],
                 doi=candidate["doi"],
                 source=candidate["source"],
-                source_paper_id=candidate["source_paper_id"],
-                source_url=candidate["source_url"],
-                pdf_url=candidate["pdf_url"],
+                source_paper_id=get_candidate_metadata(candidate, "source_paper_id"),
+                source_url=get_candidate_metadata(candidate, "source_url"),
+                pdf_url=get_candidate_metadata(candidate, "pdf_url"),
                 status="candidate",
                 relevance_score=None,
             )
