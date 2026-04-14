@@ -12,4 +12,7 @@ class PaperRecord(TypedDict):
     abstract: str
     doi: str | None
     source: str
+    source_paper_id: str | None
+    source_url: str | None
+    pdf_url: str | None
     relevance_score: float | None
