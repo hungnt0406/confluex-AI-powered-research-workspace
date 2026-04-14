@@ -153,6 +153,9 @@ class SearcherAgent:
                 abstract=candidate["abstract"],
                 doi=candidate["doi"],
                 source=candidate["source"],
+                source_paper_id=candidate["source_paper_id"],
+                source_url=candidate["source_url"],
+                pdf_url=candidate["pdf_url"],
                 status="candidate",
                 relevance_score=None,
             )
