@@ -26,6 +26,16 @@ class RequestWindowLimiter:
 request_limiter = RequestWindowLimiter(max_requests=3, interval_seconds=1.0)
 
 
+def coerce_optional_string(value: object) -> str | None:
+    """Normalize optional provider string values."""
+
+    if value is None:
+        return None
+
+    normalized_value = str(value).strip()
+    return normalized_value or None
+
+
 def normalize_paper_payload(raw_paper: dict[str, object]) -> PaperRecord:
     """Normalize Semantic Scholar results into the shared paper schema."""
 
@@ -33,6 +43,8 @@ def normalize_paper_payload(raw_paper: dict[str, object]) -> PaperRecord:
     authors = raw_authors if isinstance(raw_authors, list) else []
     raw_external_ids = raw_paper.get("externalIds", {})
     external_ids = raw_external_ids if isinstance(raw_external_ids, dict) else {}
+    raw_open_access_pdf = raw_paper.get("openAccessPdf", {})
+    open_access_pdf = raw_open_access_pdf if isinstance(raw_open_access_pdf, dict) else {}
     raw_year = raw_paper.get("year")
 
     year: int | None = None
@@ -41,17 +53,21 @@ def normalize_paper_payload(raw_paper: dict[str, object]) -> PaperRecord:
     elif isinstance(raw_year, str) and raw_year.isdigit():
         year = int(raw_year)
 
-    return PaperRecord(
-        title=str(raw_paper.get("title", "")).strip(),
-        authors=[
+    normalized_paper: PaperRecord = {
+        "title": str(raw_paper.get("title", "")).strip(),
+        "authors": [
             str(author.get("name", "")).strip() for author in authors if isinstance(author, dict)
         ],
-        year=year,
-        abstract=str(raw_paper.get("abstract", "")).strip(),
-        doi=str(external_ids["DOI"]) if "DOI" in external_ids else None,
-        source="semantic_scholar",
-        relevance_score=None,
-    )
+        "year": year,
+        "abstract": str(raw_paper.get("abstract", "")).strip(),
+        "doi": coerce_optional_string(external_ids.get("DOI")),
+        "source": "semantic_scholar",
+        "source_paper_id": coerce_optional_string(raw_paper.get("paperId")),
+        "source_url": coerce_optional_string(raw_paper.get("url")),
+        "pdf_url": coerce_optional_string(open_access_pdf.get("url")),
+        "relevance_score": None,
+    }
+    return normalized_paper
 
 
 async def search_papers(
@@ -71,7 +87,7 @@ async def search_papers(
         "query": query,
         "limit": limit,
         "year": f"{year_start}-",
-        "fields": "title,authors,year,abstract,externalIds",
+        "fields": "paperId,url,openAccessPdf,title,authors,year,abstract,externalIds",
     }
 
     owns_client = http_client is None

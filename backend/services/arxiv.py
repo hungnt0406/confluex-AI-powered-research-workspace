@@ -6,6 +6,48 @@ from backend.services.paper_types import PaperRecord
 ARXIV_URL = "http://export.arxiv.org/api/query"
 
 
+def coerce_optional_string(value: object) -> str | None:
+    """Normalize optional provider string values."""
+
+    if value is None:
+        return None
+
+    normalized_value = str(value).strip()
+    return normalized_value or None
+
+
+def extract_arxiv_identifier(source_url: str | None) -> str | None:
+    """Extract the arXiv identifier from the source URL when possible."""
+
+    if source_url is None or "/abs/" not in source_url:
+        return None
+
+    return source_url.rsplit("/abs/", maxsplit=1)[-1].strip() or None
+
+
+def extract_pdf_url(entry: dict[str, object], source_url: str | None) -> str | None:
+    """Resolve the PDF URL from entry metadata or derive it from the abstract URL."""
+
+    raw_links = entry.get("links", [])
+    if isinstance(raw_links, list):
+        for raw_link in raw_links:
+            if not isinstance(raw_link, dict):
+                continue
+
+            href = coerce_optional_string(raw_link.get("href"))
+            link_title = str(raw_link.get("title", "")).strip().lower()
+            link_type = str(raw_link.get("type", "")).strip().lower()
+            if href is None:
+                continue
+            if link_title == "pdf" or link_type == "application/pdf":
+                return href
+
+    if source_url is None or "/abs/" not in source_url:
+        return None
+
+    return source_url.replace("/abs/", "/pdf/", 1)
+
+
 def normalize_arxiv_entry(entry: dict[str, object]) -> PaperRecord:
     """Normalize an arXiv Atom entry into the shared paper schema."""
 
@@ -13,18 +55,23 @@ def normalize_arxiv_entry(entry: dict[str, object]) -> PaperRecord:
     authors = raw_authors if isinstance(raw_authors, list) else []
     published = str(entry.get("published", ""))
     year = int(published[:4]) if len(published) >= 4 and published[:4].isdigit() else None
+    source_url = coerce_optional_string(entry.get("id"))
 
-    return PaperRecord(
-        title=str(entry.get("title", "")).replace("\n", " ").strip(),
-        authors=[
+    normalized_paper: PaperRecord = {
+        "title": str(entry.get("title", "")).replace("\n", " ").strip(),
+        "authors": [
             str(author.get("name", "")).strip() for author in authors if isinstance(author, dict)
         ],
-        year=year,
-        abstract=str(entry.get("summary", "")).replace("\n", " ").strip(),
-        doi=str(entry["arxiv_doi"]) if entry.get("arxiv_doi") is not None else None,
-        source="arxiv",
-        relevance_score=None,
-    )
+        "year": year,
+        "abstract": str(entry.get("summary", "")).replace("\n", " ").strip(),
+        "doi": coerce_optional_string(entry.get("arxiv_doi")),
+        "source": "arxiv",
+        "source_paper_id": extract_arxiv_identifier(source_url),
+        "source_url": source_url,
+        "pdf_url": extract_pdf_url(entry, source_url),
+        "relevance_score": None,
+    }
+    return normalized_paper
 
 
 async def search_papers(

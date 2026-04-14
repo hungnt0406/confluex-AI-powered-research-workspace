@@ -60,6 +60,9 @@ class Paper(Base):
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(100))
+    source_paper_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="candidate", server_default="candidate")
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
