@@ -81,6 +81,9 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "abstract": good_abstract,
                 "doi": "10.1000/reliable",
                 "source": "semantic_scholar",
+                "source_paper_id": "semantic-001",
+                "source_url": "https://www.semanticscholar.org/paper/semantic-001",
+                "pdf_url": "https://pdf.example.com/semantic-001.pdf",
                 "relevance_score": None,
             },
             {
@@ -90,6 +93,9 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "abstract": good_abstract,
                 "doi": None,
                 "source": "arxiv",
+                "source_paper_id": "2401.12345v1",
+                "source_url": "http://arxiv.org/abs/2401.12345v1",
+                "pdf_url": "http://arxiv.org/pdf/2401.12345v1",
                 "relevance_score": None,
             },
             {
@@ -99,6 +105,9 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "abstract": good_abstract,
                 "doi": "10.1000/old",
                 "source": "semantic_scholar",
+                "source_paper_id": "semantic-002",
+                "source_url": "https://www.semanticscholar.org/paper/semantic-002",
+                "pdf_url": "https://pdf.example.com/semantic-002.pdf",
                 "relevance_score": None,
             },
             {
@@ -108,6 +117,9 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "abstract": "too short",
                 "doi": "10.1000/short",
                 "source": "semantic_scholar",
+                "source_paper_id": "semantic-003",
+                "source_url": "https://www.semanticscholar.org/paper/semantic-003",
+                "pdf_url": "https://pdf.example.com/semantic-003.pdf",
                 "relevance_score": None,
             },
         ],
@@ -119,6 +131,9 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "abstract": good_abstract,
                 "doi": "10.1000/ranking",
                 "source": "semantic_scholar",
+                "source_paper_id": "semantic-004",
+                "source_url": "https://www.semanticscholar.org/paper/semantic-004",
+                "pdf_url": "https://pdf.example.com/semantic-004.pdf",
                 "relevance_score": None,
             }
         ],
@@ -152,6 +167,71 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
         "Ranking Agentic Workflows",
     }
     assert all(paper.status == "candidate" for paper in persisted_papers)
+    persisted_papers_by_title = {paper.title: paper for paper in persisted_papers}
+    assert persisted_papers_by_title["Reliable Multi-Agent Review"].source_paper_id == "semantic-001"
+    assert (
+        persisted_papers_by_title["Reliable Multi-Agent Review"].source_url
+        == "https://www.semanticscholar.org/paper/semantic-001"
+    )
+    assert (
+        persisted_papers_by_title["Reliable Multi-Agent Review"].pdf_url
+        == "https://pdf.example.com/semantic-001.pdf"
+    )
+    assert persisted_papers_by_title["Ranking Agentic Workflows"].source_paper_id == "semantic-004"
+
+
+async def test_searcher_agent_backfills_missing_provider_metadata_with_none(
+    session_factory,
+    sample_project,
+) -> None:
+    query_payload = {
+        "queries": [
+            {"query": "paper understanding", "focus": "broad"},
+            {"query": "paper understanding survey", "focus": "survey"},
+            {"query": "paper understanding ranking", "focus": "ranking"},
+            {"query": "paper understanding recent advances", "focus": "recent"},
+            {"query": "paper understanding benchmarks", "focus": "benchmark"},
+        ]
+    }
+    good_abstract = "This abstract is long enough to pass the quality filter. " * 4
+    search_results = {
+        "paper understanding": [
+            {
+                "title": "Legacy Candidate Payload",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": "10.1000/legacy",
+                "source": "semantic_scholar",
+                "relevance_score": None,
+            }
+        ]
+    }
+
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(query_payload),
+        search_clients=[FakeSearchClient(search_results)],
+        minimum_abstract_length=100,
+        per_query_limit=10,
+    )
+
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        await searcher.run(
+            AgentState(project_id=project.id, topic=project.topic_description),
+            session,
+            project,
+        )
+        persisted_paper = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalar_one()
+
+    assert persisted_paper.title == "Legacy Candidate Payload"
+    assert persisted_paper.source_paper_id is None
+    assert persisted_paper.source_url is None
+    assert persisted_paper.pdf_url is None
 
 
 async def test_searcher_named_entity_topic_uses_conservative_queries() -> None:
