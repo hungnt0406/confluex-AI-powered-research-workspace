@@ -257,7 +257,7 @@ Body:
 - Select `form-data`
 - Add key `file`
 - Change the key type from `Text` to `File`
-- Choose a local `.pdf` file
+- Choose a local `.pdf` file no larger than `20 MiB` by default
 
 Expected status: `201 Created`
 
@@ -284,6 +284,7 @@ Notes:
 
 - Uploading the same PDF twice for the same project should return `409 Conflict`.
 - Uploading a non-PDF should return `400 Bad Request`.
+- Uploading a PDF larger than `REFERENCE_MAX_FILE_BYTES` returns `400 Bad Request` with the configured limit in the response detail. The default is `20971520` bytes (`20 MiB`); set a higher value in `.env` and restart the backend if you need to test a larger file.
 - A scanned PDF with no extractable text may return `parse_status: "parse_error"` and no linked paper.
 
 ### GET List Reference Files

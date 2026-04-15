@@ -56,6 +56,18 @@ def compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def format_file_size_limit(byte_count: int) -> str:
+    """Return a compact human-readable upload limit."""
+
+    mib = 1024 * 1024
+    kib = 1024
+    if byte_count > 0 and byte_count % mib == 0:
+        return f"{byte_count // mib} MiB"
+    if byte_count > 0 and byte_count % kib == 0:
+        return f"{byte_count // kib} KiB"
+    return f"{byte_count} bytes"
+
+
 def validate_pdf_upload(
     *,
     filename: str,
@@ -75,7 +87,10 @@ def validate_pdf_upload(
         raise ReferenceFileValidationError("Uploaded reference file is empty.")
 
     if len(content) > max_file_bytes:
-        raise ReferenceFileValidationError("Uploaded reference file exceeds the size limit.")
+        raise ReferenceFileValidationError(
+            "Uploaded reference file exceeds the size limit. "
+            f"Maximum allowed size is {format_file_size_limit(max_file_bytes)}."
+        )
 
     if not content.lstrip().startswith(b"%PDF"):
         raise ReferenceFileValidationError("Uploaded reference file is not a valid PDF.")
