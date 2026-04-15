@@ -24,6 +24,7 @@ htmlcov/
 # Data — large files, downloaded datasets
 data/arxiv-metadata/
 data/chroma_db/
+data/reference_uploads/
 *.sqlite
 *.sqlite-journal
 

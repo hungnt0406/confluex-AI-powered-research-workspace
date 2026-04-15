@@ -1,10 +1,11 @@
 from sqlalchemy import select
 
 from backend.agents.reader import ReaderAgent
-from backend.agents.searcher import SearcherAgent
+from backend.agents.searcher import ReferencePaperContext, SearcherAgent
 from backend.agents.state import AgentState
-from backend.db.models import Paper, Project, Summary
+from backend.db.models import Paper, Project, ReferenceFile, Summary
 from backend.services.llm import StructuredOutputError
+from backend.services.reference_files import REFERENCE_SOURCE
 
 
 class FakeQueryPlanner:
@@ -15,6 +16,16 @@ class FakeQueryPlanner:
         return True
 
     async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+        return self.payload
+
+
+class CapturingQueryPlanner(FakeQueryPlanner):
+    def __init__(self, payload):
+        super().__init__(payload)
+        self.user_prompt = ""
+
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+        self.user_prompt = user_prompt
         return self.payload
 
 
@@ -284,6 +295,183 @@ async def test_searcher_sanitizes_boolean_queries_and_salvages_short_batches() -
     assert queries[0].query == "vision transformer medical image segmentation 3D imaging volumetric data"
     assert len(queries[0].focus) <= 255
     assert len(queries) >= 5
+
+
+async def test_searcher_query_expansion_receives_uploaded_reference_context() -> None:
+    planner = CapturingQueryPlanner(
+        {
+            "queries": [
+                {"query": "literature review retrieval", "focus": "broad"},
+                {"query": "uploaded seed reference retrieval", "focus": "seed"},
+                {"query": "citation aware literature review", "focus": "citation"},
+                {"query": "academic paper recommendation", "focus": "recommendation"},
+                {"query": "multi source paper search", "focus": "search"},
+            ]
+        }
+    )
+    searcher = SearcherAgent(llm_service=planner, search_clients=[])
+
+    queries, errors = await searcher.expand_queries(
+        "literature review retrieval",
+        reference_context=[
+            ReferencePaperContext(
+                title="Uploaded Seed Paper",
+                year=2024,
+                abstract="This uploaded paper studies retrieval for literature review agents.",
+                doi=None,
+            )
+        ],
+    )
+
+    assert errors == []
+    assert queries[0].query == "literature review retrieval"
+    assert "The user has already uploaded these seed reference papers" in planner.user_prompt
+    assert "Uploaded Seed Paper (2024)" in planner.user_prompt
+
+
+async def test_searcher_preserves_uploaded_reference_papers_and_deduplicates_against_them(
+    session_factory,
+    sample_project,
+) -> None:
+    query_payload = {
+        "queries": [
+            {"query": "reference aware retrieval", "focus": "broad"},
+            {"query": "reference aware retrieval survey", "focus": "survey"},
+            {"query": "reference aware retrieval benchmark", "focus": "benchmark"},
+            {"query": "reference aware retrieval citations", "focus": "citations"},
+            {"query": "reference aware retrieval agents", "focus": "agents"},
+        ]
+    }
+    good_abstract = "This abstract is long enough to pass the quality filter. " * 4
+    search_results = {
+        "reference aware retrieval": [
+            {
+                "title": "Uploaded Reference Paper",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": "10.1000/uploaded",
+                "source": "semantic_scholar",
+                "source_paper_id": "duplicate-doi",
+                "source_url": "https://example.test/duplicate-doi",
+                "pdf_url": None,
+                "relevance_score": None,
+            },
+            {
+                "title": "Uploaded Reference Paper",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": None,
+                "source": "arxiv",
+                "source_paper_id": "duplicate-title",
+                "source_url": "https://example.test/duplicate-title",
+                "pdf_url": None,
+                "relevance_score": None,
+            },
+            {
+                "title": "New External Paper",
+                "authors": ["Alex Roe"],
+                "year": 2023,
+                "abstract": good_abstract,
+                "doi": "10.1000/external",
+                "source": "semantic_scholar",
+                "source_paper_id": "external",
+                "source_url": "https://example.test/external",
+                "pdf_url": None,
+                "relevance_score": None,
+            },
+        ]
+    }
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(query_payload),
+        search_clients=[FakeSearchClient(search_results)],
+        minimum_abstract_length=100,
+        per_query_limit=10,
+    )
+
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        reference_file = ReferenceFile(
+            project_id=project.id,
+            original_filename="uploaded.pdf",
+            content_type="application/pdf",
+            byte_size=100,
+            sha256="abc123",
+            storage_path="/tmp/uploaded.pdf",
+            parse_status="parsed",
+            extracted_title="Uploaded Reference Paper",
+            extracted_authors=["Jane Doe"],
+            extracted_year=2024,
+            extracted_abstract=good_abstract,
+            extracted_text=good_abstract,
+        )
+        session.add(reference_file)
+        await session.flush()
+
+        uploaded_paper = Paper(
+            project_id=project.id,
+            reference_file_id=reference_file.id,
+            title="Uploaded Reference Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract=good_abstract,
+            doi="10.1000/uploaded",
+            source=REFERENCE_SOURCE,
+            status="summarized",
+            relevance_score=75.0,
+        )
+        old_external_paper = Paper(
+            project_id=project.id,
+            title="Old External Paper",
+            authors=["John Doe"],
+            year=2022,
+            abstract=good_abstract,
+            doi="10.1000/old",
+            source="semantic_scholar",
+            status="summarized",
+            relevance_score=50.0,
+        )
+        session.add_all([uploaded_paper, old_external_paper])
+        await session.flush()
+        session.add(
+            Summary(
+                paper_id=uploaded_paper.id,
+                problem="Old problem",
+                method="Old method",
+                result="Old result",
+                relevance_to_topic="Old relevance",
+                has_error=False,
+            )
+        )
+        await session.commit()
+
+        result = await searcher.run(
+            AgentState(project_id=project.id, topic=project.topic_description),
+            session,
+            project,
+        )
+        persisted_papers = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+        persisted_summaries = (
+            await session.execute(select(Summary).join(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+
+    assert [paper["title"] for paper in result["raw_papers"]] == [
+        "Uploaded Reference Paper",
+        "New External Paper",
+    ]
+    assert {paper.title for paper in persisted_papers} == {
+        "Uploaded Reference Paper",
+        "New External Paper",
+    }
+    assert {paper.source for paper in persisted_papers} == {REFERENCE_SOURCE, "semantic_scholar"}
+    assert all(paper.status == "candidate" for paper in persisted_papers)
+    assert all(paper.relevance_score is None for paper in persisted_papers)
+    assert persisted_summaries == []
 
 
 async def test_reader_agent_ranks_papers_and_records_summary_failures(

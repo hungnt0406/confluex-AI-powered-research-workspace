@@ -1,18 +1,21 @@
 import asyncio
 import re
-from typing import Any, Literal, Protocol
+from collections import Counter
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.state import AgentState
 from backend.config import get_settings
-from backend.db.models import Paper, Project
+from backend.db.models import Paper, Project, Summary
 from backend.services import arxiv, semantic_scholar
 from backend.services.llm import ClaudeStructuredOutputService, StructuredOutputError
 from backend.services.paper_types import PaperRecord
-from backend.services.research_utils import normalize_title
+from backend.services.reference_files import REFERENCE_SOURCE
+from backend.services.research_utils import normalize_title, tokenize_text
 
 SEARCH_QUERY_SCHEMA = {
     "type": "object",
@@ -49,6 +52,34 @@ Return only JSON that matches the requested schema.
 BOOLEAN_OPERATOR_PATTERN = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
 PUNCTUATION_COLLAPSE_PATTERN = re.compile(r"[\"'`(){}\[\],;:]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
+REFERENCE_QUERY_STOPWORDS = {
+    "about",
+    "after",
+    "analysis",
+    "approach",
+    "based",
+    "between",
+    "data",
+    "dataset",
+    "datasets",
+    "during",
+    "from",
+    "into",
+    "method",
+    "methods",
+    "model",
+    "models",
+    "paper",
+    "result",
+    "results",
+    "study",
+    "system",
+    "that",
+    "their",
+    "this",
+    "using",
+    "with",
+}
 
 
 class SearchQuery(BaseModel):
@@ -62,6 +93,16 @@ class SearchQueryBatch(BaseModel):
     """Structured response for query expansion."""
 
     queries: list[SearchQuery] = Field(min_length=5, max_length=8)
+
+
+@dataclass(frozen=True)
+class ReferencePaperContext:
+    """Compact uploaded-paper context used to seed search."""
+
+    title: str
+    year: int | None
+    abstract: str | None
+    doi: str | None
 
 
 class PaperSearchClient(Protocol):
@@ -110,6 +151,10 @@ def serialize_paper_record(paper: Paper) -> dict[str, object]:
         "abstract": paper.abstract or "",
         "doi": paper.doi,
         "source": paper.source,
+        "reference_file_id": paper.reference_file_id,
+        "source_paper_id": paper.source_paper_id,
+        "source_url": paper.source_url,
+        "pdf_url": paper.pdf_url,
         "status": paper.status,
         "relevance_score": paper.relevance_score,
     }
@@ -149,13 +194,15 @@ class SearcherAgent:
     ) -> dict[str, Any]:
         """Populate candidate papers for the project."""
 
+        reference_papers = await self._prepare_existing_project_papers(session, project.id)
+        reference_context = self._build_reference_context(reference_papers)
         queries, candidates, errors = await self.collect_candidates(
             topic=project.topic_description,
             year_start=project.year_start,
             candidate_limit=project.candidate_limit,
+            reference_context=reference_context,
+            existing_papers=reference_papers,
         )
-
-        await session.execute(delete(Paper).where(Paper.project_id == project.id))
 
         paper_models: list[Paper] = []
         for candidate in candidates:
@@ -167,9 +214,9 @@ class SearcherAgent:
                 abstract=candidate["abstract"],
                 doi=candidate["doi"],
                 source=candidate["source"],
-                source_paper_id=get_candidate_metadata(candidate, "source_paper_id"),
-                source_url=get_candidate_metadata(candidate, "source_url"),
-                pdf_url=get_candidate_metadata(candidate, "pdf_url"),
+                source_paper_id=candidate.get("source_paper_id"),
+                source_url=candidate.get("source_url"),
+                pdf_url=candidate.get("pdf_url"),
                 status="candidate",
                 relevance_score=None,
             )
@@ -181,9 +228,54 @@ class SearcherAgent:
 
         return {
             "queries": queries,
-            "raw_papers": [serialize_paper_record(paper) for paper in paper_models],
+            "raw_papers": [
+                serialize_paper_record(paper)
+                for paper in [*reference_papers, *paper_models]
+            ],
             "errors": [*state.errors, *errors],
         }
+
+    async def _prepare_existing_project_papers(
+        self,
+        session: AsyncSession,
+        project_id: str,
+    ) -> list[Paper]:
+        """Clear stale search outputs while preserving uploaded reference papers."""
+
+        project_paper_ids = select(Paper.id).where(Paper.project_id == project_id)
+        await session.execute(delete(Summary).where(Summary.paper_id.in_(project_paper_ids)))
+        await session.execute(
+            delete(Paper).where(
+                Paper.project_id == project_id,
+                Paper.source != REFERENCE_SOURCE,
+            )
+        )
+
+        result = await session.execute(
+            select(Paper).where(
+                Paper.project_id == project_id,
+                Paper.source == REFERENCE_SOURCE,
+            )
+        )
+        reference_papers = list(result.scalars().all())
+        for paper in reference_papers:
+            paper.status = "candidate"
+            paper.relevance_score = None
+
+        return reference_papers
+
+    def _build_reference_context(self, reference_papers: list[Paper]) -> list[ReferencePaperContext]:
+        """Build compact reference context from uploaded papers."""
+
+        return [
+            ReferencePaperContext(
+                title=paper.title,
+                year=paper.year,
+                abstract=paper.abstract,
+                doi=paper.doi,
+            )
+            for paper in reference_papers
+        ]
 
     async def collect_candidates(
         self,
@@ -191,10 +283,15 @@ class SearcherAgent:
         topic: str,
         year_start: int,
         candidate_limit: int,
+        reference_context: list[ReferencePaperContext] | None = None,
+        existing_papers: list[Paper] | None = None,
     ) -> tuple[list[str], list[PaperRecord], list[str]]:
         """Expand a topic into queries and collect deduplicated candidate papers."""
 
-        query_batch, query_errors = await self.expand_queries(topic)
+        query_batch, query_errors = await self.expand_queries(
+            topic,
+            reference_context=reference_context,
+        )
         query_strings = [item.query for item in query_batch]
         per_query_limit = min(candidate_limit, self.per_query_limit)
 
@@ -217,22 +314,26 @@ class SearcherAgent:
             papers=collected_papers,
             year_start=year_start,
             candidate_limit=candidate_limit,
+            existing_papers=existing_papers or [],
         )
         return query_strings, candidates, errors
 
-    async def expand_queries(self, topic: str) -> tuple[list[SearchQuery], list[str]]:
+    async def expand_queries(
+        self,
+        topic: str,
+        *,
+        reference_context: list[ReferencePaperContext] | None = None,
+    ) -> tuple[list[SearchQuery], list[str]]:
         """Expand a project topic into diverse search queries."""
 
-        if self._should_use_named_entity_queries(topic):
+        reference_context = reference_context or []
+        if self._should_use_named_entity_queries(topic) and not reference_context:
             return self._build_named_entity_queries(topic), []
 
         if not self.llm_service.is_configured():
-            return self._build_fallback_queries(topic), []
+            return self._build_fallback_queries(topic, reference_context=reference_context), []
 
-        user_prompt = (
-            "Generate 5 to 8 academic search queries for this literature review topic.\n"
-            f"Topic: {topic}"
-        )
+        user_prompt = self._build_query_expansion_prompt(topic, reference_context)
 
         try:
             payload = await self.llm_service.generate_json(
@@ -243,12 +344,50 @@ class SearcherAgent:
             queries = self._coerce_query_payload(payload, topic)
             query_batch = SearchQueryBatch(queries=queries)
         except (StructuredOutputError, ValidationError, ValueError) as error:
-            fallback_queries = self._build_fallback_queries(topic)
+            fallback_queries = self._build_fallback_queries(
+                topic,
+                reference_context=reference_context,
+            )
             return fallback_queries, [f"Query expansion fallback used: {error}"]
 
         return query_batch.queries, []
 
-    def _build_fallback_queries(self, topic: str) -> list[SearchQuery]:
+    def _build_query_expansion_prompt(
+        self,
+        topic: str,
+        reference_context: list[ReferencePaperContext],
+    ) -> str:
+        """Build the query expansion prompt with optional uploaded-reference context."""
+
+        prompt = (
+            "Generate 5 to 8 academic search queries for this literature review topic.\n"
+            f"Topic: {topic}"
+        )
+        if not reference_context:
+            return prompt
+
+        reference_lines = []
+        for index, reference in enumerate(reference_context[:5], start=1):
+            year = f" ({reference.year})" if reference.year is not None else ""
+            abstract = (reference.abstract or "").replace("\n", " ")[:700]
+            reference_lines.append(
+                f"{index}. {reference.title}{year}. Abstract/snippet: {abstract}"
+            )
+
+        return (
+            f"{prompt}\n\n"
+            "The user has already uploaded these seed reference papers. Use them to generate "
+            "queries for related work, missing background, and adjacent papers. Do not simply "
+            "repeat only the uploaded titles.\n"
+            + "\n".join(reference_lines)
+        )
+
+    def _build_fallback_queries(
+        self,
+        topic: str,
+        *,
+        reference_context: list[ReferencePaperContext] | None = None,
+    ) -> list[SearchQuery]:
         normalized_topic = self._sanitize_query_text(topic)
         query_candidates = [
             (normalized_topic, "broad"),
@@ -261,6 +400,12 @@ class SearcherAgent:
             (f"{normalized_topic} empirical evaluation", "evaluation"),
         ]
 
+        for reference_query in self._build_reference_fallback_queries(
+            normalized_topic,
+            reference_context or [],
+        ):
+            query_candidates.append(reference_query)
+
         deduplicated_queries: list[SearchQuery] = []
         seen_queries: set[str] = set()
         for raw_query, focus in query_candidates:
@@ -270,7 +415,32 @@ class SearcherAgent:
             seen_queries.add(normalized_query)
             deduplicated_queries.append(SearchQuery(query=raw_query, focus=focus))
 
-        return deduplicated_queries[:6]
+        return deduplicated_queries[:8]
+
+    def _build_reference_fallback_queries(
+        self,
+        normalized_topic: str,
+        reference_context: list[ReferencePaperContext],
+    ) -> list[tuple[str, str]]:
+        if not reference_context:
+            return []
+
+        token_counts: Counter[str] = Counter()
+        for reference in reference_context:
+            token_counts.update(
+                token
+                for token in tokenize_text(f"{reference.title} {reference.abstract or ''}")
+                if len(token) > 3 and token not in REFERENCE_QUERY_STOPWORDS
+            )
+
+        queries: list[tuple[str, str]] = []
+        top_terms = [token for token, _count in token_counts.most_common(8)]
+        for index in range(0, len(top_terms), 2):
+            term_pair = " ".join(top_terms[index : index + 2])
+            if term_pair:
+                queries.append((f"{normalized_topic} {term_pair}", "uploaded-reference"))
+
+        return queries[:3]
 
     def _build_named_entity_queries(self, topic: str) -> list[SearchQuery]:
         normalized_topic = self._sanitize_query_text(topic)
@@ -357,6 +527,7 @@ class SearcherAgent:
         papers: list[PaperRecord],
         year_start: int,
         candidate_limit: int,
+        existing_papers: list[Paper] | None = None,
     ) -> list[PaperRecord]:
         filtered_papers = [
             paper
@@ -378,8 +549,16 @@ class SearcherAgent:
         )
 
         unique_papers: list[PaperRecord] = []
-        seen_dois: set[str] = set()
-        seen_titles: set[str] = set()
+        seen_dois: set[str] = {
+            paper.doi.lower().strip()
+            for paper in existing_papers or []
+            if paper.doi is not None and paper.doi.strip()
+        }
+        seen_titles: set[str] = {
+            normalize_title(paper.title)
+            for paper in existing_papers or []
+            if paper.title.strip()
+        }
 
         for paper in prioritized_papers:
             normalized_doi = paper["doi"].lower().strip() if paper["doi"] is not None else None

@@ -1,8 +1,11 @@
 from datetime import datetime
 from math import ceil
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from backend.db.models import ReferenceFile
 
 
 class ProjectCreate(BaseModel):
@@ -69,17 +72,62 @@ class ProjectPaperRead(BaseModel):
 
     id: str
     project_id: str
+    reference_file_id: str | None
     title: str
     authors: list[str]
     year: int | None
     abstract: str | None
     doi: str | None
     source: str
+    source_paper_id: str | None
+    source_url: str | None
+    pdf_url: str | None
     status: str
     relevance_score: float | None
     summary: PaperSummaryRead | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReferenceFileRead(BaseModel):
+    """Serialized project reference file metadata."""
+
+    id: str
+    project_id: str
+    original_filename: str
+    content_type: str | None
+    byte_size: int
+    sha256: str
+    parse_status: str
+    extracted_title: str | None
+    extracted_authors: list[str]
+    extracted_year: int | None
+    extracted_abstract: str | None
+    linked_paper_id: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_reference(cls, reference: "ReferenceFile") -> "ReferenceFileRead":
+        paper = reference.paper
+        return cls(
+            id=reference.id,
+            project_id=reference.project_id,
+            original_filename=reference.original_filename,
+            content_type=reference.content_type,
+            byte_size=reference.byte_size,
+            sha256=reference.sha256,
+            parse_status=reference.parse_status,
+            extracted_title=reference.extracted_title,
+            extracted_authors=list(reference.extracted_authors),
+            extracted_year=reference.extracted_year,
+            extracted_abstract=reference.extracted_abstract,
+            linked_paper_id=paper.id if paper is not None else None,
+            error_message=reference.error_message,
+            created_at=reference.created_at,
+            updated_at=reference.updated_at,
+        )
 
 
 class PaginationMeta(BaseModel):
