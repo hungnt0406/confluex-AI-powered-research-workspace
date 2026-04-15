@@ -2,7 +2,7 @@ import asyncio
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete, select
