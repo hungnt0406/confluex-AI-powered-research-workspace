@@ -10,6 +10,7 @@ from backend.agents.pipeline import LiteraturePipelineService
 from backend.db.models import User
 from backend.db.session import get_db_session
 from backend.security import decode_access_token
+from backend.services.reference_files import ReferenceFileService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -56,5 +57,15 @@ def get_pipeline_service() -> LiteraturePipelineService:
     return LiteraturePipelineService()
 
 
+def get_reference_file_service() -> ReferenceFileService:
+    """Return the default reference file service."""
+
+    return ReferenceFileService()
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 PipelineServiceDependency = Annotated[LiteraturePipelineService, Depends(get_pipeline_service)]
+ReferenceFileServiceDependency = Annotated[
+    ReferenceFileService,
+    Depends(get_reference_file_service),
+]

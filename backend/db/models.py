@@ -4,7 +4,18 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.base import Base
@@ -47,6 +58,47 @@ class Project(Base):
     user: Mapped[User] = relationship(back_populates="projects")
     papers: Mapped[list[Paper]] = relationship(back_populates="project", cascade="all, delete-orphan")
     drafts: Mapped[list[Draft]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    reference_files: Mapped[list[ReferenceFile]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+
+class ReferenceFile(Base):
+    __tablename__ = "reference_files"
+    __table_args__ = (
+        UniqueConstraint("project_id", "sha256", name="uq_reference_files_project_sha256"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    byte_size: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    storage_path: Mapped[str] = mapped_column(Text)
+    parse_status: Mapped[str] = mapped_column(String(32), default="parsed", server_default="parsed")
+    extracted_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    extracted_authors: Mapped[list[str]] = mapped_column(JSON, default=list)
+    extracted_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extracted_abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project] = relationship(back_populates="reference_files")
+    paper: Mapped[Paper | None] = relationship(
+        back_populates="reference_file",
+        uselist=False,
+    )
 
 
 class Paper(Base):
@@ -60,6 +112,12 @@ class Paper(Base):
     abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
     doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(100))
+    reference_file_id: Mapped[str | None] = mapped_column(
+        ForeignKey("reference_files.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
     source_paper_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -67,6 +125,7 @@ class Paper(Base):
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="papers")
+    reference_file: Mapped[ReferenceFile | None] = relationship(back_populates="paper")
     summary: Mapped[Summary | None] = relationship(
         back_populates="paper",
         cascade="all, delete-orphan",

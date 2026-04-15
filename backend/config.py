@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     summary_concurrency: int = Field(default=5, alias="SUMMARY_CONCURRENCY")
     embedding_dimensions: int = Field(default=256, alias="EMBEDDING_DIMENSIONS")
     external_api_timeout_seconds: float = Field(default=20.0, alias="EXTERNAL_API_TIMEOUT_SECONDS")
+    reference_upload_dir: str = Field(default="data/reference_uploads", alias="REFERENCE_UPLOAD_DIR")
+    reference_max_file_bytes: int = Field(
+        default=20_971_520,
+        alias="REFERENCE_MAX_FILE_BYTES",
+    )
+    reference_max_extracted_chars: int = Field(
+        default=120_000,
+        alias="REFERENCE_MAX_EXTRACTED_CHARS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

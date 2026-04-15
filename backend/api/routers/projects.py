@@ -1,21 +1,39 @@
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+import anyio
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
 
-from backend.api.dependencies import CurrentUser, DbSession, PipelineServiceDependency
+from backend.api.dependencies import (
+    CurrentUser,
+    DbSession,
+    PipelineServiceDependency,
+    ReferenceFileServiceDependency,
+)
 from backend.api.schemas.projects import (
     PaginationMeta,
     ProjectCreate,
     ProjectPaperListResponse,
     ProjectPaperRead,
     ProjectRead,
+    ReferenceFileRead,
     RunPipelineResponse,
 )
-from backend.db.models import Paper, Project
+from backend.db.models import Paper, Project, ReferenceFile
+from backend.services.reference_files import (
+    ReferenceFileDuplicateError,
+    ReferenceFileValidationError,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+def unlink_stored_file(storage_path: Path) -> None:
+    """Delete a stored upload from disk if it still exists."""
+
+    storage_path.unlink(missing_ok=True)
 
 
 async def get_owned_project_or_404(
@@ -32,6 +50,31 @@ async def get_owned_project_or_404(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
     return project
+
+
+async def get_project_reference_file_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    reference_file_id: str,
+) -> ReferenceFile:
+    """Return a reference file belonging to a project."""
+
+    result = await session.execute(
+        select(ReferenceFile)
+        .options(selectinload(ReferenceFile.paper))
+        .where(
+            ReferenceFile.project_id == project_id,
+            ReferenceFile.id == reference_file_id,
+        )
+    )
+    reference_file = result.scalar_one_or_none()
+    if reference_file is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Reference file not found.",
+        )
+    return reference_file
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
@@ -109,6 +152,95 @@ async def queue_project_pipeline(
         qa_flags=state.qa_flags,
         errors=state.errors,
     )
+
+
+@router.post(
+    "/{project_id}/reference-files",
+    response_model=ReferenceFileRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_project_reference_file(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    reference_file_service: ReferenceFileServiceDependency,
+    response: Response,
+    file: Annotated[UploadFile, File(...)],
+) -> ReferenceFileRead:
+    """Upload a PDF reference file for a project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    content = await file.read(reference_file_service.max_file_bytes + 1)
+
+    try:
+        reference_file = await reference_file_service.create_reference_file(
+            session=session,
+            project=project,
+            filename=file.filename or "reference.pdf",
+            content_type=file.content_type,
+            content=content,
+        )
+    except ReferenceFileValidationError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    except ReferenceFileDuplicateError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    loaded_reference_file = await get_project_reference_file_or_404(
+        session,
+        project_id=project.id,
+        reference_file_id=reference_file.id,
+    )
+    response.headers["Location"] = f"/projects/{project.id}/reference-files/{reference_file.id}"
+    return ReferenceFileRead.from_reference(loaded_reference_file)
+
+
+@router.get("/{project_id}/reference-files", response_model=list[ReferenceFileRead])
+async def list_project_reference_files(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> list[ReferenceFileRead]:
+    """List reference files for the authenticated user's project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    result = await session.execute(
+        select(ReferenceFile)
+        .options(selectinload(ReferenceFile.paper))
+        .where(ReferenceFile.project_id == project.id)
+        .order_by(ReferenceFile.created_at.desc())
+    )
+    reference_files = result.scalars().all()
+    return [ReferenceFileRead.from_reference(reference_file) for reference_file in reference_files]
+
+
+@router.delete("/{project_id}/reference-files/{reference_file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project_reference_file(
+    project_id: str,
+    reference_file_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> Response:
+    """Delete a project reference file and its linked paper."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    reference_file = await get_project_reference_file_or_404(
+        session,
+        project_id=project.id,
+        reference_file_id=reference_file_id,
+    )
+    storage_path = Path(reference_file.storage_path)
+
+    if reference_file.paper is not None:
+        await session.delete(reference_file.paper)
+    await session.delete(reference_file)
+    await session.commit()
+
+    try:
+        await anyio.to_thread.run_sync(unlink_stored_file, storage_path)
+    except OSError:
+        pass
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def apply_paper_filters(
