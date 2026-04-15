@@ -216,7 +216,10 @@ async def test_upload_reference_file_rejects_oversized_pdf(
         )
 
         assert response.status_code == 400
-        assert response.json()["detail"] == "Uploaded reference file exceeds the size limit."
+        assert (
+            response.json()["detail"]
+            == "Uploaded reference file exceeds the size limit. Maximum allowed size is 8 bytes."
+        )
     finally:
         clear_reference_service_override(app)
 
