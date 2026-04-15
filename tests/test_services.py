@@ -23,10 +23,15 @@ async def test_semantic_scholar_search_returns_expected_fields() -> None:
             json={
                 "data": [
                     {
+                        "paperId": "semantic-001",
                         "title": "Attention Is All You Need",
                         "authors": [{"name": "Ashish Vaswani"}],
                         "year": 2017,
                         "abstract": "Transformers replace recurrence with attention.",
+                        "url": "https://www.semanticscholar.org/paper/semantic-001",
+                        "openAccessPdf": {
+                            "url": "https://pdf.example.com/attention-is-all-you-need.pdf"
+                        },
                         "externalIds": {"DOI": "10.5555/3295222.3295349"},
                     }
                 ]
@@ -40,6 +45,9 @@ async def test_semantic_scholar_search_returns_expected_fields() -> None:
     assert papers[0]["title"] == "Attention Is All You Need"
     assert papers[0]["authors"] == ["Ashish Vaswani"]
     assert papers[0]["doi"] == "10.5555/3295222.3295349"
+    assert papers[0]["source_paper_id"] == "semantic-001"
+    assert papers[0]["source_url"] == "https://www.semanticscholar.org/paper/semantic-001"
+    assert papers[0]["pdf_url"] == "https://pdf.example.com/attention-is-all-you-need.pdf"
 
 
 @pytest.mark.asyncio
@@ -49,6 +57,8 @@ async def test_arxiv_search_returns_expected_fields() -> None:
     <feed xmlns="http://www.w3.org/2005/Atom">
       <entry>
         <id>http://arxiv.org/abs/2401.12345v1</id>
+        <link rel="alternate" type="text/html" href="http://arxiv.org/abs/2401.12345v1" />
+        <link title="pdf" href="http://arxiv.org/pdf/2401.12345v1" rel="related" type="application/pdf" />
         <published>2024-01-15T00:00:00Z</published>
         <title>Graph Neural Networks for Literature Mining</title>
         <summary>We study graph methods for scientific retrieval.</summary>
@@ -65,6 +75,9 @@ async def test_arxiv_search_returns_expected_fields() -> None:
     assert papers[0]["title"] == "Graph Neural Networks for Literature Mining"
     assert papers[0]["authors"] == ["Jane Doe"]
     assert papers[0]["doi"] == "10.1000/example"
+    assert papers[0]["source_paper_id"] == "2401.12345v1"
+    assert papers[0]["source_url"] == "http://arxiv.org/abs/2401.12345v1"
+    assert papers[0]["pdf_url"] == "http://arxiv.org/pdf/2401.12345v1"
 
 
 @pytest.mark.integration
