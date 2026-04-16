@@ -126,11 +126,58 @@ class Paper(Base):
 
     project: Mapped[Project] = relationship(back_populates="papers")
     reference_file: Mapped[ReferenceFile | None] = relationship(back_populates="paper")
+    document: Mapped[PaperDocument | None] = relationship(
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    chunks: Mapped[list[PaperChunk]] = relationship(
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        order_by="PaperChunk.chunk_index",
+    )
     summary: Mapped[Summary | None] = relationship(
         back_populates="paper",
         cascade="all, delete-orphan",
         uselist=False,
     )
+
+
+class PaperDocument(Base):
+    __tablename__ = "paper_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    paper_id: Mapped[str] = mapped_column(
+        ForeignKey("papers.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", server_default="pending")
+    source_pdf_url: Mapped[str] = mapped_column(Text)
+    openrouter_file_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    paper: Mapped[Paper] = relationship(back_populates="document")
+
+
+class PaperChunk(Base):
+    __tablename__ = "paper_chunks"
+    __table_args__ = (
+        UniqueConstraint("paper_id", "chunk_index", name="uq_paper_chunks_paper_chunk_index"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    page_start: Mapped[int] = mapped_column(Integer)
+    page_end: Mapped[int] = mapped_column(Integer)
+    section_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    embedding_json: Mapped[list[float]] = mapped_column(JSON, default=list)
+
+    paper: Mapped[Paper] = relationship(back_populates="chunks")
 
 
 class Summary(Base):
