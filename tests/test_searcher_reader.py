@@ -474,6 +474,75 @@ async def test_searcher_preserves_uploaded_reference_papers_and_deduplicates_aga
     assert persisted_summaries == []
 
 
+async def test_searcher_prefers_more_groundable_pdf_url_for_duplicates(
+    session_factory,
+    sample_project,
+) -> None:
+    query_payload = {
+        "queries": [
+            {"query": "groundable duplicate resolution", "focus": "broad"},
+            {"query": "groundable duplicate resolution survey", "focus": "survey"},
+            {"query": "groundable duplicate resolution benchmark", "focus": "benchmark"},
+            {"query": "groundable duplicate resolution citations", "focus": "citations"},
+            {"query": "groundable duplicate resolution agents", "focus": "agents"},
+        ]
+    }
+    good_abstract = "This abstract is long enough to pass the quality filter. " * 4
+    search_results = {
+        "groundable duplicate resolution": [
+            {
+                "title": "Groundable Duplicate Paper",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": "10.1000/groundable-duplicate",
+                "source": "semantic_scholar",
+                "source_paper_id": "semantic-blocked",
+                "source_url": "https://www.semanticscholar.org/paper/semantic-blocked",
+                "pdf_url": "https://content.example.com/download/paper?id=123",
+                "relevance_score": None,
+            },
+            {
+                "title": "Groundable Duplicate Paper",
+                "authors": ["Jane Doe"],
+                "year": 2024,
+                "abstract": good_abstract,
+                "doi": None,
+                "source": "arxiv",
+                "source_paper_id": "2401.99999v1",
+                "source_url": "https://arxiv.org/abs/2401.99999v1",
+                "pdf_url": "https://arxiv.org/pdf/2401.99999v1.pdf",
+                "relevance_score": None,
+            },
+        ]
+    }
+    searcher = SearcherAgent(
+        llm_service=FakeQueryPlanner(query_payload),
+        search_clients=[FakeSearchClient(search_results)],
+        minimum_abstract_length=100,
+        per_query_limit=10,
+    )
+
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        await searcher.run(
+            AgentState(project_id=project.id, topic=project.topic_description),
+            session,
+            project,
+        )
+        persisted_papers = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+
+    assert len(persisted_papers) == 1
+    assert persisted_papers[0].title == "Groundable Duplicate Paper"
+    assert persisted_papers[0].source == "arxiv"
+    assert persisted_papers[0].source_paper_id == "2401.99999v1"
+    assert persisted_papers[0].pdf_url == "https://arxiv.org/pdf/2401.99999v1.pdf"
+
+
 async def test_reader_agent_ranks_papers_and_records_summary_failures(
     session_factory,
     sample_project,
