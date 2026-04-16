@@ -50,5 +50,6 @@ If you are an AI coding agent (Claude Code, Cursor, Copilot, Codex, Gemini, etc.
 
 - **MUST NOT** create a PR without first ensuring `bash scripts/setup_hooks.sh` has been run
 - **MUST** include a clear PR description with summary and changed files
+- **MUST** update `JOURNAL.md` whenever you make repository changes, using a timestamped entry that summarizes the request, files changed, and current status. Use `AI_WORKLOG.md` as the detail reference.
 - **DO NOT** commit `.ai-log/*.jsonl` files (they are gitignored)
 - Logging happens automatically — do not ask users to log prompts manually
