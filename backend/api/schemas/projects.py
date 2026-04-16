@@ -151,6 +151,36 @@ class ProjectPaperListResponse(BaseModel):
     meta: PaginationMeta
 
 
+class PaperConversationCreate(BaseModel):
+    """Request body for starting a paper conversation."""
+
+    question: str = Field(min_length=1, max_length=8_000)
+
+
+class PaperMessageRead(BaseModel):
+    """Serialized message payload for a paper conversation."""
+
+    id: str
+    conversation_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PaperConversationRead(BaseModel):
+    """Serialized paper conversation with its persisted messages."""
+
+    id: str
+    paper_id: str
+    created_at: datetime
+    updated_at: datetime
+    messages: list[PaperMessageRead]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PipelineHealthResponse(BaseModel):
     """Health payload for the dummy pipeline graph."""
 
