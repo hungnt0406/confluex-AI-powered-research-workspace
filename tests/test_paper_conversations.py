@@ -10,7 +10,9 @@ from backend.db.models import (
     PaperDocument,
     PaperMessage,
     Summary,
+    User,
 )
+from backend.security import create_access_token, hash_password
 from backend.services.document_extraction import DocumentExtractionError
 from backend.services.paper_conversations import PaperConversationService
 
@@ -75,12 +77,13 @@ async def create_sample_paper(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     project_id: str,
+    title: str = "Grounded Paper Conversations",
     pdf_url: str | None = "https://papers.example.com/paper.pdf",
 ) -> Paper:
     async with session_factory() as session:
         paper = Paper(
             project_id=project_id,
-            title="Grounded Paper Conversations",
+            title=title,
             authors=["Ada Lovelace", "Grace Hopper"],
             year=2024,
             abstract="This paper studies grounded Q&A over scientific PDFs.",
@@ -108,6 +111,21 @@ async def create_sample_paper(
         await session.commit()
         await session.refresh(paper)
         return paper
+
+
+async def create_auth_headers_for_email(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    email: str,
+) -> dict[str, str]:
+    async with session_factory() as session:
+        user = User(email=email, hashed_password=hash_password("supersecret123"))
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
+    token = create_access_token(user.id)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.mark.asyncio
@@ -269,3 +287,293 @@ async def test_create_paper_conversation_returns_404_for_unknown_paper(
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Paper not found."}
+
+
+@pytest.mark.asyncio
+async def test_create_paper_conversation_message_persists_follow_up_turn(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(session_factory, project_id=sample_project["id"])
+    async with session_factory() as session:
+        session.add(
+            PaperChunk(
+                paper_id=paper.id,
+                chunk_index=0,
+                page_start=2,
+                page_end=3,
+                section_title="Method",
+                content="This chunk explains the retrieval-first grounding method in detail.",
+                embedding_json=[1.0, 0.0],
+            )
+        )
+        await session.commit()
+
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    create_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "What does the method do?"},
+    )
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+
+    follow_up_response = await client.post(
+        (
+            f"/projects/{sample_project['id']}/papers/{paper.id}/conversations/"
+            f"{create_payload['id']}/messages"
+        ),
+        headers=auth_headers,
+        json={"question": "How is the answer grounded across turns?"},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+
+    assert follow_up_response.status_code == 200
+    follow_up_payload = follow_up_response.json()
+    assert len(follow_up_payload["messages"]) == 4
+    assert follow_up_payload["messages"][-2]["role"] == "user"
+    assert follow_up_payload["messages"][-2]["content"] == "How is the answer grounded across turns?"
+    assert follow_up_payload["messages"][-1]["role"] == "assistant"
+    assert "Recent conversation context:" in follow_up_payload["messages"][-1]["content"]
+    assert "retrieval-first grounding method" in follow_up_payload["messages"][-1]["content"]
+    assert follow_up_payload["updated_at"] != create_payload["updated_at"]
+
+    async with session_factory() as session:
+        message_total = int(
+            (await session.execute(select(func.count()).select_from(PaperMessage))).scalar_one()
+        )
+
+    assert message_total == 4
+
+
+@pytest.mark.asyncio
+async def test_list_paper_conversations_returns_summaries_in_latest_activity_order(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(session_factory, project_id=sample_project["id"])
+    async with session_factory() as session:
+        session.add(
+            PaperChunk(
+                paper_id=paper.id,
+                chunk_index=0,
+                page_start=1,
+                page_end=2,
+                section_title="Method",
+                content="This chunk explains how grounding persists across the conversation.",
+                embedding_json=[1.0, 0.0],
+            )
+        )
+        await session.commit()
+
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    first_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "Explain the method."},
+    )
+    assert first_response.status_code == 201
+    first_payload = first_response.json()
+
+    second_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "Summarize the paper."},
+    )
+    assert second_response.status_code == 201
+    second_payload = second_response.json()
+
+    follow_up_response = await client.post(
+        (
+            f"/projects/{sample_project['id']}/papers/{paper.id}/conversations/"
+            f"{first_payload['id']}/messages"
+        ),
+        headers=auth_headers,
+        json={"question": "What happens on later turns?"},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+    assert follow_up_response.status_code == 200
+
+    list_response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+    )
+
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert [item["id"] for item in payload] == [first_payload["id"], second_payload["id"]]
+    assert payload[0]["message_count"] == 4
+    assert payload[0]["opening_question"] == "Explain the method."
+    assert payload[1]["message_count"] == 2
+    assert payload[1]["opening_question"] == "Summarize the paper."
+
+
+@pytest.mark.asyncio
+async def test_get_paper_conversation_returns_detail(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(session_factory, project_id=sample_project["id"])
+    async with session_factory() as session:
+        session.add(
+            PaperChunk(
+                paper_id=paper.id,
+                chunk_index=0,
+                page_start=5,
+                page_end=6,
+                section_title="Evaluation",
+                content="This chunk covers evaluation details for the grounded answers.",
+                embedding_json=[1.0, 0.0],
+            )
+        )
+        await session.commit()
+
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    create_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "What is evaluated?"},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+
+    detail_response = await client.get(
+        (
+            f"/projects/{sample_project['id']}/papers/{paper.id}/conversations/"
+            f"{create_payload['id']}"
+        ),
+        headers=auth_headers,
+    )
+
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["id"] == create_payload["id"]
+    assert detail_payload["paper_id"] == paper.id
+    assert len(detail_payload["messages"]) == 2
+    assert detail_payload["messages"][0]["content"] == "What is evaluated?"
+
+
+@pytest.mark.asyncio
+async def test_create_paper_conversation_message_returns_404_for_mismatched_paper_and_conversation(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    first_paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        title="First Paper",
+    )
+    second_paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        title="Second Paper",
+    )
+    async with session_factory() as session:
+        session.add(
+            PaperChunk(
+                paper_id=first_paper.id,
+                chunk_index=0,
+                page_start=1,
+                page_end=1,
+                section_title="Intro",
+                content="This chunk belongs to the first paper.",
+                embedding_json=[1.0, 0.0],
+            )
+        )
+        await session.commit()
+
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    create_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{first_paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "Question for the first paper."},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+
+    mismatch_response = await client.post(
+        (
+            f"/projects/{sample_project['id']}/papers/{second_paper.id}/conversations/"
+            f"{create_payload['id']}/messages"
+        ),
+        headers=auth_headers,
+        json={"question": "Try to continue under the wrong paper."},
+    )
+
+    assert mismatch_response.status_code == 404
+    assert mismatch_response.json() == {"detail": "Conversation not found."}
+
+
+@pytest.mark.asyncio
+async def test_list_paper_conversations_returns_404_for_unowned_project(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(session_factory, project_id=sample_project["id"])
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    create_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "Create a conversation before checking access."},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+    assert create_response.status_code == 201
+
+    other_auth_headers = await create_auth_headers_for_email(
+        session_factory,
+        email="another-researcher@example.com",
+    )
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=other_auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Project not found."}

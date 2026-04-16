@@ -363,6 +363,61 @@ async def test_document_extraction_service_uses_local_pdf_fallback_without_openr
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_document_extraction_service_strips_null_bytes_before_persisting(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_url = "https://papers.example.com/null-bytes.pdf"
+    pdf_bytes = build_pdf_bytes(["placeholder"])
+    respx.get(pdf_url).mock(
+        return_value=httpx.Response(
+            200,
+            content=pdf_bytes,
+            headers={"content-type": "application/pdf"},
+        )
+    )
+
+    paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        pdf_url=pdf_url,
+    )
+
+    async with session_factory() as session:
+        persisted_paper = await session.get(Paper, paper.id)
+        assert persisted_paper is not None
+
+        service = PaperDocumentExtractionService(
+            api_key="placeholder-key",
+            paper_chunk_size_chars=200,
+            embedding_service=FakeEmbeddingService(),
+        )
+        monkeypatch.setattr(
+            service,
+            "_extract_blocks_from_pdf_bytes",
+            lambda _: (
+                service._build_blocks_from_text(
+                    "1 Introduction\n\nThis text contains a null byte \x00 before persistence.",
+                    page_number=1,
+                ),
+                1,
+            ),
+        )
+        await service.ensure_document_chunks(session=session, paper=persisted_paper)
+        await session.commit()
+
+    document, chunks = await load_document_and_chunks(session_factory, paper_id=paper.id)
+
+    assert document is not None
+    assert document.status == "ready"
+    assert len(chunks) == 1
+    assert "\x00" not in chunks[0].content
+    assert "null byte" in chunks[0].content
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_document_extraction_service_marks_document_failed_when_pdf_has_no_text(
     session_factory: async_sessionmaker[AsyncSession],
     sample_project: dict[str, str],
