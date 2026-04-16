@@ -9,11 +9,14 @@ from sqlalchemy.orm import selectinload
 from backend.api.dependencies import (
     CurrentUser,
     DbSession,
+    PaperConversationServiceDependency,
     PipelineServiceDependency,
     ReferenceFileServiceDependency,
 )
 from backend.api.schemas.projects import (
     PaginationMeta,
+    PaperConversationCreate,
+    PaperConversationRead,
     ProjectCreate,
     ProjectPaperListResponse,
     ProjectPaperRead,
@@ -75,6 +78,31 @@ async def get_project_reference_file_or_404(
             detail="Reference file not found.",
         )
     return reference_file
+
+
+async def get_project_paper_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    paper_id: str,
+) -> Paper:
+    """Return a paper belonging to a project, including summary metadata for Q&A fallback."""
+
+    result = await session.execute(
+        select(Paper)
+        .options(selectinload(Paper.summary))
+        .where(
+            Paper.project_id == project_id,
+            Paper.id == paper_id,
+        )
+    )
+    paper = result.scalar_one_or_none()
+    if paper is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paper not found.",
+        )
+    return paper
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
@@ -297,3 +325,36 @@ async def list_project_papers(
         data=[ProjectPaperRead.model_validate(paper) for paper in papers],
         meta=PaginationMeta.from_totals(total=total, page=page, per_page=per_page),
     )
+
+
+@router.post(
+    "/{project_id}/papers/{paper_id}/conversations",
+    response_model=PaperConversationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_paper_conversation(
+    project_id: str,
+    paper_id: str,
+    payload: PaperConversationCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: PaperConversationServiceDependency,
+    response: Response,
+) -> PaperConversationRead:
+    """Start a grounded conversation for a project paper."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    paper = await get_project_paper_or_404(
+        session,
+        project_id=project.id,
+        paper_id=paper_id,
+    )
+    result = await conversation_service.create_conversation(
+        session=session,
+        paper=paper,
+        question=payload.question,
+    )
+    response.headers["Location"] = (
+        f"/projects/{project.id}/papers/{paper.id}/conversations/{result.conversation.id}"
+    )
+    return PaperConversationRead.model_validate(result.conversation)
