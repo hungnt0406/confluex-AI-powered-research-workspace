@@ -127,12 +127,23 @@ class PaperDocumentExtractionService:
     ) -> PaperDocument:
         """Ensure a paper has extracted document chunks persisted for retrieval."""
 
+        paper_id = paper.id
         pdf_url = (paper.pdf_url or "").strip()
         if not pdf_url:
             raise DocumentExtractionError("Paper does not have a public PDF URL.")
 
-        document = await self._get_or_create_document(session=session, paper=paper, source_pdf_url=pdf_url)
-        if await self._has_ready_chunks(session=session, paper=paper, document=document, source_pdf_url=pdf_url):
+        filename = self._guess_filename(paper=paper)
+        document = await self._get_or_create_document(
+            session=session,
+            paper_id=paper_id,
+            source_pdf_url=pdf_url,
+        )
+        if await self._has_ready_chunks(
+            session=session,
+            paper_id=paper_id,
+            document=document,
+            source_pdf_url=pdf_url,
+        ):
             return document
 
         document.status = "pending"
@@ -141,50 +152,60 @@ class PaperDocumentExtractionService:
         await session.flush()
 
         try:
-            extracted_document = await self._extract_document(
-                pdf_url=pdf_url,
-                filename=self._guess_filename(paper=paper),
-            )
-            chunk_drafts = self._chunk_blocks(
-                extracted_document.blocks,
-                max_chunk_chars=self.paper_chunk_size_chars,
-            )
-            if not chunk_drafts:
-                raise DocumentExtractionError("No retrievable chunks were produced from the PDF.")
-
-            embeddings = await self.embedding_service.embed_texts(
-                [chunk_draft.content for chunk_draft in chunk_drafts]
-            )
-            if len(embeddings) != len(chunk_drafts):
-                raise DocumentExtractionError("Embedding service returned an unexpected number of vectors.")
-
-            await session.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper.id))
-            for chunk_draft, embedding in zip(chunk_drafts, embeddings, strict=True):
-                session.add(
-                    PaperChunk(
-                        paper_id=paper.id,
-                        chunk_index=chunk_draft.chunk_index,
-                        page_start=chunk_draft.page_start,
-                        page_end=chunk_draft.page_end,
-                        section_title=chunk_draft.section_title,
-                        content=chunk_draft.content,
-                        embedding_json=[float(value) for value in embedding],
-                    )
+            async with session.begin_nested():
+                extracted_document = await self._extract_document(
+                    pdf_url=pdf_url,
+                    filename=filename,
                 )
+                chunk_drafts = self._chunk_blocks(
+                    extracted_document.blocks,
+                    max_chunk_chars=self.paper_chunk_size_chars,
+                )
+                if not chunk_drafts:
+                    raise DocumentExtractionError("No retrievable chunks were produced from the PDF.")
 
-            document.status = "ready"
-            document.openrouter_file_hash = extracted_document.file_hash
-            document.page_count = extracted_document.page_count
-            document.error_message = None
-            document.extracted_at = datetime.now(UTC)
-            await session.flush()
+                embeddings = await self.embedding_service.embed_texts(
+                    [chunk_draft.content for chunk_draft in chunk_drafts]
+                )
+                if len(embeddings) != len(chunk_drafts):
+                    raise DocumentExtractionError(
+                        "Embedding service returned an unexpected number of vectors."
+                    )
+
+                await session.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper_id))
+                for chunk_draft, embedding in zip(chunk_drafts, embeddings, strict=True):
+                    session.add(
+                        PaperChunk(
+                            paper_id=paper_id,
+                            chunk_index=chunk_draft.chunk_index,
+                            page_start=chunk_draft.page_start,
+                            page_end=chunk_draft.page_end,
+                            section_title=chunk_draft.section_title,
+                            content=chunk_draft.content,
+                            embedding_json=[float(value) for value in embedding],
+                        )
+                    )
+
+                document.status = "ready"
+                document.openrouter_file_hash = extracted_document.file_hash
+                document.page_count = extracted_document.page_count
+                document.error_message = None
+                document.extracted_at = datetime.now(UTC)
+                await session.flush()
             return document
         except Exception as error:
-            await session.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper.id))
+            failure_message = str(error)
+            document = await self._get_or_create_document(
+                session=session,
+                paper_id=paper_id,
+                source_pdf_url=pdf_url,
+            )
+            await session.execute(delete(PaperChunk).where(PaperChunk.paper_id == paper_id))
             document.status = "failed"
+            document.source_pdf_url = pdf_url
             document.openrouter_file_hash = None
             document.page_count = None
-            document.error_message = str(error)
+            document.error_message = failure_message
             document.extracted_at = datetime.now(UTC)
             await session.flush()
             if isinstance(error, DocumentExtractionError):
@@ -195,7 +216,7 @@ class PaperDocumentExtractionService:
         self,
         *,
         session: AsyncSession,
-        paper: Paper,
+        paper_id: str,
         document: PaperDocument,
         source_pdf_url: str,
     ) -> bool:
@@ -203,7 +224,7 @@ class PaperDocumentExtractionService:
             return False
 
         result = await session.execute(
-            select(PaperChunk.id).where(PaperChunk.paper_id == paper.id).limit(1)
+            select(PaperChunk.id).where(PaperChunk.paper_id == paper_id).limit(1)
         )
         return result.scalar_one_or_none() is not None
 
@@ -211,11 +232,11 @@ class PaperDocumentExtractionService:
         self,
         *,
         session: AsyncSession,
-        paper: Paper,
+        paper_id: str,
         source_pdf_url: str,
     ) -> PaperDocument:
         result = await session.execute(
-            select(PaperDocument).where(PaperDocument.paper_id == paper.id)
+            select(PaperDocument).where(PaperDocument.paper_id == paper_id)
         )
         document = result.scalar_one_or_none()
         if document is not None:
@@ -224,7 +245,7 @@ class PaperDocumentExtractionService:
             return document
 
         document = PaperDocument(
-            paper_id=paper.id,
+            paper_id=paper_id,
             status="pending",
             source_pdf_url=source_pdf_url,
         )
@@ -701,6 +722,7 @@ class PaperDocumentExtractionService:
             return ""
 
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = normalized.replace("\x00", "")
         normalized = HYPHENATED_LINE_BREAK_PATTERN.sub("", normalized)
 
         normalized_lines: list[str] = []
