@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 import httpx
@@ -19,6 +20,7 @@ from backend.services.research_utils import cosine_similarity, has_live_api_key
 
 DEFAULT_MAX_ANSWER_TOKENS = 800
 MAX_LOCAL_SNIPPET_CHARS = 280
+RECENT_HISTORY_MESSAGE_LIMIT = 10
 
 
 class DocumentExtractionClient(Protocol):
@@ -50,7 +52,7 @@ class RetrievedPaperChunk:
 
 @dataclass(frozen=True)
 class PaperConversationCreationResult:
-    """Conversation plus metadata about the first grounded answer."""
+    """Conversation plus metadata about the grounded answer that was persisted."""
 
     conversation: PaperConversation
     used_metadata_fallback: bool
@@ -102,28 +104,76 @@ class PaperConversationService:
         if not normalized_question:
             raise ValueError("question must not be empty.")
 
+        conversation = PaperConversation(paper_id=paper.id)
+        session.add(conversation)
+        await session.flush()
+
+        return await self._persist_turn(
+            session=session,
+            paper=paper,
+            conversation=conversation,
+            question=normalized_question,
+            recent_messages=[],
+            touch_updated_at=False,
+        )
+
+    async def continue_conversation(
+        self,
+        *,
+        session: AsyncSession,
+        paper: Paper,
+        conversation: PaperConversation,
+        question: str,
+    ) -> PaperConversationCreationResult:
+        """Persist a follow-up turn for an existing conversation."""
+
+        normalized_question = question.strip()
+        if not normalized_question:
+            raise ValueError("question must not be empty.")
+
+        recent_messages = await self._load_recent_messages(
+            session=session,
+            conversation_id=conversation.id,
+            limit=RECENT_HISTORY_MESSAGE_LIMIT,
+        )
+        return await self._persist_turn(
+            session=session,
+            paper=paper,
+            conversation=conversation,
+            question=normalized_question,
+            recent_messages=recent_messages,
+            touch_updated_at=True,
+        )
+
+    async def _persist_turn(
+        self,
+        *,
+        session: AsyncSession,
+        paper: Paper,
+        conversation: PaperConversation,
+        question: str,
+        recent_messages: list[PaperMessage],
+        touch_updated_at: bool,
+    ) -> PaperConversationCreationResult:
         retrieved_chunks, extraction_error = await self._retrieve_relevant_chunks(
             session=session,
             paper=paper,
-            question=normalized_question,
+            question=question,
         )
         used_metadata_fallback = not retrieved_chunks
         answer = await self._generate_answer(
             paper=paper,
-            question=normalized_question,
+            question=question,
+            recent_messages=recent_messages,
             retrieved_chunks=retrieved_chunks,
             extraction_error=extraction_error,
         )
-
-        conversation = PaperConversation(paper_id=paper.id)
-        session.add(conversation)
-        await session.flush()
 
         session.add(
             PaperMessage(
                 conversation_id=conversation.id,
                 role="user",
-                content=normalized_question,
+                content=question,
             )
         )
         session.add(
@@ -133,6 +183,8 @@ class PaperConversationService:
                 content=answer,
             )
         )
+        if touch_updated_at:
+            conversation.updated_at = datetime.now(UTC)
         await session.commit()
 
         loaded_conversation = await self._load_conversation(
@@ -152,14 +204,17 @@ class PaperConversationService:
         question: str,
     ) -> tuple[list[RetrievedPaperChunk], str | None]:
         extraction_error: str | None = None
-        chunks = await self._load_chunks(session=session, paper_id=paper.id)
+        paper_id = paper.id
+        paper_pdf_url = paper.pdf_url
+        chunks = await self._load_chunks(session=session, paper_id=paper_id)
 
-        if not chunks and paper.pdf_url:
+        if not chunks and paper_pdf_url:
             try:
                 await self.extraction_service.ensure_document_chunks(session=session, paper=paper)
             except DocumentExtractionError as error:
                 extraction_error = str(error)
-            chunks = await self._load_chunks(session=session, paper_id=paper.id)
+                await self._refresh_paper(session=session, paper_id=paper_id)
+            chunks = await self._load_chunks(session=session, paper_id=paper_id)
 
         if not chunks:
             return [], extraction_error
@@ -196,6 +251,7 @@ class PaperConversationService:
         *,
         paper: Paper,
         question: str,
+        recent_messages: list[PaperMessage],
         retrieved_chunks: list[RetrievedPaperChunk],
         extraction_error: str | None,
     ) -> str:
@@ -204,6 +260,7 @@ class PaperConversationService:
                 return await self._generate_live_answer(
                     paper=paper,
                     question=question,
+                    recent_messages=recent_messages,
                     retrieved_chunks=retrieved_chunks,
                     extraction_error=extraction_error,
                 )
@@ -213,6 +270,7 @@ class PaperConversationService:
         return self._generate_local_answer(
             paper=paper,
             question=question,
+            recent_messages=recent_messages,
             retrieved_chunks=retrieved_chunks,
             extraction_error=extraction_error,
         )
@@ -222,6 +280,7 @@ class PaperConversationService:
         *,
         paper: Paper,
         question: str,
+        recent_messages: list[PaperMessage],
         retrieved_chunks: list[RetrievedPaperChunk],
         extraction_error: str | None,
     ) -> str:
@@ -249,6 +308,7 @@ class PaperConversationService:
                     "content": self._build_prompt(
                         paper=paper,
                         question=question,
+                        recent_messages=recent_messages,
                         retrieved_chunks=retrieved_chunks,
                         extraction_error=extraction_error,
                     ),
@@ -305,6 +365,7 @@ class PaperConversationService:
         *,
         paper: Paper,
         question: str,
+        recent_messages: list[PaperMessage],
         retrieved_chunks: list[RetrievedPaperChunk],
         extraction_error: str | None,
     ) -> str:
@@ -333,6 +394,11 @@ class PaperConversationService:
             ]
             if summary_lines:
                 prompt_sections.extend(["", "Structured summary:", "\n".join(summary_lines)])
+
+        if recent_messages:
+            prompt_sections.extend(["", "Recent conversation history:"])
+            for message in recent_messages:
+                prompt_sections.append(f"{message.role.title()}: {message.content}")
 
         if retrieved_chunks:
             prompt_sections.extend(["", "Retrieved paper chunks:"])
@@ -367,21 +433,29 @@ class PaperConversationService:
         *,
         paper: Paper,
         question: str,
+        recent_messages: list[PaperMessage],
         retrieved_chunks: list[RetrievedPaperChunk],
         extraction_error: str | None,
     ) -> str:
+        conversation_context = self._format_recent_history(recent_messages)
+
         if retrieved_chunks:
             relevant_passages = " ".join(
                 self._format_chunk_snippet(retrieved_chunk)
                 for retrieved_chunk in retrieved_chunks[:2]
             )
-            return (
-                f"Question: {question}\n\n"
+            response_sections = [f"Question: {question}"]
+            if conversation_context is not None:
+                response_sections.append(f"Recent conversation context: {conversation_context}")
+            response_sections.append(
                 f"Based on the extracted text for '{paper.title}', the most relevant evidence is: "
-                f"{relevant_passages}\n\n"
+                f"{relevant_passages}"
+            )
+            response_sections.append(
                 "This response was produced by the deterministic fallback path because live answer "
                 "synthesis is unavailable in the current environment."
             )
+            return "\n\n".join(response_sections)
 
         metadata_sections = [
             (
@@ -392,6 +466,9 @@ class PaperConversationService:
             f"Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}",
             f"Year: {paper.year if paper.year is not None else 'Unknown'}",
         ]
+
+        if conversation_context is not None:
+            metadata_sections.append(f"Recent conversation context: {conversation_context}")
 
         if paper.abstract:
             metadata_sections.append(f"Abstract: {paper.abstract}")
@@ -428,6 +505,15 @@ class PaperConversationService:
             f"{snippet}"
         )
 
+    def _format_recent_history(self, recent_messages: list[PaperMessage]) -> str | None:
+        if not recent_messages:
+            return None
+
+        return " | ".join(
+            f"{message.role}: {' '.join(message.content.split())[:MAX_LOCAL_SNIPPET_CHARS].rstrip()}"
+            for message in recent_messages
+        )
+
     async def _load_chunks(self, *, session: AsyncSession, paper_id: str) -> list[PaperChunk]:
         result = await session.execute(
             select(PaperChunk)
@@ -445,9 +531,40 @@ class PaperConversationService:
         result = await session.execute(
             select(PaperConversation)
             .options(selectinload(PaperConversation.messages))
+            .execution_options(populate_existing=True)
             .where(PaperConversation.id == conversation_id)
         )
         conversation = result.scalar_one_or_none()
         if conversation is None:
             raise RuntimeError("Created conversation could not be reloaded.")
         return conversation
+
+    async def _load_recent_messages(
+        self,
+        *,
+        session: AsyncSession,
+        conversation_id: str,
+        limit: int,
+    ) -> list[PaperMessage]:
+        result = await session.execute(
+            select(PaperMessage)
+            .where(PaperMessage.conversation_id == conversation_id)
+            .order_by(PaperMessage.created_at.desc())
+            .limit(limit)
+        )
+        recent_messages = list(result.scalars())
+        recent_messages.reverse()
+        return recent_messages
+
+    async def _refresh_paper(
+        self,
+        *,
+        session: AsyncSession,
+        paper_id: str,
+    ) -> None:
+        await session.execute(
+            select(Paper)
+            .options(selectinload(Paper.summary))
+            .execution_options(populate_existing=True)
+            .where(Paper.id == paper_id)
+        )
