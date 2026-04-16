@@ -136,6 +136,11 @@ class Paper(Base):
         cascade="all, delete-orphan",
         order_by="PaperChunk.chunk_index",
     )
+    conversations: Mapped[list[PaperConversation]] = relationship(
+        back_populates="paper",
+        cascade="all, delete-orphan",
+        order_by="PaperConversation.updated_at.desc()",
+    )
     summary: Mapped[Summary | None] = relationship(
         back_populates="paper",
         cascade="all, delete-orphan",
@@ -178,6 +183,50 @@ class PaperChunk(Base):
     embedding_json: Mapped[list[float]] = mapped_column(JSON, default=list)
 
     paper: Mapped[Paper] = relationship(back_populates="chunks")
+
+
+class PaperConversation(Base):
+    __tablename__ = "paper_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    paper: Mapped[Paper] = relationship(back_populates="conversations")
+    messages: Mapped[list[PaperMessage]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="PaperMessage.created_at.asc()",
+    )
+
+
+class PaperMessage(Base):
+    __tablename__ = "paper_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("paper_conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    conversation: Mapped[PaperConversation] = relationship(back_populates="messages")
 
 
 class Summary(Base):
