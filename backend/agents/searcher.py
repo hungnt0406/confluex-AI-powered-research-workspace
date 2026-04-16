@@ -3,6 +3,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import delete, select
@@ -138,6 +139,23 @@ def get_candidate_metadata(
 
     normalized_value = str(raw_value).strip()
     return normalized_value or None
+
+
+def score_pdf_url_for_grounding(candidate: PaperRecord) -> int:
+    """Score whether a candidate's PDF URL looks directly usable for extraction."""
+
+    pdf_url = get_candidate_metadata(candidate, "pdf_url")
+    if pdf_url is None:
+        return 0
+
+    parsed_url = urlparse(pdf_url)
+    normalized_path = parsed_url.path.lower()
+    normalized_url = pdf_url.lower()
+
+    if normalized_path.endswith(".pdf") or "/pdf/" in normalized_path or normalized_url.endswith(".pdf"):
+        return 2
+
+    return 1
 
 
 def serialize_paper_record(paper: Paper) -> dict[str, object]:
@@ -541,9 +559,9 @@ class SearcherAgent:
         prioritized_papers = sorted(
             filtered_papers,
             key=lambda paper: (
+                score_pdf_url_for_grounding(paper),
                 paper["doi"] is not None,
                 len(paper["abstract"]),
-                paper["source"] == "semantic_scholar",
             ),
             reverse=True,
         )
