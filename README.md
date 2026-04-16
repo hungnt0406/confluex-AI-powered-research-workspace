@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml/badge.svg)](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml)
 
-Phase 2 extends the foundation into a working Searcher + Reader pipeline. The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, LangGraph orchestration, pytest coverage, and a minimal Next.js 14 frontend shell.
+The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, first-turn paper conversations, pytest coverage, and a minimal Next.js 14 frontend shell.
 
 ## Phase 2 scope
 
@@ -82,9 +82,11 @@ npm run dev
 - `GET /projects/{id}`
 - `POST /projects/{id}/run`
 - `GET /projects/{id}/papers`
+- `POST /projects/{id}/papers/{paper_id}/conversations`
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
+`POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 
 ## Quality gates
 
