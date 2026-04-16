@@ -16,7 +16,9 @@ from backend.api.dependencies import (
 from backend.api.schemas.projects import (
     PaginationMeta,
     PaperConversationCreate,
+    PaperConversationMessageCreate,
     PaperConversationRead,
+    PaperConversationSummaryRead,
     ProjectCreate,
     ProjectPaperListResponse,
     ProjectPaperRead,
@@ -24,7 +26,7 @@ from backend.api.schemas.projects import (
     ReferenceFileRead,
     RunPipelineResponse,
 )
-from backend.db.models import Paper, Project, ReferenceFile
+from backend.db.models import Paper, PaperConversation, Project, ReferenceFile
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
@@ -103,6 +105,31 @@ async def get_project_paper_or_404(
             detail="Paper not found.",
         )
     return paper
+
+
+async def get_project_paper_conversation_or_404(
+    session: DbSession,
+    *,
+    paper_id: str,
+    conversation_id: str,
+) -> PaperConversation:
+    """Return a conversation belonging to a paper."""
+
+    result = await session.execute(
+        select(PaperConversation)
+        .options(selectinload(PaperConversation.messages))
+        .where(
+            PaperConversation.paper_id == paper_id,
+            PaperConversation.id == conversation_id,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+    return conversation
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
@@ -358,3 +385,97 @@ async def create_paper_conversation(
         f"/projects/{project.id}/papers/{paper.id}/conversations/{result.conversation.id}"
     )
     return PaperConversationRead.model_validate(result.conversation)
+
+
+@router.post(
+    "/{project_id}/papers/{paper_id}/conversations/{conversation_id}/messages",
+    response_model=PaperConversationRead,
+    status_code=status.HTTP_200_OK,
+)
+async def create_paper_conversation_message(
+    project_id: str,
+    paper_id: str,
+    conversation_id: str,
+    payload: PaperConversationMessageCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: PaperConversationServiceDependency,
+) -> PaperConversationRead:
+    """Persist a follow-up grounded turn for a paper conversation."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    paper = await get_project_paper_or_404(
+        session,
+        project_id=project.id,
+        paper_id=paper_id,
+    )
+    conversation = await get_project_paper_conversation_or_404(
+        session,
+        paper_id=paper.id,
+        conversation_id=conversation_id,
+    )
+    result = await conversation_service.continue_conversation(
+        session=session,
+        paper=paper,
+        conversation=conversation,
+        question=payload.question,
+    )
+    return PaperConversationRead.model_validate(result.conversation)
+
+
+@router.get(
+    "/{project_id}/papers/{paper_id}/conversations",
+    response_model=list[PaperConversationSummaryRead],
+)
+async def list_paper_conversations(
+    project_id: str,
+    paper_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> list[PaperConversationSummaryRead]:
+    """List grounded conversations for a project paper."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    paper = await get_project_paper_or_404(
+        session,
+        project_id=project.id,
+        paper_id=paper_id,
+    )
+    result = await session.execute(
+        select(PaperConversation)
+        .options(selectinload(PaperConversation.messages))
+        .where(PaperConversation.paper_id == paper.id)
+        .order_by(PaperConversation.updated_at.desc(), PaperConversation.created_at.desc())
+    )
+    conversations = result.scalars().all()
+    return [
+        PaperConversationSummaryRead.from_conversation(conversation)
+        for conversation in conversations
+    ]
+
+
+@router.get(
+    "/{project_id}/papers/{paper_id}/conversations/{conversation_id}",
+    response_model=PaperConversationRead,
+)
+async def get_paper_conversation(
+    project_id: str,
+    paper_id: str,
+    conversation_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> PaperConversationRead:
+    """Fetch one grounded conversation for a project paper."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    paper = await get_project_paper_or_404(
+        session,
+        project_id=project.id,
+        paper_id=paper_id,
+    )
+    conversation = await get_project_paper_conversation_or_404(
+        session,
+        paper_id=paper.id,
+        conversation_id=conversation_id,
+    )
+    return PaperConversationRead.model_validate(conversation)

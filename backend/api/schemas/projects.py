@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 if TYPE_CHECKING:
-    from backend.db.models import ReferenceFile
+    from backend.db.models import PaperConversation, ReferenceFile
 
 
 class ProjectCreate(BaseModel):
@@ -151,10 +151,18 @@ class ProjectPaperListResponse(BaseModel):
     meta: PaginationMeta
 
 
-class PaperConversationCreate(BaseModel):
-    """Request body for starting a paper conversation."""
+class PaperConversationQuestionCreate(BaseModel):
+    """Request body for asking a question in a paper conversation flow."""
 
     question: str = Field(min_length=1, max_length=8_000)
+
+
+class PaperConversationCreate(PaperConversationQuestionCreate):
+    """Request body for starting a paper conversation."""
+
+
+class PaperConversationMessageCreate(PaperConversationQuestionCreate):
+    """Request body for adding a follow-up turn to a paper conversation."""
 
 
 class PaperMessageRead(BaseModel):
@@ -179,6 +187,32 @@ class PaperConversationRead(BaseModel):
     messages: list[PaperMessageRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaperConversationSummaryRead(BaseModel):
+    """Serialized paper conversation summary for list views."""
+
+    id: str
+    paper_id: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+    opening_question: str | None
+
+    @classmethod
+    def from_conversation(cls, conversation: "PaperConversation") -> "PaperConversationSummaryRead":
+        opening_question = next(
+            (message.content for message in conversation.messages if message.role == "user"),
+            None,
+        )
+        return cls(
+            id=conversation.id,
+            paper_id=conversation.paper_id,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            message_count=len(conversation.messages),
+            opening_question=opening_question,
+        )
 
 
 class PipelineHealthResponse(BaseModel):
