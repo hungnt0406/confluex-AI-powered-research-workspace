@@ -20,6 +20,11 @@ class Settings(BaseSettings):
         default="google/gemma-4-31b-it:free",
         validation_alias=AliasChoices("OPENROUTER_MODEL", "ANTHROPIC_MODEL"),
     )
+    openrouter_document_model: str = Field(
+        default="google/gemini-2.5-flash-lite",
+        alias="OPENROUTER_DOCUMENT_MODEL",
+    )
+    openrouter_pdf_engine: str = Field(default="native", alias="OPENROUTER_PDF_ENGINE")
     openrouter_embedding_model: str = Field(
         default="openai/text-embedding-3-small",
         validation_alias=AliasChoices("OPENROUTER_EMBEDDING_MODEL", "OPENAI_EMBEDDING_MODEL"),
@@ -40,6 +45,9 @@ class Settings(BaseSettings):
     summary_concurrency: int = Field(default=5, alias="SUMMARY_CONCURRENCY")
     embedding_dimensions: int = Field(default=256, alias="EMBEDDING_DIMENSIONS")
     external_api_timeout_seconds: float = Field(default=20.0, alias="EXTERNAL_API_TIMEOUT_SECONDS")
+    pdf_download_timeout_seconds: float = Field(default=20.0, alias="PDF_DOWNLOAD_TIMEOUT_SECONDS")
+    paper_chunk_size_chars: int = Field(default=3_000, alias="PAPER_CHUNK_SIZE_CHARS")
+    paper_retrieval_top_k: int = Field(default=5, alias="PAPER_RETRIEVAL_TOP_K")
     reference_upload_dir: str = Field(default="data/reference_uploads", alias="REFERENCE_UPLOAD_DIR")
     reference_max_file_bytes: int = Field(
         default=20_971_520,
