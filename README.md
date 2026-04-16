@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml/badge.svg)](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml)
 
-The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, first-turn paper conversations, pytest coverage, and a minimal Next.js 14 frontend shell.
+The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, persisted multi-turn paper conversations, pytest coverage, and a minimal Next.js 14 frontend shell.
 
 ## Phase 2 scope
 
@@ -83,10 +83,15 @@ npm run dev
 - `POST /projects/{id}/run`
 - `GET /projects/{id}/papers`
 - `POST /projects/{id}/papers/{paper_id}/conversations`
+- `GET /projects/{id}/papers/{paper_id}/conversations`
+- `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
+- `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages`
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
+`POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
+`GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
 
 ## Quality gates
 
