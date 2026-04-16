@@ -10,6 +10,7 @@ from backend.agents.pipeline import LiteraturePipelineService
 from backend.db.models import User
 from backend.db.session import get_db_session
 from backend.security import decode_access_token
+from backend.services.paper_conversations import PaperConversationService
 from backend.services.reference_files import ReferenceFileService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -63,9 +64,19 @@ def get_reference_file_service() -> ReferenceFileService:
     return ReferenceFileService()
 
 
+def get_paper_conversation_service() -> PaperConversationService:
+    """Return the default paper conversation service."""
+
+    return PaperConversationService()
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 PipelineServiceDependency = Annotated[LiteraturePipelineService, Depends(get_pipeline_service)]
 ReferenceFileServiceDependency = Annotated[
     ReferenceFileService,
     Depends(get_reference_file_service),
+]
+PaperConversationServiceDependency = Annotated[
+    PaperConversationService,
+    Depends(get_paper_conversation_service),
 ]
