@@ -12,6 +12,4 @@ async def test_pipeline_health_reports_dummy_nodes(client) -> None:
         "searcher_node",
         "reader_node",
         "reader_warning_node",
-        "writer_node",
-        "qa_node",
     ]
