@@ -12,6 +12,7 @@ from backend.api.dependencies import (
     PaperConversationServiceDependency,
     PipelineServiceDependency,
     ReferenceFileServiceDependency,
+    WriterOutputServiceDependency,
 )
 from backend.api.schemas.projects import (
     PaginationMeta,
@@ -25,8 +26,10 @@ from backend.api.schemas.projects import (
     ProjectRead,
     ReferenceFileRead,
     RunPipelineResponse,
+    WriterGenerateRequest,
+    WriterOutputRead,
 )
-from backend.db.models import Paper, PaperConversation, Project, ReferenceFile
+from backend.db.models import Paper, PaperConversation, Project, ReferenceFile, WriterOutput
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
@@ -130,6 +133,29 @@ async def get_project_paper_conversation_or_404(
             detail="Conversation not found.",
         )
     return conversation
+
+
+async def get_project_writer_output_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    output_id: str,
+) -> WriterOutput:
+    """Return a persisted writer output belonging to a project."""
+
+    result = await session.execute(
+        select(WriterOutput).where(
+            WriterOutput.project_id == project_id,
+            WriterOutput.id == output_id,
+        )
+    )
+    writer_output = result.scalar_one_or_none()
+    if writer_output is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Writer output not found.",
+        )
+    return writer_output
 
 
 @router.post("", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
@@ -479,3 +505,59 @@ async def get_paper_conversation(
         conversation_id=conversation_id,
     )
     return PaperConversationRead.model_validate(conversation)
+
+
+@router.post(
+    "/{project_id}/writer/generate",
+    response_model=WriterOutputRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_writer_output(
+    project_id: str,
+    payload: WriterGenerateRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+    writer_output_service: WriterOutputServiceDependency,
+    response: Response,
+) -> WriterOutputRead:
+    """Generate, QA, and persist a grounded writer artifact for selected project papers."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    try:
+        writer_output = await writer_output_service.generate_output(
+            session=session,
+            project=project,
+            paper_ids=payload.paper_ids,
+            instruction=payload.instruction,
+            output_target=payload.output_target,
+            citation_mode=payload.citation_mode,
+            reference_style=payload.reference_style,
+            include_references=payload.include_references,
+            max_words=payload.max_words,
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+
+    response.headers["Location"] = f"/projects/{project.id}/writer/outputs/{writer_output.id}"
+    return WriterOutputRead.from_writer_output(writer_output)
+
+
+@router.get(
+    "/{project_id}/writer/outputs/{output_id}",
+    response_model=WriterOutputRead,
+)
+async def get_writer_output(
+    project_id: str,
+    output_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> WriterOutputRead:
+    """Fetch one persisted writer output for the authenticated user's project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    writer_output = await get_project_writer_output_or_404(
+        session,
+        project_id=project.id,
+        output_id=output_id,
+    )
+    return WriterOutputRead.from_writer_output(writer_output)
