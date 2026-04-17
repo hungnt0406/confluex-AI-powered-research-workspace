@@ -58,6 +58,10 @@ class Project(Base):
     user: Mapped[User] = relationship(back_populates="projects")
     papers: Mapped[list[Paper]] = relationship(back_populates="project", cascade="all, delete-orphan")
     drafts: Mapped[list[Draft]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    writer_outputs: Mapped[list[WriterOutput]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     reference_files: Mapped[list[ReferenceFile]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
@@ -262,3 +266,42 @@ class Draft(Base):
     )
 
     project: Mapped[Project] = relationship(back_populates="drafts")
+
+
+class WriterOutput(Base):
+    __tablename__ = "writer_outputs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    selected_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    paper_snapshot_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    instruction: Mapped[str] = mapped_column(Text)
+    output_target: Mapped[str] = mapped_column(String(32))
+    citation_mode: Mapped[str] = mapped_column(String(32))
+    reference_style: Mapped[str] = mapped_column(String(32))
+    include_references: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="1",
+    )
+    max_words: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    body: Mapped[str] = mapped_column(Text, default="", server_default="")
+    references_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    bibtex_entries_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    thebibliography_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citations_used_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    warnings_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    qa_flags_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project] = relationship(back_populates="writer_outputs")
