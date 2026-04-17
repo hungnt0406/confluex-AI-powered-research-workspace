@@ -2,17 +2,19 @@
 
 [![CI](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml/badge.svg)](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml)
 
-The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, persisted multi-turn paper conversations, pytest coverage, and a minimal Next.js 14 frontend shell.
+The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, persisted multi-turn paper conversations, persisted grounded writer outputs with QA validation, pytest coverage, and a minimal Next.js 14 frontend shell.
 
-## Phase 2 scope
+## Current scope
 
 - Async FastAPI backend with `/auth`, `/projects`, and `/pipeline`
 - JWT register/login flow and project CRUD
 - SQLAlchemy 2.0 models plus Alembic migrations for project search settings, paper status, and summary error tracking
 - Semantic Scholar and arXiv search across expanded queries with deduplication and filtering
 - Relevance ranking via embeddings and structured summaries for top papers
-- LangGraph pipeline with `searcher -> reader -> writer -> qa` plus a warning branch when ranking returns too few papers
+- Discovery pipeline with `searcher -> reader` plus a warning branch when ranking returns too few papers
 - Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
+- Grounded paper conversations with persisted first-turn and follow-up Q&A
+- User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
 - Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
 - GitHub Actions CI for migrations, linting, type-checking, and tests
 
@@ -86,12 +88,16 @@ npm run dev
 - `GET /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
 - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages`
+- `POST /projects/{id}/writer/generate`
+- `GET /projects/{id}/writer/outputs/{output_id}`
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
+`POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
+`GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
 
 ## Quality gates
 
