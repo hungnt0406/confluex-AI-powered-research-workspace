@@ -12,6 +12,7 @@ from backend.db.session import get_db_session
 from backend.security import decode_access_token
 from backend.services.paper_conversations import PaperConversationService
 from backend.services.reference_files import ReferenceFileService
+from backend.services.writer_outputs import WriterOutputService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -70,6 +71,12 @@ def get_paper_conversation_service() -> PaperConversationService:
     return PaperConversationService()
 
 
+def get_writer_output_service() -> WriterOutputService:
+    """Return the default writer output service."""
+
+    return WriterOutputService()
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 PipelineServiceDependency = Annotated[LiteraturePipelineService, Depends(get_pipeline_service)]
 ReferenceFileServiceDependency = Annotated[
@@ -79,4 +86,8 @@ ReferenceFileServiceDependency = Annotated[
 PaperConversationServiceDependency = Annotated[
     PaperConversationService,
     Depends(get_paper_conversation_service),
+]
+WriterOutputServiceDependency = Annotated[
+    WriterOutputService,
+    Depends(get_writer_output_service),
 ]
