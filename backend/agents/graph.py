@@ -13,8 +13,6 @@ PIPELINE_NODE_NAMES = [
     "searcher_node",
     "reader_node",
     "reader_warning_node",
-    "writer_node",
-    "qa_node",
 ]
 
 
@@ -49,18 +47,10 @@ class ProjectPipelineRunner:
         print(f"[pipeline] reader_warning_node project_id={state.project_id} warning={warning_message}")
         return {"qa_flags": [*state.qa_flags, warning_message]}
 
-    async def writer_node(self, state: AgentState) -> dict[str, Any]:
-        print(f"[pipeline] writer_node project_id={state.project_id}")
-        return {"draft": state.draft}
-
-    async def qa_node(self, state: AgentState) -> dict[str, Any]:
-        print(f"[pipeline] qa_node project_id={state.project_id}")
-        return {}
-
-    def route_after_reader(self, state: AgentState) -> Literal["reader_warning_node", "writer_node"]:
+    def route_after_reader(self, state: AgentState) -> Literal["reader_warning_node", "__end__"]:
         if len(state.ranked_papers) < 5:
             return "reader_warning_node"
-        return "writer_node"
+        return "__end__"
 
     def build_graph(self) -> Any:
         """Compile the phase-2 LangGraph pipeline."""
@@ -69,14 +59,17 @@ class ProjectPipelineRunner:
         builder.add_node("searcher_node", self.searcher_node)
         builder.add_node("reader_node", self.reader_node)
         builder.add_node("reader_warning_node", self.reader_warning_node)
-        builder.add_node("writer_node", self.writer_node)
-        builder.add_node("qa_node", self.qa_node)
         builder.add_edge(START, "searcher_node")
         builder.add_edge("searcher_node", "reader_node")
-        builder.add_conditional_edges("reader_node", self.route_after_reader)
-        builder.add_edge("reader_warning_node", "writer_node")
-        builder.add_edge("writer_node", "qa_node")
-        builder.add_edge("qa_node", END)
+        builder.add_conditional_edges(
+            "reader_node",
+            self.route_after_reader,
+            {
+                "reader_warning_node": "reader_warning_node",
+                "__end__": END,
+            },
+        )
+        builder.add_edge("reader_warning_node", END)
         return builder.compile()
 
     async def run(self) -> AgentState:
