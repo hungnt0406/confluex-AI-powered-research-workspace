@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 if TYPE_CHECKING:
-    from backend.db.models import PaperConversation, ReferenceFile
+    from backend.db.models import PaperConversation, ReferenceFile, WriterOutput
 
 
 class ProjectCreate(BaseModel):
@@ -212,6 +212,112 @@ class PaperConversationSummaryRead(BaseModel):
             updated_at=conversation.updated_at,
             message_count=len(conversation.messages),
             opening_question=opening_question,
+        )
+
+
+class WriterGenerateRequest(BaseModel):
+    """Request body for generating a grounded writer artifact from selected papers."""
+
+    paper_ids: list[str] = Field(min_length=1, max_length=50)
+    instruction: str = Field(min_length=1, max_length=8_000)
+    output_target: Literal["latex", "docs", "markdown", "plain_text"] = "markdown"
+    citation_mode: Literal[
+        "numbered",
+        "author_year",
+        "latex_cite",
+        "bibtex_only",
+        "thebibliography",
+    ] | None = None
+    reference_style: Literal["ieee", "apa", "chicago", "bibtex"] | None = None
+    include_references: bool = True
+    max_words: int | None = Field(default=None, ge=25, le=10_000)
+
+    @model_validator(mode="after")
+    def validate_output_settings(self) -> "WriterGenerateRequest":
+        unique_paper_ids = list(dict.fromkeys(self.paper_ids))
+        if len(unique_paper_ids) != len(self.paper_ids):
+            raise ValueError("paper_ids must be unique.")
+
+        if self.citation_mode in {"latex_cite", "thebibliography"} and self.output_target != "latex":
+            raise ValueError(
+                "latex_cite and thebibliography citation modes require output_target='latex'."
+            )
+
+        return self
+
+
+class WriterQaFlagRead(BaseModel):
+    """Serialized QA issue emitted for generated writer output."""
+
+    issue: str
+    severity: Literal["warning", "error"]
+    location: str
+
+
+class WriterPaperSnapshotRead(BaseModel):
+    """Serialized paper snapshot stored alongside a persisted writer output."""
+
+    id: str
+    title: str
+    authors: list[str]
+    year: int | None
+    doi: str | None
+    source: str
+    source_url: str | None
+    pdf_url: str | None
+
+
+class WriterOutputRead(BaseModel):
+    """Serialized persisted writer output."""
+
+    id: str
+    project_id: str
+    selected_paper_ids: list[str]
+    paper_snapshot: list[WriterPaperSnapshotRead]
+    instruction: str
+    output_target: str
+    citation_mode: str
+    reference_style: str
+    include_references: bool
+    max_words: int | None
+    body: str
+    references: list[str]
+    bibtex_entries: list[str]
+    thebibliography: str | None
+    citations_used: list[str]
+    warnings: list[str]
+    qa_flags: list[WriterQaFlagRead]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_writer_output(cls, writer_output: "WriterOutput") -> "WriterOutputRead":
+        return cls(
+            id=writer_output.id,
+            project_id=writer_output.project_id,
+            selected_paper_ids=list(writer_output.selected_paper_ids_json),
+            paper_snapshot=[
+                WriterPaperSnapshotRead.model_validate(snapshot)
+                for snapshot in writer_output.paper_snapshot_json
+            ],
+            instruction=writer_output.instruction,
+            output_target=writer_output.output_target,
+            citation_mode=writer_output.citation_mode,
+            reference_style=writer_output.reference_style,
+            include_references=writer_output.include_references,
+            max_words=writer_output.max_words,
+            body=writer_output.body,
+            references=list(writer_output.references_json),
+            bibtex_entries=list(writer_output.bibtex_entries_json),
+            thebibliography=writer_output.thebibliography_text,
+            citations_used=list(writer_output.citations_used_json),
+            warnings=list(writer_output.warnings_json),
+            qa_flags=[
+                WriterQaFlagRead.model_validate(flag_payload)
+                for flag_payload in writer_output.qa_flags_json
+            ],
+            created_at=writer_output.created_at,
+            updated_at=writer_output.updated_at,
         )
 
 
