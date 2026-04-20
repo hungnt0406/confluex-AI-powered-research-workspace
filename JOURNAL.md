@@ -111,6 +111,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ## Repo Change Log
 
+### 2026-04-20 11:20
+- **done:**
+  - Updated `AGENTS.md` with an explicit repository entry workflow for AI coding agents so they read repo rules, current-state docs, feature mapping, implementation files, and related tests before editing.
+  - Added a concise set of working principles to `AGENTS.md` covering thinking before coding, simplicity, surgical changes, and goal-driven execution.
+  - Reworded the principles to reduce failure modes such as over-questioning, under-defensive code, or rigid tests-first behavior on tasks where narrower verification is more appropriate.
+- **doing:**
+  - The repo now gives future agents a clearer operational path for how to enter, reason about, implement, and verify changes.
+- **blocked:**
+  - None.
+
 ### 2026-04-20 10:55
 - **done:**
   - Rebuilt `docs/feature-map.md` as the canonical current-state traceability map for this repo and aligned it to the real backend/frontend/test surface.
