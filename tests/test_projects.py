@@ -1,8 +1,18 @@
+from pathlib import Path
+
 import pytest
+from sqlalchemy import select
 
 from backend.agents.state import AgentState
-from backend.api.dependencies import get_pipeline_service
-from backend.db.models import Paper, Summary
+from backend.api.dependencies import get_paper_citation_service, get_pipeline_service
+from backend.db.models import Paper, Project, ReferenceFile, Summary, User
+from backend.security import hash_password
+from backend.services.paper_citations import (
+    CitationGraphResult,
+    CitationNotFoundError,
+    CitationProviderError,
+    CitationResolutionError,
+)
 
 
 @pytest.mark.asyncio
@@ -43,6 +53,105 @@ async def test_get_project_returns_owned_project(client, auth_headers, sample_pr
     payload = response.json()
     assert payload["id"] == sample_project["id"]
     assert payload["title"] == sample_project["title"]
+
+
+@pytest.mark.asyncio
+async def test_delete_project_removes_owned_project_and_uploaded_files(
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+    tmp_path: Path,
+) -> None:
+    storage_path = tmp_path / "seed.pdf"
+    storage_path.write_bytes(b"%PDF-1.4\nproject delete cleanup")
+
+    async with session_factory() as session:
+        reference_file = ReferenceFile(
+            project_id=sample_project["id"],
+            original_filename="seed.pdf",
+            content_type="application/pdf",
+            byte_size=storage_path.stat().st_size,
+            sha256="a" * 64,
+            storage_path=str(storage_path),
+            parse_status="parsed",
+        )
+        session.add(reference_file)
+        await session.flush()
+
+        session.add(
+            Paper(
+                project_id=sample_project["id"],
+                reference_file_id=reference_file.id,
+                title="Uploaded Seed Paper",
+                authors=["Jane Doe"],
+                year=2024,
+                abstract="Reference-backed paper for project deletion coverage.",
+                doi=None,
+                source="user_upload",
+                status="candidate",
+                relevance_score=None,
+            )
+        )
+        await session.commit()
+
+    response = await client.delete(f"/projects/{sample_project['id']}", headers=auth_headers)
+
+    assert response.status_code == 204
+
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        reference_files = (
+            await session.execute(
+                select(ReferenceFile).where(ReferenceFile.project_id == sample_project["id"])
+            )
+        ).scalars().all()
+        papers = (
+            await session.execute(select(Paper).where(Paper.project_id == sample_project["id"]))
+        ).scalars().all()
+
+    assert project is None
+    assert reference_files == []
+    assert papers == []
+    assert not storage_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_project_returns_404_for_unowned_project(
+    client,
+    auth_headers,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        other_user = User(
+            email="other-researcher@example.com",
+            hashed_password=hash_password("supersecret123"),
+        )
+        session.add(other_user)
+        await session.flush()
+
+        project = Project(
+            user_id=other_user.id,
+            title="Someone Else's Project",
+            topic_description="This project should not be deletable by another user.",
+            citation_format="APA",
+            year_start=2019,
+            candidate_limit=50,
+            summary_limit=25,
+        )
+        session.add(project)
+        await session.commit()
+        project_id = project.id
+
+    response = await client.delete(f"/projects/{project_id}", headers=auth_headers)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Project not found."
+
+    async with session_factory() as session:
+        persisted_project = await session.get(Project, project_id)
+
+    assert persisted_project is not None
 
 
 @pytest.mark.asyncio
@@ -124,3 +233,229 @@ async def test_list_project_papers_supports_filters_and_pagination(
     assert len(payload["data"]) == 1
     assert payload["data"][0]["status"] == "summarized"
     assert payload["data"][0]["summary"]["problem"] == "Rank multi-agent systems"
+
+
+@pytest.mark.asyncio
+async def test_get_project_paper_citation_graph_returns_related_papers(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        paper = Paper(
+            project_id=sample_project["id"],
+            title="Ranking Multi-Agent Systems",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper evaluates multi-agent ranking systems." * 4,
+            doi="10.1000/ranking",
+            source="semantic_scholar",
+            source_paper_id="semantic-001",
+            source_url="https://www.semanticscholar.org/paper/semantic-001",
+            pdf_url="https://pdf.example.com/semantic-001.pdf",
+            status="summarized",
+            relevance_score=93.4,
+        )
+        session.add(paper)
+        await session.commit()
+        await session.refresh(paper)
+
+    class FakePaperCitationService:
+        async def get_citation_graph(self, *, session, paper, limit) -> CitationGraphResult:
+            assert paper.id
+            assert limit == 7
+            return CitationGraphResult(
+                paper_id=paper.id,
+                resolved_by="semantic_scholar_paper_id",
+                resolved_source_paper_id="semantic-001",
+                citation_count=12,
+                reference_count=8,
+                cited_by=[
+                    {
+                        "title": "Citing Paper",
+                        "authors": ["Alice"],
+                        "year": 2025,
+                        "abstract": "Cites the target paper.",
+                        "doi": "10.1000/citing",
+                        "source": "semantic_scholar",
+                        "source_paper_id": "semantic-100",
+                        "source_url": "https://www.semanticscholar.org/paper/semantic-100",
+                        "pdf_url": "https://pdf.example.com/semantic-100.pdf",
+                    }
+                ],
+                references=[
+                    {
+                        "title": "Referenced Paper",
+                        "authors": ["Bob"],
+                        "year": 2022,
+                        "abstract": "Referenced by the target paper.",
+                        "doi": "10.1000/referenced",
+                        "source": "semantic_scholar",
+                        "source_paper_id": "semantic-200",
+                        "source_url": "https://www.semanticscholar.org/paper/semantic-200",
+                        "pdf_url": "https://pdf.example.com/semantic-200.pdf",
+                    }
+                ],
+            )
+
+    app.dependency_overrides[get_paper_citation_service] = lambda: FakePaperCitationService()
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/citation-graph?limit=7",
+        headers=auth_headers,
+    )
+    app.dependency_overrides.pop(get_paper_citation_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["paper_id"] == paper.id
+    assert payload["resolved_by"] == "semantic_scholar_paper_id"
+    assert payload["resolved_source_paper_id"] == "semantic-001"
+    assert payload["citation_count"] == 12
+    assert payload["reference_count"] == 8
+    assert payload["cited_by"][0]["title"] == "Citing Paper"
+    assert payload["references"][0]["title"] == "Referenced Paper"
+
+
+@pytest.mark.asyncio
+async def test_get_project_paper_citation_graph_returns_400_for_unresolvable_paper(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        paper = Paper(
+            project_id=sample_project["id"],
+            title="Uploaded Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper has no DOI or upstream id." * 4,
+            doi=None,
+            source="user_upload",
+            source_paper_id="reference-001",
+            source_url=None,
+            pdf_url="/tmp/reference.pdf",
+            status="candidate",
+            relevance_score=None,
+        )
+        session.add(paper)
+        await session.commit()
+        await session.refresh(paper)
+
+    class FakePaperCitationService:
+        async def get_citation_graph(self, *, session, paper, limit) -> CitationGraphResult:
+            del session, paper, limit
+            raise CitationResolutionError("Paper cannot be resolved exactly to Semantic Scholar.")
+
+    app.dependency_overrides[get_paper_citation_service] = lambda: FakePaperCitationService()
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/citation-graph",
+        headers=auth_headers,
+    )
+    app.dependency_overrides.pop(get_paper_citation_service, None)
+
+    assert response.status_code == 400
+    assert "cannot be resolved" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_get_project_paper_citation_graph_returns_404_when_upstream_misses_exact_paper(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        paper = Paper(
+            project_id=sample_project["id"],
+            title="Arxiv Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper only exists locally in the test." * 4,
+            doi=None,
+            source="arxiv",
+            source_paper_id="2401.12345v1",
+            source_url="https://arxiv.org/abs/2401.12345v1",
+            pdf_url="https://arxiv.org/pdf/2401.12345v1.pdf",
+            status="summarized",
+            relevance_score=91.2,
+        )
+        session.add(paper)
+        await session.commit()
+        await session.refresh(paper)
+
+    class FakePaperCitationService:
+        async def get_citation_graph(self, *, session, paper, limit) -> CitationGraphResult:
+            del session, paper, limit
+            raise CitationNotFoundError("Exact paper was not found in Semantic Scholar.")
+
+    app.dependency_overrides[get_paper_citation_service] = lambda: FakePaperCitationService()
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/citation-graph",
+        headers=auth_headers,
+    )
+    app.dependency_overrides.pop(get_paper_citation_service, None)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Exact paper was not found in Semantic Scholar."
+
+
+@pytest.mark.asyncio
+async def test_get_project_paper_citation_graph_returns_502_for_provider_failure(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        paper = Paper(
+            project_id=sample_project["id"],
+            title="Semantic Scholar Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper simulates an upstream failure." * 4,
+            doi="10.1000/provider",
+            source="semantic_scholar",
+            source_paper_id="semantic-500",
+            source_url="https://www.semanticscholar.org/paper/semantic-500",
+            pdf_url=None,
+            status="summarized",
+            relevance_score=88.1,
+        )
+        session.add(paper)
+        await session.commit()
+        await session.refresh(paper)
+
+    class FakePaperCitationService:
+        async def get_citation_graph(self, *, session, paper, limit) -> CitationGraphResult:
+            del session, paper, limit
+            raise CitationProviderError("Semantic Scholar request failed.")
+
+    app.dependency_overrides[get_paper_citation_service] = lambda: FakePaperCitationService()
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/citation-graph",
+        headers=auth_headers,
+    )
+    app.dependency_overrides.pop(get_paper_citation_service, None)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Semantic Scholar request failed."
+
+
+@pytest.mark.asyncio
+async def test_get_project_paper_citation_graph_validates_limit_query_param(
+    client,
+    auth_headers,
+    sample_project,
+) -> None:
+    response = await client.get(
+        f"/projects/{sample_project['id']}/papers/paper-1/citation-graph?limit=0",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
