@@ -33,6 +33,17 @@ export default function ContextPanel() {
     window.removeEventListener("mouseup", onMouseUp);
   }, [onMouseMove]);
 
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (dragging.current) {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      }
+    };
+  }, [onMouseMove, onMouseUp]);
+
   const onHandleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
