@@ -2,6 +2,7 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useChat } from "@/components/ChatProvider";
+import Logo from "@/components/Logo";
 
 const SUGGESTIONS = [
   "The impact of LLMs on Academic Integrity",
@@ -51,7 +52,7 @@ export default function ChatWorkspace() {
           <span className="material-symbols-outlined">menu</span>
         </button>
         <div className="text-sm font-bold text-on-surface flex items-center gap-2">
-          <span className="font-headline italic text-lg opacity-90">Confluex</span>
+          <Logo size="sm" />
           <span className="material-symbols-outlined text-xs text-hint">expand_more</span>
         </div>
         <div className="md:hidden">
