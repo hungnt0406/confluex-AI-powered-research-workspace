@@ -82,6 +82,8 @@ class ProjectPaperRead(BaseModel):
     source_paper_id: str | None
     source_url: str | None
     pdf_url: str | None
+    citation_count: int | None = None
+    reference_count: int | None = None
     status: str
     relevance_score: float | None
     summary: PaperSummaryRead | None
