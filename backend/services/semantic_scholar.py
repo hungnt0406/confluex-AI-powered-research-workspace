@@ -93,12 +93,17 @@ def normalize_paper_payload(raw_paper: dict[str, object]) -> PaperRecord:
     raw_open_access_pdf = raw_paper.get("openAccessPdf", {})
     open_access_pdf = raw_open_access_pdf if isinstance(raw_open_access_pdf, dict) else {}
     raw_year = raw_paper.get("year")
+    raw_citation_count = raw_paper.get("citationCount")
+    raw_reference_count = raw_paper.get("referenceCount")
 
     year: int | None = None
     if isinstance(raw_year, int):
         year = raw_year
     elif isinstance(raw_year, str) and raw_year.isdigit():
         year = int(raw_year)
+
+    citation_count = raw_citation_count if isinstance(raw_citation_count, int) else None
+    reference_count = raw_reference_count if isinstance(raw_reference_count, int) else None
 
     normalized_paper: PaperRecord = {
         "title": str(raw_paper.get("title", "")).strip(),
@@ -112,6 +117,8 @@ def normalize_paper_payload(raw_paper: dict[str, object]) -> PaperRecord:
         "source_paper_id": coerce_optional_string(raw_paper.get("paperId")),
         "source_url": coerce_optional_string(raw_paper.get("url")),
         "pdf_url": coerce_optional_string(open_access_pdf.get("url")),
+        "citation_count": citation_count,
+        "reference_count": reference_count,
         "relevance_score": None,
     }
     return normalized_paper
@@ -121,12 +128,6 @@ def normalize_paper_details_payload(raw_paper: dict[str, object]) -> SemanticSch
     """Normalize Semantic Scholar paper details into a richer payload."""
 
     normalized_paper = normalize_paper_payload(raw_paper)
-    raw_citation_count = raw_paper.get("citationCount")
-    raw_reference_count = raw_paper.get("referenceCount")
-
-    citation_count = raw_citation_count if isinstance(raw_citation_count, int) else None
-    reference_count = raw_reference_count if isinstance(raw_reference_count, int) else None
-
     return SemanticScholarPaperDetails(
         paper_id=str(raw_paper.get("paperId", "")).strip(),
         title=normalized_paper["title"],
@@ -138,8 +139,8 @@ def normalize_paper_details_payload(raw_paper: dict[str, object]) -> SemanticSch
         source_paper_id=normalized_paper["source_paper_id"],
         source_url=normalized_paper["source_url"],
         pdf_url=normalized_paper["pdf_url"],
-        citation_count=citation_count,
-        reference_count=reference_count,
+        citation_count=normalized_paper["citation_count"],
+        reference_count=normalized_paper["reference_count"],
     )
 
 
@@ -235,7 +236,7 @@ async def search_papers(
         "query": query,
         "limit": limit,
         "year": f"{year_start}-",
-        "fields": "paperId,url,openAccessPdf,title,authors,year,abstract,externalIds",
+        "fields": SEMANTIC_SCHOLAR_PAPER_FIELDS,
     }
     payload = await execute_request(
         method="GET",
