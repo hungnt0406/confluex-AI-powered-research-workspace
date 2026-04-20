@@ -173,6 +173,8 @@ def serialize_paper_record(paper: Paper) -> dict[str, object]:
         "source_paper_id": paper.source_paper_id,
         "source_url": paper.source_url,
         "pdf_url": paper.pdf_url,
+        "citation_count": paper.citation_count,
+        "reference_count": paper.reference_count,
         "status": paper.status,
         "relevance_score": paper.relevance_score,
     }
@@ -235,6 +237,8 @@ class SearcherAgent:
                 source_paper_id=candidate.get("source_paper_id"),
                 source_url=candidate.get("source_url"),
                 pdf_url=candidate.get("pdf_url"),
+                citation_count=candidate.get("citation_count"),
+                reference_count=candidate.get("reference_count"),
                 status="candidate",
                 relevance_score=None,
             )
