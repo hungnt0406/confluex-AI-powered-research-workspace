@@ -4,13 +4,16 @@
 
 ## Phases
 
-| Phase | File | Week | Goal |
-|---|---|---|---|
-| 1 | [phase-1-foundation.md](./phase-1-foundation.md) | Week 1 | Repo, DB, API clients, LangGraph skeleton |
-| 2 | [phase-2-searcher-reader.md](./phase-2-searcher-reader.md) | Week 2 | Searcher + Reader agents working |
-| 3 | [phase-3-writer-qa.md](./phase-3-writer-qa.md) | Week 3 | Writer + QA agents, Word export |
-| 4 | [phase-4-ui-deployment.md](./phase-4-ui-deployment.md) | Week 4–5 | Full UI, SSE streaming, deployed URL |
-| 5 | [phase-5-polish-demo.md](./phase-5-polish-demo.md) | Week 6 | User testing, demo prep, ship |
+### Completed
+- [Phase 1: Foundation](./completed/phase-1-foundation.md)
+- [Phase 2: Searcher + Reader](./completed/phase-2-searcher-reader.md)
+- [Phase 3: Writer + QA](./completed/phase-3-writer-qa.md)
+- [Phase 3A: Paper Understanding](./completed/phase-3a-paper-understanding.md)
+
+### In-Progress (Missing Basic Features)
+- [Phase 4A: Export Infrastructure](./in-progress/phase-4a-export-infrastructure.md)
+- [Phase 4B: Advanced Research Settings](./in-progress/phase-4b-advanced-settings.md)
+- [Phase 4C: UI Refinements & Hardening](./in-progress/phase-4c-ui-refinements.md)
 
 ## Cost estimate (per full pipeline run)
 
