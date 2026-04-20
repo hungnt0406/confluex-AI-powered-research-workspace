@@ -110,6 +110,10 @@ function PaperCard({
   paper: ProjectPaper;
   isGrounding: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const summaryId = `paper-summary-${paper.id}`;
+  const showSummaryToggle = paper.summary != null;
+
   return (
     <li
       className={`p-3 rounded-xl border transition-colors ${
@@ -147,21 +151,113 @@ function PaperCard({
             {paper.authors.slice(0, 2).join(", ")}
             {paper.year ? ` · ${paper.year}` : ""}
           </p>
-          {paper.relevance_score != null && (
-            <div className="mt-1.5 flex items-center gap-1.5">
-              <div className="flex-1 h-0.5 overflow-hidden">
-                <div
-                  className="h-full bg-primary/40 rounded-full"
-                  style={{ width: `${Math.min(paper.relevance_score, 100)}%` }}
-                />
+          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-hint tabular-nums">
+            <div className="ml-[6px] flex flex-wrap items-center gap-x-2 gap-y-1">
+              <div className="flex items-center gap-0.5">
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{
+                    fontSize: "16px",
+                    marginLeft: "-7px",
+                    marginRight: "-1px",
+                    fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                  }}
+                >
+                  format_quote
+                </span>
+                <span>{paper.citation_count ?? "—"}</span>
+                <span>cited</span>
               </div>
-              <span className="text-[9px] text-hint tabular-nums">
-                {paper.relevance_score.toFixed(0)}
-              </span>
+              <div className="flex items-center gap-0.5">
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{
+                    fontSize: "16px",
+                    marginLeft: "-7px",
+                    marginRight: "-1px",
+                    fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                  }}
+                >
+                  list_alt
+                </span>
+                <span>{paper.reference_count ?? "—"}</span>
+                <span>refs</span>
+              </div>
             </div>
-          )}
+            {showSummaryToggle && (
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={summaryId}
+                aria-label={expanded ? "Hide summary" : "Show summary"}
+                onClick={() => setExpanded((current) => !current)}
+                className="inline-flex h-10 min-w-10 flex-shrink-0 items-center justify-center rounded-md px-2 text-hint transition-colors hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              >
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{
+                    fontSize: "16px",
+                    fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                  }}
+                >
+                  {expanded ? "expand_less" : "expand_more"}
+                </span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
+      {expanded && paper.summary && (
+        <div
+          id={summaryId}
+          className="mt-2 pt-2 border-t border-outline/20 space-y-1.5"
+        >
+          {paper.summary.has_error ? (
+            <div className="flex items-center gap-1.5 text-[10px] text-hint leading-snug">
+              <span
+                className="material-symbols-outlined"
+                aria-hidden="true"
+                style={{
+                  fontSize: "16px",
+                  marginLeft: "-7px",
+                  fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                }}
+              >
+                error
+              </span>
+              <span className="truncate">
+                {paper.summary.error_message
+                  ? `Summary unavailable: ${paper.summary.error_message}`
+                  : "Summary unavailable"}
+              </span>
+            </div>
+          ) : (
+            <>
+              <SummarySection label="Problem" value={paper.summary.problem} />
+              <SummarySection label="Method" value={paper.summary.method} />
+              <SummarySection label="Result" value={paper.summary.result} />
+            </>
+          )}
+        </div>
+      )}
     </li>
+  );
+}
+
+function SummarySection({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[9px] uppercase tracking-widest text-hint">{label}</p>
+      <p className="text-[10px] text-on-surface leading-snug">{value ?? <span className="text-hint">—</span>}</p>
+    </div>
   );
 }
