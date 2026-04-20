@@ -13,6 +13,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Relevance ranking via embeddings and structured summaries for top papers
 - Discovery pipeline with `searcher -> reader` plus a warning branch when ranking returns too few papers
 - Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
+- On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
 - Grounded paper conversations with persisted first-turn and follow-up Q&A
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
 - Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
@@ -24,7 +25,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - `docs/feature-map.md` is the canonical feature-to-code/test/doc/config traceability map.
 - `docs/backend-diagram.md` explains backend wiring, route ownership, and data flow.
 - `docs/TEST_POSTMAN.md` covers manual API verification in Postman.
-- `docs/features/upload_reference_file.md`, `docs/features/paper_conversations.md`, and `docs/features/writer_outputs.md` are feature deep dives.
+- `docs/features/upload_reference_file.md`, `docs/features/paper_citation_graph.md`, `docs/features/paper_conversations.md`, and `docs/features/writer_outputs.md` are feature deep dives.
 - `docs/user-journey.md` describes the shipped and planned UX journey.
 - `plans/` contains historical phase plans and roadmap material, not the canonical current-state docs.
 
@@ -92,8 +93,10 @@ npm run dev
 - `POST /projects`
 - `GET /projects`
 - `GET /projects/{id}`
+- `DELETE /projects/{id}`
 - `POST /projects/{id}/run`
 - `GET /projects/{id}/papers`
+- `GET /projects/{id}/papers/{paper_id}/citation-graph`
 - `POST /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
@@ -103,6 +106,8 @@ npm run dev
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
+`DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
+`GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.

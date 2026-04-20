@@ -126,21 +126,27 @@ flowchart TB
         Projects --> CreateProject["POST /projects"]
         Projects --> ListProjects["GET /projects"]
         Projects --> GetProject["GET /projects/{project_id}"]
+        Projects --> DeleteProject["DELETE /projects/{project_id}"]
         Projects --> RunProject["POST /projects/{project_id}/run"]
         Projects --> UploadReference["POST /projects/{project_id}/reference-files"]
         Projects --> ListReferences["GET /projects/{project_id}/reference-files"]
         Projects --> DeleteReference["DELETE /projects/{project_id}/reference-files/{reference_file_id}"]
         Projects --> ListPapers["GET /projects/{project_id}/papers"]
+        Projects --> PaperCitationGraph["GET /projects/{project_id}/papers/{paper_id}/citation-graph"]
 
         CreateProject --> AuthRequiredA["CurrentUser"]
         ListProjects --> AuthRequiredB["CurrentUser"]
         GetProject --> OwnedProjectA["get_owned_project_or_404"]
-        RunProject --> OwnedProjectB["get_owned_project_or_404"]
-        UploadReference --> OwnedProjectC["get_owned_project_or_404"]
-        ListReferences --> OwnedProjectD["get_owned_project_or_404"]
-        DeleteReference --> OwnedProjectE["get_owned_project_or_404"]
-        ListPapers --> OwnedProjectF["get_owned_project_or_404"]
+        DeleteProject --> OwnedProjectB["get_owned_project_or_404"]
+        RunProject --> OwnedProjectC["get_owned_project_or_404"]
+        UploadReference --> OwnedProjectD["get_owned_project_or_404"]
+        ListReferences --> OwnedProjectE["get_owned_project_or_404"]
+        DeleteReference --> OwnedProjectF["get_owned_project_or_404"]
+        ListPapers --> OwnedProjectG["get_owned_project_or_404"]
+        PaperCitationGraph --> OwnedProjectH["get_owned_project_or_404"]
 
+        DeleteProject --> DeleteProjectRows["session.delete(project)<br/>ORM + FK cascades"]
+        DeleteProject --> DeleteProjectStoredPdfs["best-effort unlink of stored project PDFs"]
         RunProject --> LiteraturePipelineService["LiteraturePipelineService.run_project"]
         UploadReference --> ReferenceFileService["ReferenceFileService.create_reference_file"]
         ListReferences --> ReferenceFileRead["ReferenceFileRead.from_reference"]
@@ -149,6 +155,9 @@ flowchart TB
         DeleteReference --> DeleteStoredPdf["unlink stored PDF with anyio.to_thread"]
         ListPapers --> PaperFilters["apply_paper_filters<br/>status<br/>min_relevance"]
         ListPapers --> Pagination["PaginationMeta.from_totals"]
+        PaperCitationGraph --> CitationService["PaperCitationService.get_citation_graph"]
+        CitationService --> CitationResolver["Semantic Scholar exact paper resolution<br/>paper id · ARXIV: · DOI: · URL:"]
+        CitationService --> CitationEdges["GET /graph/v1/paper/{paper_id}/citations<br/>GET /graph/v1/paper/{paper_id}/references"]
     end
 
     subgraph PipelineEndpoints["Pipeline endpoints"]
@@ -164,6 +173,8 @@ flowchart TB
     OwnedProjectD --> ProjectModel
     OwnedProjectE --> ProjectModel
     OwnedProjectF --> ProjectModel
+    OwnedProjectG --> ProjectModel
+    OwnedProjectH --> ProjectModel
 ```
 
 ## Authentication And Dependency Flow
@@ -593,7 +604,7 @@ flowchart TB
     OpenRouterEmbeddings --> EmbeddingFallback["If not configured or request fails:<br/>deterministic local embeddings"]
     SemanticScholar --> SearchErrorHandling["Provider exceptions are collected<br/>into pipeline errors"]
     Arxiv --> SearchErrorHandling
-    LocalDisk --> UploadCleanup["Reference delete attempts to unlink PDF<br/>OSError is ignored"]
+    LocalDisk --> UploadCleanup["Reference/project delete attempts to unlink PDFs<br/>OSError is ignored"]
 ```
 
 ## File-To-Responsibility Map
