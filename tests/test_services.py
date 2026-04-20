@@ -7,7 +7,11 @@ import respx
 from backend.services.arxiv import ARXIV_URL
 from backend.services.arxiv import search_papers as search_arxiv_papers
 from backend.services.semantic_scholar import (
+    SEMANTIC_SCHOLAR_GRAPH_URL,
     SEMANTIC_SCHOLAR_URL,
+    get_paper_citations,
+    get_paper_details,
+    get_paper_references,
 )
 from backend.services.semantic_scholar import (
     search_papers as search_semantic_scholar_papers,
@@ -78,6 +82,130 @@ async def test_arxiv_search_returns_expected_fields() -> None:
     assert papers[0]["source_paper_id"] == "2401.12345v1"
     assert papers[0]["source_url"] == "http://arxiv.org/abs/2401.12345v1"
     assert papers[0]["pdf_url"] == "http://arxiv.org/pdf/2401.12345v1"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_semantic_scholar_get_paper_details_returns_expected_fields() -> None:
+    route = respx.get(f"{SEMANTIC_SCHOLAR_GRAPH_URL}/paper/DOI%3A10.5555%2F3295222.3295349").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "paperId": "semantic-001",
+                "title": "Attention Is All You Need",
+                "authors": [{"name": "Ashish Vaswani"}],
+                "year": 2017,
+                "abstract": "Transformers replace recurrence with attention.",
+                "url": "https://www.semanticscholar.org/paper/semantic-001",
+                "openAccessPdf": {
+                    "url": "https://pdf.example.com/attention-is-all-you-need.pdf"
+                },
+                "externalIds": {"DOI": "10.5555/3295222.3295349"},
+                "citationCount": 12345,
+                "referenceCount": 77,
+            },
+        )
+    )
+
+    paper = await get_paper_details("DOI:10.5555/3295222.3295349")
+
+    assert route.called
+    assert paper.paper_id == "semantic-001"
+    assert paper.title == "Attention Is All You Need"
+    assert paper.authors == ["Ashish Vaswani"]
+    assert paper.doi == "10.5555/3295222.3295349"
+    assert paper.source_url == "https://www.semanticscholar.org/paper/semantic-001"
+    assert paper.pdf_url == "https://pdf.example.com/attention-is-all-you-need.pdf"
+    assert paper.citation_count == 12345
+    assert paper.reference_count == 77
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_semantic_scholar_get_paper_citations_normalizes_nested_citing_paper() -> None:
+    route = respx.get(f"{SEMANTIC_SCHOLAR_GRAPH_URL}/paper/semantic-001/citations").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "data": [
+                    {
+                        "citingPaper": {
+                            "paperId": "semantic-100",
+                            "title": "Follow-up Transformer Paper",
+                            "authors": [{"name": "Jane Doe"}],
+                            "year": 2019,
+                            "abstract": "Builds on the transformer architecture.",
+                            "url": "https://www.semanticscholar.org/paper/semantic-100",
+                            "openAccessPdf": {"url": "https://pdf.example.com/semantic-100.pdf"},
+                            "externalIds": {"DOI": "10.1000/citing"},
+                        }
+                    }
+                ],
+            },
+        )
+    )
+
+    papers = await get_paper_citations("semantic-001", limit=5)
+
+    assert route.called
+    assert papers == [
+        {
+            "title": "Follow-up Transformer Paper",
+            "authors": ["Jane Doe"],
+            "year": 2019,
+            "abstract": "Builds on the transformer architecture.",
+            "doi": "10.1000/citing",
+            "source": "semantic_scholar",
+            "source_paper_id": "semantic-100",
+            "source_url": "https://www.semanticscholar.org/paper/semantic-100",
+            "pdf_url": "https://pdf.example.com/semantic-100.pdf",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_semantic_scholar_get_paper_references_normalizes_nested_cited_paper() -> None:
+    route = respx.get(f"{SEMANTIC_SCHOLAR_GRAPH_URL}/paper/semantic-001/references").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "data": [
+                    {
+                        "citedPaper": {
+                            "paperId": "semantic-200",
+                            "title": "Sequence Modeling Baseline",
+                            "authors": [{"name": "John Doe"}],
+                            "year": 2015,
+                            "abstract": "An earlier sequence model.",
+                            "url": "https://www.semanticscholar.org/paper/semantic-200",
+                            "openAccessPdf": {"url": "https://pdf.example.com/semantic-200.pdf"},
+                            "externalIds": {"DOI": "10.1000/referenced"},
+                        }
+                    }
+                ],
+            },
+        )
+    )
+
+    papers = await get_paper_references("semantic-001", limit=5)
+
+    assert route.called
+    assert papers == [
+        {
+            "title": "Sequence Modeling Baseline",
+            "authors": ["John Doe"],
+            "year": 2015,
+            "abstract": "An earlier sequence model.",
+            "doi": "10.1000/referenced",
+            "source": "semantic_scholar",
+            "source_paper_id": "semantic-200",
+            "source_url": "https://www.semanticscholar.org/paper/semantic-200",
+            "pdf_url": "https://pdf.example.com/semantic-200.pdf",
+        }
+    ]
 
 
 @pytest.mark.integration
