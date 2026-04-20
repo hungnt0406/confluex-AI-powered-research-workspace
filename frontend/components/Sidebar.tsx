@@ -10,7 +10,16 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { user, logout } = useAuth();
-  const { projects, activeProject, selectProject, startNewResearch } = useChat();
+  const { projects, activeProject, selectProject, deleteProject, startNewResearch } = useChat();
+
+  const handleDeleteProject = async (projectId: string, projectTitle: string) => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete "${projectTitle}"? This cannot be undone.`);
+      if (!confirmed) return;
+    }
+
+    await deleteProject(projectId);
+  };
 
   return (
     <aside
@@ -108,25 +117,44 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               projects.map((project) => {
                 const isActive = activeProject?.id === project.id;
                 return (
-                  <button
+                  <div
                     key={project.id}
-                    onClick={() => selectProject(project.id)}
-                    className={`flex items-center gap-2.5 px-2.5 py-1.5 w-full text-left text-xs rounded-lg transition-colors ${
-                      isActive
-                        ? "bg-primary/10 font-medium text-on-surface"
-                        : "hover:bg-primary/5 text-on-surface-variant"
+                    className={`group flex items-center gap-1 rounded-lg ${
+                      isActive ? "bg-primary/10" : "hover:bg-primary/5"
                     }`}
                   >
-                    <span
-                      className={`material-symbols-outlined ${
-                        isActive ? "text-primary" : "opacity-60"
+                    <button
+                      onClick={() => selectProject(project.id)}
+                      className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-1.5 text-left text-xs transition-colors ${
+                        isActive
+                          ? "font-medium text-on-surface"
+                          : "text-on-surface-variant"
                       }`}
-                      style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
                     >
-                      chat_bubble
-                    </span>
-                    <span className="truncate">{project.title}</span>
-                  </button>
+                      <span
+                        className={`material-symbols-outlined ${
+                          isActive ? "text-primary" : "opacity-60"
+                        }`}
+                        style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
+                      >
+                        chat_bubble
+                      </span>
+                      <span className="truncate">{project.title}</span>
+                    </button>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteProject(project.id, project.title);
+                      }}
+                      className="mr-1 flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant/70 transition-colors hover:bg-error/10 hover:text-error"
+                      aria-label={`Delete ${project.title}`}
+                      title={`Delete ${project.title}`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                        delete
+                      </span>
+                    </button>
+                  </div>
                 );
               })
             )}
@@ -138,15 +166,15 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               onClick={logout}
               className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
                 logout
               </span>
               <span>Sign out</span>
             </button>
             <div className="flex items-center gap-2.5 w-full px-2.5 py-2 mt-1">
               <span
-                className="material-symbols-outlined w-6 h-6 rounded-full border border-outline/50 flex items-center justify-center text-on-surface-variant"
-                style={{ fontSize: "16px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20" }}
+                className="material-symbols-outlined text-on-surface-variant"
+                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
               >
                 account_circle
               </span>
@@ -193,8 +221,8 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               title={user?.email ?? "Scholar User"}
             >
               <span
-                className="material-symbols-outlined w-6 h-6 rounded-full border border-outline/50 flex items-center justify-center text-on-surface-variant"
-                style={{ fontSize: "16px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20" }}
+                className="material-symbols-outlined text-on-surface-variant"
+                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20" }}
               >
                 account_circle
               </span>
