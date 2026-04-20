@@ -89,6 +89,32 @@ class ProjectPaperRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CitationGraphPaperRead(BaseModel):
+    """Serialized related-paper payload returned from citation graph lookups."""
+
+    title: str
+    authors: list[str]
+    year: int | None
+    abstract: str | None
+    doi: str | None
+    source: str
+    source_paper_id: str | None
+    source_url: str | None
+    pdf_url: str | None
+
+
+class PaperCitationGraphRead(BaseModel):
+    """Citation and reference lists for one project paper."""
+
+    paper_id: str
+    resolved_by: str
+    resolved_source_paper_id: str
+    citation_count: int | None
+    reference_count: int | None
+    cited_by: list[CitationGraphPaperRead]
+    references: list[CitationGraphPaperRead]
+
+
 class ReferenceFileRead(BaseModel):
     """Serialized project reference file metadata."""
 

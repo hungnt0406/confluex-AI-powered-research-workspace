@@ -9,13 +9,16 @@ from sqlalchemy.orm import selectinload
 from backend.api.dependencies import (
     CurrentUser,
     DbSession,
+    PaperCitationServiceDependency,
     PaperConversationServiceDependency,
     PipelineServiceDependency,
     ReferenceFileServiceDependency,
     WriterOutputServiceDependency,
 )
 from backend.api.schemas.projects import (
+    CitationGraphPaperRead,
     PaginationMeta,
+    PaperCitationGraphRead,
     PaperConversationCreate,
     PaperConversationMessageCreate,
     PaperConversationRead,
@@ -30,6 +33,11 @@ from backend.api.schemas.projects import (
     WriterOutputRead,
 )
 from backend.db.models import Paper, PaperConversation, Project, ReferenceFile, WriterOutput
+from backend.services.paper_citations import (
+    CitationNotFoundError,
+    CitationProviderError,
+    CitationResolutionError,
+)
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
@@ -42,6 +50,13 @@ def unlink_stored_file(storage_path: Path) -> None:
     """Delete a stored upload from disk if it still exists."""
 
     storage_path.unlink(missing_ok=True)
+
+
+def unlink_stored_files(storage_paths: list[Path]) -> None:
+    """Delete multiple stored uploads from disk, ignoring already-missing files."""
+
+    for storage_path in storage_paths:
+        storage_path.unlink(missing_ok=True)
 
 
 async def get_owned_project_or_404(
@@ -206,6 +221,35 @@ async def get_project(
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
     return ProjectRead.model_validate(project)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> Response:
+    """Delete an owned project and clean up any stored reference files."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    storage_paths_result = await session.execute(
+        select(ReferenceFile.storage_path).where(ReferenceFile.project_id == project.id)
+    )
+    storage_paths = [
+        Path(storage_path)
+        for storage_path in dict.fromkeys(storage_paths_result.scalars().all())
+        if storage_path
+    ]
+
+    await session.delete(project)
+    await session.commit()
+
+    try:
+        await anyio.to_thread.run_sync(unlink_stored_files, storage_paths)
+    except OSError:
+        pass
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
@@ -377,6 +421,57 @@ async def list_project_papers(
     return ProjectPaperListResponse(
         data=[ProjectPaperRead.model_validate(paper) for paper in papers],
         meta=PaginationMeta.from_totals(total=total, page=page, per_page=per_page),
+    )
+
+
+@router.get(
+    "/{project_id}/papers/{paper_id}/citation-graph",
+    response_model=PaperCitationGraphRead,
+)
+async def get_project_paper_citation_graph(
+    project_id: str,
+    paper_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    paper_citation_service: PaperCitationServiceDependency,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> PaperCitationGraphRead:
+    """Return both cited-by and reference lists for one project paper."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    paper = await get_project_paper_or_404(
+        session,
+        project_id=project.id,
+        paper_id=paper_id,
+    )
+
+    try:
+        citation_graph = await paper_citation_service.get_citation_graph(
+            session=session,
+            paper=paper,
+            limit=limit,
+        )
+    except CitationResolutionError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    except CitationNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except CitationProviderError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+    return PaperCitationGraphRead(
+        paper_id=citation_graph.paper_id,
+        resolved_by=citation_graph.resolved_by,
+        resolved_source_paper_id=citation_graph.resolved_source_paper_id,
+        citation_count=citation_graph.citation_count,
+        reference_count=citation_graph.reference_count,
+        cited_by=[
+            CitationGraphPaperRead.model_validate(related_paper)
+            for related_paper in citation_graph.cited_by
+        ],
+        references=[
+            CitationGraphPaperRead.model_validate(related_paper)
+            for related_paper in citation_graph.references
+        ],
     )
 
 
