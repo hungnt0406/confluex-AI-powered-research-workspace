@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { ApiError } from "@/lib/api";
+import Logo from "@/components/Logo";
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -36,7 +37,9 @@ export default function LoginPage() {
         className="w-full max-w-sm bg-surface-container-low border border-outline/30 rounded-2xl p-8 shadow-sm space-y-6"
       >
         <div className="text-center space-y-2">
-          <h1 className="font-headline text-3xl font-medium">Confluex</h1>
+          <div className="flex justify-center">
+            <Logo size="lg" />
+          </div>
           <p className="text-sm text-secondary">
             {mode === "login" ? "Sign in to your research workspace." : "Create a new research account."}
           </p>
