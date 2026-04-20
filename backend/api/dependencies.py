@@ -10,6 +10,7 @@ from backend.agents.pipeline import LiteraturePipelineService
 from backend.db.models import User
 from backend.db.session import get_db_session
 from backend.security import decode_access_token
+from backend.services.paper_citations import PaperCitationService
 from backend.services.paper_conversations import PaperConversationService
 from backend.services.reference_files import ReferenceFileService
 from backend.services.writer_outputs import WriterOutputService
@@ -71,6 +72,12 @@ def get_paper_conversation_service() -> PaperConversationService:
     return PaperConversationService()
 
 
+def get_paper_citation_service() -> PaperCitationService:
+    """Return the default paper citation service."""
+
+    return PaperCitationService()
+
+
 def get_writer_output_service() -> WriterOutputService:
     """Return the default writer output service."""
 
@@ -86,6 +93,10 @@ ReferenceFileServiceDependency = Annotated[
 PaperConversationServiceDependency = Annotated[
     PaperConversationService,
     Depends(get_paper_conversation_service),
+]
+PaperCitationServiceDependency = Annotated[
+    PaperCitationService,
+    Depends(get_paper_citation_service),
 ]
 WriterOutputServiceDependency = Annotated[
     WriterOutputService,
