@@ -37,6 +37,8 @@ async def test_semantic_scholar_search_returns_expected_fields() -> None:
                             "url": "https://pdf.example.com/attention-is-all-you-need.pdf"
                         },
                         "externalIds": {"DOI": "10.5555/3295222.3295349"},
+                        "citationCount": 12345,
+                        "referenceCount": 77,
                     }
                 ]
             },
@@ -52,6 +54,8 @@ async def test_semantic_scholar_search_returns_expected_fields() -> None:
     assert papers[0]["source_paper_id"] == "semantic-001"
     assert papers[0]["source_url"] == "https://www.semanticscholar.org/paper/semantic-001"
     assert papers[0]["pdf_url"] == "https://pdf.example.com/attention-is-all-you-need.pdf"
+    assert papers[0]["citation_count"] == 12345
+    assert papers[0]["reference_count"] == 77
 
 
 @pytest.mark.asyncio

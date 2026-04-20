@@ -95,6 +95,8 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "source_paper_id": "semantic-001",
                 "source_url": "https://www.semanticscholar.org/paper/semantic-001",
                 "pdf_url": "https://pdf.example.com/semantic-001.pdf",
+                "citation_count": 124,
+                "reference_count": 37,
                 "relevance_score": None,
             },
             {
@@ -145,6 +147,8 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
                 "source_paper_id": "semantic-004",
                 "source_url": "https://www.semanticscholar.org/paper/semantic-004",
                 "pdf_url": "https://pdf.example.com/semantic-004.pdf",
+                "citation_count": 18,
+                "reference_count": 9,
                 "relevance_score": None,
             }
         ],
@@ -188,7 +192,11 @@ async def test_searcher_agent_deduplicates_filters_and_persists_candidates(
         persisted_papers_by_title["Reliable Multi-Agent Review"].pdf_url
         == "https://pdf.example.com/semantic-001.pdf"
     )
+    assert persisted_papers_by_title["Reliable Multi-Agent Review"].citation_count == 124
+    assert persisted_papers_by_title["Reliable Multi-Agent Review"].reference_count == 37
     assert persisted_papers_by_title["Ranking Agentic Workflows"].source_paper_id == "semantic-004"
+    assert persisted_papers_by_title["Ranking Agentic Workflows"].citation_count == 18
+    assert persisted_papers_by_title["Ranking Agentic Workflows"].reference_count == 9
 
 
 async def test_searcher_agent_backfills_missing_provider_metadata_with_none(
@@ -243,6 +251,8 @@ async def test_searcher_agent_backfills_missing_provider_metadata_with_none(
     assert persisted_paper.source_paper_id is None
     assert persisted_paper.source_url is None
     assert persisted_paper.pdf_url is None
+    assert persisted_paper.citation_count is None
+    assert persisted_paper.reference_count is None
 
 
 async def test_searcher_named_entity_topic_uses_conservative_queries() -> None:

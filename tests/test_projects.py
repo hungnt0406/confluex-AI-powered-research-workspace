@@ -205,6 +205,8 @@ async def test_list_project_papers_supports_filters_and_pagination(
             doi="10.1000/ranking",
             source="semantic_scholar",
             status="summarized",
+            citation_count=42,
+            reference_count=11,
             relevance_score=93.4,
         )
         session.add(paper)
@@ -232,6 +234,8 @@ async def test_list_project_papers_supports_filters_and_pagination(
     assert payload["meta"] == {"total": 1, "page": 1, "per_page": 10, "total_pages": 1}
     assert len(payload["data"]) == 1
     assert payload["data"][0]["status"] == "summarized"
+    assert payload["data"][0]["citation_count"] == 42
+    assert payload["data"][0]["reference_count"] == 11
     assert payload["data"][0]["summary"]["problem"] == "Rank multi-agent systems"
 
 
