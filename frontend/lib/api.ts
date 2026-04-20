@@ -113,6 +113,8 @@ export type ProjectPaper = {
   source: string;
   source_url: string | null;
   pdf_url: string | null;
+  citation_count: number | null;
+  reference_count: number | null;
   status: string;
   relevance_score: number | null;
   summary: PaperSummary | null;
