@@ -2,35 +2,47 @@
 
 ## Documentation Ownership
 
-- Purpose: Canonical traceability map from product features to implementation and validation assets.
-- Audience: Engineers, reviewers, and AI agents making changes in this repository.
-- Canonical for: "Where does this feature live?" across code, tests, docs, and config.
-- Update when: Any feature path, test coverage, or related documentation/config changes.
+- Purpose: Canonical traceability map from product features to implementation, validation, and supporting documentation.
+- Audience: Engineers, reviewers, and AI agents changing this repository.
+- Canonical for: "Where does this feature live?" across code, tests, docs, and config/examples.
+- Update when: A shipped feature gains new routes, services, tests, docs, or environment/config requirements.
+
+## Canonical Docs By Intent
+
+| Doc | Canonical purpose |
+|---|---|
+| `README.md` | Current product overview, setup, API surface, and documentation entry point |
+| `docs/feature-map.md` | Traceability from shipped features to code/tests/docs/config |
+| `docs/backend-diagram.md` | Backend architecture, route wiring, and data flow |
+| `docs/TEST_POSTMAN.md` | Manual API verification steps and request examples |
+| `docs/features/*.md` | Deep dives for feature-specific behavior and implementation |
+| `docs/user-journey.md` | Product journey and UX state, with explicit shipped vs planned notes |
+| `plans/*.md` | Historical phase plans and roadmap context, not current-state ownership |
+| `JOURNAL.md`, `WORKLOG.md` | Historical implementation log and technical decision record |
 
 ## Main Features
 
 | Feature | Main code locations | Related tests | Related docs | Related config/examples |
 |---|---|---|---|---|
-| App shell, auth, dashboard | `app.py`, `src/auth/auth_manager.py`, `src/db/session.py`, `src/db/models.py` | No direct page/auth tests | `PLAN.md`, `AGENTS.md`, `JOURNAL.md` | `src/config.py`, `scripts/run_app.sh`, `Dockerfile`, `railway.toml` |
-| New review workflow and live pipeline UI | `pages/1_New_Review.py` | `tests/test_preflight.py` | `PLAN.md`, `JOURNAL.md`, `journals/week1/2026-04-07.md` | `src/config.py` |
-| Pipeline orchestration and state | `src/pipeline/orchestrator.py`, `src/pipeline/state.py` | `tests/test_pipeline_stages.py`, `tests/test_repro_zero_papers.py` | `PLAN.md`, `WORKLOG.md` | `src/config.py` |
-| Search and source fusion | `src/pipeline/search.py`, `src/sources/factory.py`, `src/sources/*.py` | `tests/test_sources.py`, `tests/test_pipeline_stages.py` | `PLAN.md`, `WORKLOG.md` | `src/config.py`, `scripts/test_sources.py` |
-| Embedding filter and ranking | `src/pipeline/filter.py`, `src/pipeline/rank.py`, `src/pipeline/topic_quality.py`, `src/indexing/embedder.py` | `tests/test_pipeline_stages.py` | `PLAN.md`, `JOURNAL.md` | `src/config.py` |
-| Full text fetch and cache | `src/pipeline/fetch_node.py`, `src/sources/pdf_handler.py` | `tests/test_pdf_handler.py`, `tests/test_pipeline_stages.py` | `PLAN.md`, `WORKLOG.md` | `src/config.py`, `data/papers/` |
-| LLM synthesis and quality gate | `src/pipeline/synthesize.py`, `src/pipeline/quality.py`, `src/llm/wrapper.py`, `src/pipeline/preflight.py` | `tests/test_pipeline_stages.py`, `tests/test_llm_wrapper.py`, `tests/test_preflight.py` | `PLAN.md`, `WORKLOG.md` | `src/config.py`, `pages/4_Settings.py` |
-| Output generation and persistence | `src/pipeline/output_node.py`, `src/output/docx_generator.py`, `src/output/latex_generator.py`, `src/db/review_repository.py` | `tests/test_output.py` | `PLAN.md`, `WORKLOG.md` | `src/output/templates/review_template.tex`, `Dockerfile` |
-| My Reviews page and downloads | `pages/2_My_Reviews.py`, `src/db/review_repository.py` | Partial repository coverage in `tests/test_output.py` | `PLAN.md`, `JOURNAL.md` | `src/config.py` |
-| Paper Library page and paper-review linkage | `pages/3_Paper_Library.py`, `src/db/paper_repository.py` | `tests/test_paper_library.py` | `PLAN.md`, `journals/week1/2026-04-07.md` | `src/config.py` |
-| Settings and admin user CRUD | `pages/4_Settings.py`, `src/auth/auth_manager.py`, `src/db/models.py` | No direct page/admin tests | `PLAN.md`, `JOURNAL.md` | `src/config.py` |
-| Local indexing pipeline | `scripts/build_index.py`, `src/indexing/dataset_loader.py`, `src/indexing/vector_store.py`, `src/sources/local_source.py` | No direct indexing script tests | `PLAN.md`, `JOURNAL.md` | `src/config.py`, `scripts/build_index.py --help` |
-| Deployment and AI logging hooks | `Dockerfile`, `railway.toml`, `scripts/run_app.sh`, `scripts/setup_hooks.sh`, `scripts/log_hook.py`, `scripts/submit_log.py` | No direct deployment/hook tests | `AGENTS.md`, `README.md` | Railway and Docker configuration files |
+| Auth and JWT session | `backend/api/routers/auth.py`, `backend/security.py`, `backend/api/dependencies.py` | `tests/test_auth.py` | `README.md`, `docs/backend-diagram.md`, `docs/TEST_POSTMAN.md` | `.env.example`, `backend/config.py` |
+| Project CRUD and project defaults | `backend/api/routers/projects.py`, `backend/api/schemas/projects.py`, `backend/db/models.py` | `tests/test_projects.py` | `README.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md` | `.env.example`, `database_schema.sql`, `backend/db/migrations/versions/20260411_01_create_phase_1_tables.py` |
+| Discovery pipeline: Searcher -> Reader -> warning branch | `backend/agents/pipeline.py`, `backend/agents/graph.py`, `backend/agents/searcher.py`, `backend/agents/reader.py`, `backend/agents/state.py`, `backend/services/semantic_scholar.py`, `backend/services/arxiv.py`, `backend/services/embeddings.py`, `backend/services/llm.py` | `tests/test_pipeline.py`, `tests/test_graph.py`, `tests/test_searcher_reader.py`, `tests/test_services.py`, `tests/test_search_quality.py`, `tests/test_llm_embeddings.py` | `README.md`, `docs/backend-diagram.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md`, `plans/phase-2-searcher-reader.md` | `.env.example`, `backend/config.py`, `pyproject.toml` |
+| Reference PDF upload and uploaded-paper seeding | `backend/services/reference_files.py`, `backend/api/routers/projects.py`, `backend/db/models.py` | `tests/test_reference_files.py`, `tests/test_searcher_reader.py` | `docs/features/upload_reference_file.md`, `docs/TEST_POSTMAN.md`, `docs/backend-diagram.md`, `docs/user-journey.md` | `.env.example`, `backend/config.py`, `REFERENCE_UPLOAD_DIR`, `REFERENCE_MAX_FILE_BYTES` |
+| Ranked paper list and pagination/filtering | `backend/api/routers/projects.py`, `backend/api/schemas/projects.py` | `tests/test_projects.py` | `README.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md` | query params in API examples |
+| Grounded paper conversations over PDFs | `backend/services/paper_conversations.py`, `backend/services/document_extraction.py`, `backend/api/routers/projects.py`, `backend/db/models.py` | `tests/test_paper_conversations.py`, `tests/test_document_extraction.py` | `README.md`, `docs/features/paper_conversations.md`, `docs/backend-diagram.md`, `docs/user-journey.md`, `plans/phase-3a-paper-understanding.md` | `.env.example`, `backend/config.py`, `OPENROUTER_DOCUMENT_MODEL`, `OPENROUTER_PDF_ENGINE`, `PAPER_RETRIEVAL_TOP_K` |
+| Writer generation, citations, and QA | `backend/services/writer_outputs.py`, `backend/agents/writer.py`, `backend/agents/qa.py`, `backend/services/citations.py`, `backend/api/routers/projects.py`, `backend/db/models.py` | `tests/test_writer_outputs.py` | `README.md`, `docs/features/writer_outputs.md`, `docs/user-journey.md`, `plans/phase-3-writer-qa.md` | `.env.example`, `backend/config.py`, writer request examples in docs |
+| Frontend login/chat shell and project-driven Q&A flow | `frontend/app/login/page.tsx`, `frontend/app/chat/page.tsx`, `frontend/components/AuthProvider.tsx`, `frontend/components/ChatProvider.tsx`, `frontend/components/Sidebar.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/components/ContextPanel.tsx`, `frontend/lib/api.ts` | No frontend tests currently | `frontend/README.md`, `README.md`, `docs/user-journey.md` | `frontend/.env.local.example`, `frontend/package.json`, `frontend/tailwind.config.ts`, `frontend/next.config.mjs` |
+| DB schema, migrations, and runtime wiring | `backend/db/models.py`, `backend/db/session.py`, `backend/db/migrations/versions/*`, `backend/main.py` | Coverage spread across API and service tests | `README.md`, `docs/backend-diagram.md`, `database_schema.sql` | `alembic.ini`, `pyproject.toml`, `.env.example` |
+| AI logging hooks and repo hygiene | `scripts/setup_hooks.sh`, `scripts/log_hook.py`, `scripts/submit_log.py`, `AGENTS.md` | No direct tests | `AGENTS.md`, `README.md` | `.env.example`, `.codex/hooks.json`, `.cursor/hooks.json`, `.claude/settings.json`, `.gemini/settings.json`, `.github/hooks/hooks.json` |
 
 ## Known Ownership Gaps
 
-- No dedicated tests for auth flow, dashboard rendering, Settings UI, and admin CRUD workflows.
-- Runtime docs previously assumed `venv/bin/python` exists; environment bootstrap was not explicit.
-- Legacy starter files `src/agent.py` and `src/tools.py` still exist and can be mistaken for active product paths.
+- Frontend behavior is documented, but there is still no frontend test coverage.
+- Feature deep-dive docs are now uneven only if new backend features ship without a matching `docs/features/*.md` file.
+- `database_schema.sql` and the live SQLAlchemy/Alembic models can drift unless both are updated together when schema changes land.
 
 ## Naming Notes
 
-Use the term "local paper index" in documentation. Code may still refer to `local_arxiv` and `local_index`; both map to the same capability.
+- Use "discovery pipeline" for the always-on `searcher -> reader` flow.
+- Use "writer generation" for the user-invoked writing flow; it is not part of `/pipeline/health`.
+- Use "reference files" for uploaded PDFs and "uploaded papers" for the linked `Paper` rows created from them.

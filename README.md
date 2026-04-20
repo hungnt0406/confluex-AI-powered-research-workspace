@@ -18,6 +18,16 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
 - GitHub Actions CI for migrations, linting, type-checking, and tests
 
+## Documentation map
+
+- `README.md` is the current-state overview and setup entry point.
+- `docs/feature-map.md` is the canonical feature-to-code/test/doc/config traceability map.
+- `docs/backend-diagram.md` explains backend wiring, route ownership, and data flow.
+- `docs/TEST_POSTMAN.md` covers manual API verification in Postman.
+- `docs/features/upload_reference_file.md`, `docs/features/paper_conversations.md`, and `docs/features/writer_outputs.md` are feature deep dives.
+- `docs/user-journey.md` describes the shipped and planned UX journey.
+- `plans/` contains historical phase plans and roadmap material, not the canonical current-state docs.
+
 ## Repository layout
 
 ```text
@@ -126,6 +136,6 @@ RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval
 
 ## Project hygiene
 
-- Update [JOURNAL.md](/Users/hungcucu/Documents/VinAI/A20-App-143/JOURNAL.md) before each PR with weekly learnings and shipped work.
-- Update [WORKLOG.md](/Users/hungcucu/Documents/VinAI/A20-App-143/WORKLOG.md) when the team makes meaningful technical decisions.
-- AI tool prompts are logged automatically. See [AGENTS.md](/Users/hungcucu/Documents/VinAI/A20-App-143/AGENTS.md) for repository rules.
+- Update `JOURNAL.md` before each PR with weekly learnings and shipped work.
+- Update `WORKLOG.md` when the team makes meaningful technical decisions.
+- AI tool prompts are logged automatically. See `AGENTS.md` for repository rules.

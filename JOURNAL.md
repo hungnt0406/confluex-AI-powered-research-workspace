@@ -111,6 +111,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ## Repo Change Log
 
+### 2026-04-20 10:55
+- **done:**
+  - Rebuilt `docs/feature-map.md` as the canonical current-state traceability map for this repo and aligned it to the real backend/frontend/test surface.
+  - Updated `README.md`, `docs/backend-diagram.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md`, and `frontend/README.md` to remove stale ownership references, fix current-vs-planned wording, and add a clearer documentation spine.
+  - Added `docs/features/paper_conversations.md` and `docs/features/writer_outputs.md` so the shipped paper-Q&A and writer features now have dedicated deep-dive docs alongside the existing reference-file doc.
+- **doing:**
+  - Running a consistency sweep for stale paths, missing references, and doc/API mismatches after the documentation realignment.
+- **blocked:**
+  - None.
+
 ### 2026-04-18 00:25
 - **done:**
   - Updated `JOURNAL.md` so the weekly summaries follow the file's own `## Tuần N — DD/MM/YYYY` template and section headings exactly.
