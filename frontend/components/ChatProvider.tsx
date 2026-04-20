@@ -39,6 +39,7 @@ type ChatState = {
   busy: boolean;
   error: string | null;
   selectProject: (id: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
   startNewResearch: () => void;
   submitMessage: (text: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -149,6 +150,30 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [],
+  );
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      if (!authedRef.current) return;
+      setBusy(true);
+      setError(null);
+
+      try {
+        await api<void>(`/projects/${projectId}`, {
+          method: "DELETE",
+          token: authedRef.current,
+        });
+        setProjects((prev) => prev.filter((project) => project.id !== projectId));
+        if (activeProject?.id === projectId) {
+          startNewResearch();
+        }
+      } catch (err: any) {
+        setError(err?.message ?? "Failed to delete project.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [activeProject, startNewResearch],
   );
 
   const submitMessage = useCallback(
@@ -368,6 +393,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       error,
       selectProject,
+      deleteProject,
       startNewResearch,
       submitMessage,
       refreshProjects,
@@ -384,6 +410,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       error,
       selectProject,
+      deleteProject,
       startNewResearch,
       submitMessage,
       refreshProjects,
