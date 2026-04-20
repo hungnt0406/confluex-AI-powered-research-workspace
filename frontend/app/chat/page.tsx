@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import Sidebar from "@/components/Sidebar";
@@ -11,6 +11,7 @@ import { ChatProvider } from "@/components/ChatProvider";
 export default function ChatPage() {
   const { ready, token } = useAuth();
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (ready && !token) router.replace("/login");
@@ -27,7 +28,7 @@ export default function ChatPage() {
   return (
     <ChatProvider>
       <div className="flex h-screen overflow-hidden w-full">
-        <Sidebar />
+        <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen((v) => !v)} />
         <ChatWorkspace />
         <ContextPanel />
       </div>
