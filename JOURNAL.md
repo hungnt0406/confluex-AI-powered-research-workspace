@@ -111,6 +111,28 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ## Repo Change Log
 
+### 2026-04-20 22:05
+- **done:**
+  - Identified "missing basic features" for the research tool (Export, Advanced Settings, SSE Progress, Paper Management).
+  - Reorganized the `plans/` directory into `completed/` and `in-progress/` subdirectories.
+  - Broke down the new implementation plan into focused phases: Phase 4A (Export), Phase 4B (Advanced Settings), and Phase 4C (UI Refinements).
+  - Updated `plans/README.md` to reflect the new repository roadmap.
+- **doing:**
+  - Ready to begin implementation of Phase 4A (Export Infrastructure).
+- **blocked:**
+  - None.
+
+### 2026-04-20 21:15
+- **done:**
+  - Tested the Next.js frontend UI on `localhost:3000`.
+  - Verified landing page design, example topic interaction, and custom research queries.
+  - Confirmed successful integration with the FastAPI backend and live paper search services.
+  - Captured screenshots of the functional UI and verified result relevance for technical topics.
+- **doing:**
+  - The UI is confirmed stable and functional for core discovery flows.
+- **blocked:**
+  - None.
+
 ### 2026-04-20 11:20
 - **done:**
   - Updated `AGENTS.md` with an explicit repository entry workflow for AI coding agents so they read repo rules, current-state docs, feature mapping, implementation files, and related tests before editing.
