@@ -29,6 +29,8 @@ Create a Postman environment named `Literature Review Local` with these variable
 | `project_id` | empty |
 | `reference_file_id` | empty |
 | `paper_id` | empty |
+| `conversation_id` | empty |
+| `writer_output_id` | empty |
 
 For authenticated requests, add this header:
 
@@ -71,7 +73,7 @@ Expected status: `200 OK`
 Verify:
 
 - `status` is `ok`
-- `nodes` includes `searcher_node`, `reader_node`, `writer_node`, and `qa_node`
+- `nodes` includes `searcher_node`, `reader_node`, and `reader_warning_node`
 
 ## 4. Register Or Login
 
@@ -434,7 +436,187 @@ GET {{base_url}}/projects/{{project_id}}/reference-files
 
 Verify the deleted `reference_file_id` is no longer in the list.
 
-## 10. Negative Test Cases
+## 10. Grounded Paper Conversations
+
+Use this step after the project has papers and `paper_id` is set from the papers list.
+
+### POST Create Conversation
+
+```text
+POST {{base_url}}/projects/{{project_id}}/papers/{{paper_id}}/conversations
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "question": "Give me a structured overview of this paper and explain why it matters for my topic."
+}
+```
+
+Expected status: `201 Created`
+
+Verify:
+
+- `id` is present
+- `paper_id` matches `{{paper_id}}`
+- `messages` contains the user turn and one assistant turn
+
+Postman Tests script:
+
+```javascript
+pm.test("conversation created", function () {
+  pm.response.to.have.status(201);
+  const body = pm.response.json();
+  pm.expect(body.id).to.be.a("string").and.not.empty;
+  pm.expect(body.messages).to.be.an("array");
+  pm.environment.set("conversation_id", body.id);
+});
+```
+
+### GET List Conversations
+
+```text
+GET {{base_url}}/projects/{{project_id}}/papers/{{paper_id}}/conversations
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- the response is an array
+- the created `conversation_id` appears in the response
+
+### GET Conversation Detail
+
+```text
+GET {{base_url}}/projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- `id` matches `{{conversation_id}}`
+- `messages` is ordered oldest to newest
+
+### POST Follow-Up Message
+
+```text
+POST {{base_url}}/projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}/messages
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "question": "What methodology details are most important?"
+}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- the message count increases
+- the newest assistant response reflects the follow-up question
+
+## 11. Generate Writer Output
+
+Use this step after the project has one or more papers. Reuse one or more IDs from the papers list.
+
+### POST Generate Writer Output
+
+```text
+POST {{base_url}}/projects/{{project_id}}/writer/generate
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "paper_ids": ["{{paper_id}}"],
+  "instruction": "Write a short related work paragraph grounded in this paper.",
+  "output_target": "markdown",
+  "include_references": true,
+  "max_words": 120
+}
+```
+
+Expected status: `201 Created`
+
+Verify:
+
+- `id` is present
+- `project_id` matches `{{project_id}}`
+- `body` is a non-empty string
+- `qa_flags` is present
+
+Postman Tests script:
+
+```javascript
+pm.test("writer output created", function () {
+  pm.response.to.have.status(201);
+  const body = pm.response.json();
+  pm.expect(body.id).to.be.a("string").and.not.empty;
+  pm.expect(body.body).to.be.a("string").and.not.empty;
+  pm.environment.set("writer_output_id", body.id);
+});
+```
+
+### GET Writer Output
+
+```text
+GET {{base_url}}/projects/{{project_id}}/writer/outputs/{{writer_output_id}}
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- `id` matches `{{writer_output_id}}`
+- persisted `body`, `references`, `warnings`, and `qa_flags` are returned
+
+## 12. Negative Test Cases
 
 ### Missing Token
 
@@ -491,7 +673,7 @@ Upload the same PDF twice to the same project.
 
 Expected status: `409 Conflict`
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -503,7 +685,7 @@ Expected status: `409 Conflict`
 | Pipeline is slow | External APIs or LLM calls are running | Wait for completion or test with smaller limits |
 | Few or no papers | Search APIs returned sparse results or filters removed papers | Try a broader topic or lower `year_start` |
 
-## 12. Recommended Test Order
+## 14. Recommended Test Order
 
 Run requests in this order for a clean manual test:
 
@@ -516,4 +698,10 @@ Run requests in this order for a clean manual test:
 7. `POST /projects/{{project_id}}/run`
 8. `GET /projects/{{project_id}}/papers?page=1&per_page=10`
 9. `GET /projects/{{project_id}}/papers?status=summarized&min_relevance=50&page=1&per_page=10`
-10. `DELETE /projects/{{project_id}}/reference-files/{{reference_file_id}}`
+10. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations`
+11. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations`
+12. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}`
+13. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}/messages`
+14. `POST /projects/{{project_id}}/writer/generate`
+15. `GET /projects/{{project_id}}/writer/outputs/{{writer_output_id}}`
+16. `DELETE /projects/{{project_id}}/reference-files/{{reference_file_id}}`
