@@ -1,8 +1,13 @@
 # User Journey Map
 
-This document captures the planned end-to-end user journey for the Automated Literature Review product. It is synthesized from `README.md`, `CORE_FEATURES.md`, `USER_STORIES.md`, and the delivery plans in `plans/` (phases 1–5 including phase 3A/3B/3C).
+This document captures the current and planned end-to-end user journey for the Automated Literature Review product. It is synthesized from `README.md`, `CORE_FEATURES.md`, `USER_STORIES.md`, and the delivery plans in `plans/`.
 
 Use this as a shared reference when designing UI, prioritizing backlog items, or evaluating whether a proposed change helps or hurts the core user flow.
+
+Status note:
+
+- Shipped frontend today: login plus a chat-style workspace in `frontend/` that can create projects, run discovery, list ranked papers in context, and start grounded paper conversations.
+- Planned frontend still missing: the full stage-based UI for reference-file management, paper drill-down workflows, writer workspace, downloads, and richer iteration tools.
 
 > **Paradigm note (post phase 3 refactor):** The product is no longer "push one button and get a full literature review." Paper discovery is automatic (`searcher → reader`), but **Writer + QA are user-invoked after paper selection**. The user picks papers, writes an instruction, picks an output format (LaTeX, docs, markdown, plain text), and receives a grounded, QA-validated artifact (prose, references, BibTeX, etc.).
 
@@ -48,7 +53,7 @@ flowchart LR
 - **User goal:** Get access quickly.
 - **User actions:** Register with email/password, or login.
 - **System:** `POST /auth/register`, `POST /auth/login` → JWT.
-- **Touchpoints:** `/register`, `/login` (Phase 4 UI).
+- **Touchpoints:** `/login` is shipped in the current frontend. A more complete onboarding flow is still planned.
 - **Feeling:** Neutral; wants friction-free onboarding.
 - **Pain points:** Password reset / SSO not in plan yet.
 - **Opportunity:** Pre-fill with a demo project for first login.
@@ -58,7 +63,7 @@ flowchart LR
 - **User goal:** Translate a vague research idea into a runnable project.
 - **User actions:** Enter title, topic description (natural language), year range, candidate / summary limits. Citation format is no longer a project-level lock — it is chosen per writer request in Stage 8.
 - **System:** `POST /projects` persists project defaults.
-- **Touchpoint:** `/projects/new` (Phase 4 UI).
+- **Touchpoint:** Project creation is currently driven from the chat workspace on first message. A dedicated creation screen remains planned.
 - **Feeling:** "Will it understand my messy topic?"
 - **Pain points:** No guidance on what makes a good topic description; no topic-quality feedback.
 - **Opportunity:** Inline placeholder examples, topic quality hints.
@@ -81,7 +86,7 @@ flowchart LR
   - **Reader:** embed topic + abstracts, cosine-rank, summarize top N structurally (Problem / Method / Result / Relevance).
   - **Warning branch:** if fewer than 5 papers ranked, append a warning flag.
 - **Important:** Writer and QA **do not run here** by design. The user invokes them later from the paper list (Stage 8).
-- **Touchpoint:** `/projects/{id}/run` with a progress bar + live logs (Phase 4 UI).
+- **Touchpoint:** The current chat workspace triggers this flow inline. Progress streaming and richer run logs remain planned.
 - **Feeling:** Anxious + excited — watching the agents work is the first "wow" moment.
 - **Pain points:** 60–90s wait; opaque failures if external APIs are slow.
 - **Opportunity:** Real-time per-paper log lines ("Summarizing 23/30"), token-budget guard, cached runs for demo.
@@ -91,7 +96,7 @@ flowchart LR
 - **User goal:** Quickly decide which papers matter.
 - **User actions:** Sort by relevance, filter by year or relevance slider, expand cards to see structured summary, check papers to select for Q&A or writing.
 - **System:** `GET /projects/{id}/papers?status=...&min_relevance=...` paginated; summaries joined.
-- **Touchpoint:** `/projects/{id}/papers` (Phase 4 UI).
+- **Touchpoint:** The current frontend shows ranked papers in the right-side context panel. A fuller paper-library screen remains planned.
 - **Feeling:** Empowered — "I can triage 30 papers in minutes."
 - **Pain points:** Relevance score may feel like a black box; no "why this was ranked high" explanation.
 - **Opportunity:** Show per-paper evidence snippet, allow re-rank with user feedback.
@@ -104,7 +109,7 @@ flowchart LR
   - `POST /projects/{id}/papers/{paper_id}/conversations` — first turn. If PDF chunks are missing, extraction runs on demand via OpenRouter (`native` PDF engine, retries with `cloudflare-ai`), persists `paper_documents` + `paper_chunks` with embeddings, retrieves top-k chunks, answers grounded to the paper. Falls back to abstract + summary if extraction fails.
   - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` — follow-up turns, using the newest 10 messages plus top-k retrieved chunks for the new question.
   - `GET /projects/{id}/papers/{paper_id}/conversations` and `/conversations/{conversation_id}` — list and detail.
-- **Touchpoint:** Per-paper drawer/modal (Phase 4 UI, not yet in code).
+- **Touchpoint:** The current frontend automatically grounds on the top paper in the chat workspace. A dedicated per-paper conversation UI remains planned.
 - **Feeling:** Confident — "I can interrogate the paper like a tutor."
 - **Pain points:** Scanned-only PDFs → limited answers; first-turn latency while extraction runs.
 - **Opportunity:** Show a "grounded vs metadata fallback" badge so the user knows the answer's evidence source.
@@ -126,7 +131,7 @@ flowchart LR
   - Runs the **QA validator** — flags unsupported claims, mismatched citations, malformed LaTeX/BibTeX, empty output, generic text that doesn't reference the selected papers.
   - Deterministic citation formatter layer produces stable keys and consistent references.
   - Persists the full artifact (snapshot of selected paper IDs, instruction, settings, body, references, BibTeX, warnings, QA flags).
-- **Touchpoint:** Writer workspace UI (Phase 4, not yet built) with starter actions: `Related work`, `Reference section`, `LaTeX subsection`, `BibTeX`, `Compare methods`.
+- **Touchpoint:** Writer workspace UI is still planned. Backend support is shipped, but the current frontend does not expose it yet.
 - **Feeling:** In control — "I told the system exactly what I want, and it stayed on leash."
 - **Pain points:** Output quality depends on selected-paper metadata completeness; large selections are slower and costlier (~$0.02–$0.09 per request).
 - **Opportunity:** One-click starter prompts; "last N outputs" drawer for the project.
@@ -139,7 +144,7 @@ flowchart LR
   - Writer output contains `body`, `references`, `bibtex_entries`, `citations_used`, `warnings`, `qa_flags` with severity and location.
   - QA enforces: claims without support from selected papers, citation markers with no matching reference, malformed LaTeX / `thebibliography`, incomplete metadata, empty-ish output.
   - `GET /projects/{id}/writer/outputs/{output_id}` reloads a persisted artifact without regenerating.
-- **Touchpoint:** Output panel next to the writer workspace (Phase 4 UI).
+- **Touchpoint:** Output review UI is still planned; current verification is backend/API only.
 - **Feeling:** Critical reviewer mode — "Trust but verify." When QA catches a real problem, trust jumps.
 - **Pain points:** Flag text must be specific enough to act on.
 - **Opportunity:** Clickable flags that jump to the exact token/reference; "fix with AI" shortcut that re-runs writer on only that portion.
@@ -160,7 +165,7 @@ flowchart LR
 - **System (partial):**
   - Deterministic formatter already emits LaTeX `\cite{...}` + BibTeX / `thebibliography`, docs/markdown numbered `[1]`, or author-year `(Author, Year)` with matching reference lists.
   - Download endpoints for `.bib`, `.tex`, `.docx`, and plain-text references are listed in Phase 3 as optional and are not yet implemented.
-- **Touchpoint:** Copy buttons + download menu in the output panel.
+- **Touchpoint:** Copy and download UX is still planned; current usage is backend/API only.
 - **Feeling:** Satisfied — tangible output they can paste into a thesis / proposal.
 - **Pain points:** No file downloads yet; Word rendering untested on Windows.
 - **Opportunity:** One-click `.bib` / `.tex` / `.docx` downloads; per-journal style presets in Phase 5.
@@ -205,7 +210,7 @@ Shipped (no longer gaps):
 
 Still missing or partial (highest risks to the journey today):
 
-- **Frontend UI for every stage** — the `frontend/` folder is currently empty; all touchpoints listed above are backend-only today (Phase 4 work).
+- **Frontend coverage across the full journey** — the repo now ships a login page and chat workspace, but reference-file management, dedicated paper drill-down screens, writer workspace, and export UX are still missing.
 - **Stage 5 live streaming** — no SSE progress stream yet.
 - **Stage 11 file downloads** — `.bib`, `.tex`, `.docx`, and plain-text reference download endpoints are not implemented.
 - **Stage 10 diff / partial regeneration** — no output history UI or per-section regenerate.

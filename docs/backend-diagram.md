@@ -153,7 +153,7 @@ flowchart TB
 
     subgraph PipelineEndpoints["Pipeline endpoints"]
         Pipeline --> PipelineHealth["GET /pipeline/health"]
-        PipelineHealth --> NodeNames["PIPELINE_NODE_NAMES<br/>searcher_node<br/>reader_node<br/>reader_warning_node<br/>writer_node<br/>qa_node"]
+        PipelineHealth --> NodeNames["PIPELINE_NODE_NAMES<br/>searcher_node<br/>reader_node<br/>reader_warning_node"]
     end
 
     AuthRequiredA --> UserModel["User"]
@@ -254,8 +254,6 @@ sequenceDiagram
     alt Fewer than 5 ranked papers
         Runner->>Runner: reader_warning_node adds qa_flags warning
     end
-    Runner->>Runner: writer_node currently passes through draft
-    Runner->>Runner: qa_node currently returns no updates
     Runner-->>Service: Final AgentState
     Service-->>Route: Final AgentState
     Route-->>Client: RunPipelineResponse with counts, queries, qa_flags, errors
@@ -269,10 +267,8 @@ flowchart TB
     SearcherNode --> ReaderNode["reader_node<br/>ReaderAgent.run"]
     ReaderNode --> Decision{"Fewer than 5 ranked papers?"}
     Decision -- yes --> WarningNode["reader_warning_node<br/>append QA warning"]
-    Decision -- no --> WriterNode["writer_node<br/>pass through draft"]
-    WarningNode --> WriterNode
-    WriterNode --> QANode["qa_node<br/>no-op in current implementation"]
-    QANode --> End([END])
+    Decision -- no --> End([END])
+    WarningNode --> End
 
     subgraph State["AgentState fields"]
         StateProject["project_id"]
