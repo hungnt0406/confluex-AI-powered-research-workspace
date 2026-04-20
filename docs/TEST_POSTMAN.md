@@ -238,6 +238,28 @@ Verify:
 - `topic_description` is present
 - `candidate_limit` and `summary_limit` match the create request
 
+### DELETE Project
+
+Run this only after you finish the other project-scoped checks, because it removes the entire project.
+
+```text
+DELETE {{base_url}}/projects/{{project_id}}
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Expected status: `204 No Content`
+
+Verify:
+
+- The response body is empty.
+- `GET {{base_url}}/projects` no longer includes `{{project_id}}`.
+- If the project had uploaded reference PDFs, they are deleted together with the project data.
+
 ## 6. Upload A Reference PDF
 
 Use this step if you want to test user-provided reference files before running research. The backend currently accepts PDF files only.
@@ -410,7 +432,48 @@ Verify:
 - Returned papers have `relevance_score` greater than or equal to `50`
 - `summary.problem`, `summary.method`, `summary.result`, and `summary.relevance_to_topic` are populated when summarization succeeds
 
-## 9. Delete A Reference File
+## 9. Inspect Citation Graph
+
+### GET Paper Citation Graph
+
+```text
+GET {{base_url}}/projects/{{project_id}}/papers/{{paper_id}}/citation-graph?limit=10
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- `paper_id` matches `{{paper_id}}`
+- `resolved_by` is one of `semantic_scholar_paper_id`, `arxiv_id`, `arxiv_url`, or `doi`
+- `resolved_source_paper_id` is present
+- `cited_by` is an array of papers that cite the selected paper
+- `references` is an array of papers referenced by the selected paper
+
+Postman Tests script:
+
+```javascript
+pm.test("citation graph returned", function () {
+  pm.response.to.have.status(200);
+  const body = pm.response.json();
+  pm.expect(body.paper_id).to.eql(pm.environment.get("paper_id"));
+  pm.expect(body.cited_by).to.be.an("array");
+  pm.expect(body.references).to.be.an("array");
+});
+```
+
+Note:
+
+- Uploaded papers without a DOI and papers that cannot be resolved exactly in Semantic Scholar return `400 Bad Request`.
+- Exact upstream misses return `404 Not Found`.
+
+## 10. Delete A Reference File
 
 This removes the reference metadata and its linked uploaded paper.
 
@@ -436,7 +499,7 @@ GET {{base_url}}/projects/{{project_id}}/reference-files
 
 Verify the deleted `reference_file_id` is no longer in the list.
 
-## 10. Grounded Paper Conversations
+## 11. Grounded Paper Conversations
 
 Use this step after the project has papers and `paper_id` is set from the papers list.
 
@@ -547,7 +610,7 @@ Verify:
 - the message count increases
 - the newest assistant response reflects the follow-up question
 
-## 11. Generate Writer Output
+## 12. Generate Writer Output
 
 Use this step after the project has one or more papers. Reuse one or more IDs from the papers list.
 
@@ -616,7 +679,7 @@ Verify:
 - `id` matches `{{writer_output_id}}`
 - persisted `body`, `references`, `warnings`, and `qa_flags` are returned
 
-## 12. Negative Test Cases
+## 13. Negative Test Cases
 
 ### Missing Token
 
@@ -673,7 +736,7 @@ Upload the same PDF twice to the same project.
 
 Expected status: `409 Conflict`
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -685,7 +748,7 @@ Expected status: `409 Conflict`
 | Pipeline is slow | External APIs or LLM calls are running | Wait for completion or test with smaller limits |
 | Few or no papers | Search APIs returned sparse results or filters removed papers | Try a broader topic or lower `year_start` |
 
-## 14. Recommended Test Order
+## 15. Recommended Test Order
 
 Run requests in this order for a clean manual test:
 
@@ -698,10 +761,12 @@ Run requests in this order for a clean manual test:
 7. `POST /projects/{{project_id}}/run`
 8. `GET /projects/{{project_id}}/papers?page=1&per_page=10`
 9. `GET /projects/{{project_id}}/papers?status=summarized&min_relevance=50&page=1&per_page=10`
-10. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations`
-11. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations`
-12. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}`
-13. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}/messages`
-14. `POST /projects/{{project_id}}/writer/generate`
-15. `GET /projects/{{project_id}}/writer/outputs/{{writer_output_id}}`
-16. `DELETE /projects/{{project_id}}/reference-files/{{reference_file_id}}`
+10. `GET /projects/{{project_id}}/papers/{{paper_id}}/citation-graph?limit=10`
+11. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations`
+12. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations`
+13. `GET /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}`
+14. `POST /projects/{{project_id}}/papers/{{paper_id}}/conversations/{{conversation_id}}/messages`
+15. `POST /projects/{{project_id}}/writer/generate`
+16. `GET /projects/{{project_id}}/writer/outputs/{{writer_output_id}}`
+17. `DELETE /projects/{{project_id}}/reference-files/{{reference_file_id}}`
+18. `DELETE /projects/{{project_id}}`
