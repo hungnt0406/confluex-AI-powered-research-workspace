@@ -125,6 +125,8 @@ class Paper(Base):
     source_paper_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reference_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="candidate", server_default="candidate")
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
