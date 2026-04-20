@@ -69,6 +69,8 @@ def normalize_arxiv_entry(entry: dict[str, object]) -> PaperRecord:
         "source_paper_id": extract_arxiv_identifier(source_url),
         "source_url": source_url,
         "pdf_url": extract_pdf_url(entry, source_url),
+        "citation_count": None,
+        "reference_count": None,
         "relevance_score": None,
     }
     return normalized_paper
