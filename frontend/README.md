@@ -18,13 +18,15 @@ Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http:/
 
 - `POST /auth/register` / `POST /auth/login` — session stored in `localStorage` via `AuthProvider`.
 - `GET /projects` — sidebar "Recents" list.
+- `PATCH /projects/{id}` — sidebar overflow menu can rename a saved chat/project in place.
 - First user message without an active project:
   1. `POST /projects` (title = first 120 chars, topic = full message, citation_format = APA).
   2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
   3. `GET /projects/{id}/papers` — top-ranked paper is picked as grounding target.
   4. `POST /projects/{id}/papers/{paper_id}/conversations` — starts a grounded Q&A.
 - Follow-up messages: `POST .../conversations/{conversation_id}/messages` appended to the same grounded thread.
-- Selecting a project in the sidebar re-hydrates ranked papers and re-grounds on the top one.
+- Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded conversation on the top paper, and the last-open project is restored after refresh.
+- Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
 ## Files
 
