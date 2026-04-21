@@ -2,7 +2,7 @@ from datetime import datetime
 from math import ceil
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from backend.db.models import PaperConversation, ReferenceFile, WriterOutput
@@ -23,6 +23,20 @@ class ProjectCreate(BaseModel):
         if self.summary_limit > self.candidate_limit:
             raise ValueError("summary_limit must be less than or equal to candidate_limit.")
         return self
+
+
+class ProjectTitleUpdate(BaseModel):
+    """Request body for renaming a project."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("title must not be empty.")
+        return normalized
 
 
 class ProjectRead(BaseModel):
