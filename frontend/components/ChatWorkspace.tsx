@@ -44,9 +44,12 @@ export default function ChatWorkspace() {
   }
 
   const showGreeting = messages.length === 0 && !activeProject;
+  const composerPlaceholder = activeProject
+    ? "Ask a grounded follow-up about this project…"
+    : "Describe a research topic to begin…";
 
   return (
-    <main className="flex-1 flex flex-col relative h-full bg-background overflow-hidden">
+    <main className="min-w-0 flex-1 flex flex-col relative h-full bg-background overflow-hidden">
       <header className="h-14 flex items-center justify-between px-4 sticky top-0 bg-background/80 backdrop-blur-md z-40 md:justify-center">
         <button className="md:hidden p-2 text-on-surface-variant">
           <span className="material-symbols-outlined">menu</span>
@@ -105,17 +108,19 @@ export default function ChatWorkspace() {
               onSubmit={onSubmit}
               className="relative flex flex-col w-full bg-surface-container-low rounded-2xl border border-outline/30 focus-within:border-primary/40 transition-all shadow-sm"
             >
+              {!draft && (
+                <div className="pointer-events-none absolute left-4 right-14 top-3.5 overflow-hidden text-ellipsis whitespace-nowrap text-base text-hint">
+                  {composerPlaceholder}
+                </div>
+              )}
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKey}
                 disabled={busy}
                 className="w-full bg-transparent border-none focus:ring-0 text-base py-3.5 px-4 pr-12 resize-none font-ui text-on-surface placeholder:text-hint max-h-52 outline-none"
-                placeholder={
-                  activeProject
-                    ? "Ask a grounded follow-up about this project…"
-                    : "Describe a research topic to begin…"
-                }
+                placeholder=""
+                aria-label={composerPlaceholder}
                 rows={1}
               />
               <div className="flex items-center justify-between px-2 pb-2">
@@ -147,7 +152,7 @@ export default function ChatWorkspace() {
               </div>
             </form>
             <p className="font-ui text-[10px] text-center mt-3 text-hint uppercase tracking-[0.2em] font-medium">
-              Secured Academic Session • Connected to FastAPI
+              Secured Academic Session • 225M Papers Indexed
             </p>
           </div>
         </div>
