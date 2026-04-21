@@ -82,6 +82,10 @@ export type Project = {
   created_at: string;
 };
 
+export type ProjectTitleUpdate = {
+  title: string;
+};
+
 export type RunPipelineResponse = {
   status: "completed";
   project_id: string;

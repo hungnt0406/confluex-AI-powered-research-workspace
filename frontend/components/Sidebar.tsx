@@ -1,7 +1,9 @@
 "use client";
 
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useChat } from "@/components/ChatProvider";
+import { Project } from "@/lib/api";
 
 interface SidebarProps {
   open: boolean;
@@ -10,7 +12,7 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { user, logout } = useAuth();
-  const { projects, activeProject, selectProject, deleteProject, startNewResearch } = useChat();
+  const { projects, activeProject, busy, selectProject, renameProject, deleteProject, startNewResearch } = useChat();
 
   const handleDeleteProject = async (projectId: string, projectTitle: string) => {
     if (typeof window !== "undefined") {
@@ -115,46 +117,16 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               <p className="px-3 text-xs text-hint">No projects yet.</p>
             ) : (
               projects.map((project) => {
-                const isActive = activeProject?.id === project.id;
                 return (
-                  <div
+                  <ProjectListItem
                     key={project.id}
-                    className={`group flex items-center gap-1 rounded-lg ${
-                      isActive ? "bg-primary/10" : "hover:bg-primary/5"
-                    }`}
-                  >
-                    <button
-                      onClick={() => selectProject(project.id)}
-                      className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-1.5 text-left text-xs transition-colors ${
-                        isActive
-                          ? "font-medium text-on-surface"
-                          : "text-on-surface-variant"
-                      }`}
-                    >
-                      <span
-                        className={`material-symbols-outlined ${
-                          isActive ? "text-primary" : "opacity-60"
-                        }`}
-                        style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
-                      >
-                        chat_bubble
-                      </span>
-                      <span className="truncate">{project.title}</span>
-                    </button>
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleDeleteProject(project.id, project.title);
-                      }}
-                      className="mr-1 flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant/70 transition-colors hover:bg-error/10 hover:text-error"
-                      aria-label={`Delete ${project.title}`}
-                      title={`Delete ${project.title}`}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                        delete
-                      </span>
-                    </button>
-                  </div>
+                    project={project}
+                    isActive={activeProject?.id === project.id}
+                    busy={busy}
+                    onSelect={selectProject}
+                    onRename={renameProject}
+                    onDelete={handleDeleteProject}
+                  />
                 );
               })
             )}
@@ -231,5 +203,226 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
         </div>
       )}
     </aside>
+  );
+}
+
+function ProjectListItem({
+  project,
+  isActive,
+  busy,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  project: Project;
+  isActive: boolean;
+  busy: boolean;
+  onSelect: (projectId: string) => Promise<void>;
+  onRename: (projectId: string, title: string) => Promise<void>;
+  onDelete: (projectId: string, projectTitle: string) => Promise<void>;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(project.title);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isRenaming) {
+      setDraftTitle(project.title);
+    }
+  }, [isRenaming, project.title]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      if (isRenaming) {
+        setIsRenaming(false);
+        setDraftTitle(project.title);
+      }
+    };
+
+    if (!menuOpen && !isRenaming) return;
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isRenaming, menuOpen, project.title]);
+
+  useEffect(() => {
+    if (!isRenaming) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [isRenaming]);
+
+  const handleRenameSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextTitle = draftTitle.trim();
+    if (!nextTitle || nextTitle === project.title) {
+      setIsRenaming(false);
+      setDraftTitle(project.title);
+      return;
+    }
+
+    try {
+      await onRename(project.id, nextTitle);
+      setIsRenaming(false);
+      setDraftTitle(nextTitle);
+    } catch {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  };
+
+  const startRename = () => {
+    setMenuOpen(false);
+    setIsRenaming(true);
+    setDraftTitle(project.title);
+  };
+
+  const cancelRename = () => {
+    setIsRenaming(false);
+    setDraftTitle(project.title);
+  };
+
+  return (
+    <div
+      className={`group relative flex items-center gap-1 rounded-lg ${
+        isActive ? "bg-primary/10" : "hover:bg-primary/5"
+      }`}
+    >
+      {isRenaming ? (
+        <form onSubmit={handleRenameSubmit} className="flex min-w-0 flex-1 items-center gap-1 px-2 py-1">
+          <span
+            className={`material-symbols-outlined ${isActive ? "text-primary" : "opacity-60"}`}
+            style={{
+              fontSize: "16px",
+              fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+              marginLeft: "-7px",
+            }}
+          >
+            chat_bubble
+          </span>
+          <input
+            ref={inputRef}
+            value={draftTitle}
+            onChange={(event) => setDraftTitle(event.target.value)}
+            disabled={busy}
+            maxLength={255}
+            aria-label={`Rename ${project.title}`}
+            className="h-8 min-w-0 flex-1 rounded-md border border-outline/30 bg-background px-2 text-xs text-on-surface outline-none transition-colors focus:border-primary/50"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-on-surface disabled:opacity-40"
+            aria-label={`Save ${project.title}`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+              check
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={cancelRename}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-on-surface disabled:opacity-40"
+            aria-label={`Cancel renaming ${project.title}`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+              close
+            </span>
+          </button>
+        </form>
+      ) : (
+        <>
+          <button
+            onClick={() => void onSelect(project.id)}
+            className={`flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-1.5 text-left text-xs transition-colors ${
+              isActive ? "font-medium text-on-surface" : "text-on-surface-variant"
+            }`}
+          >
+            <span
+              className={`material-symbols-outlined ${isActive ? "text-primary" : "opacity-60"}`}
+              style={{
+                fontSize: "16px",
+                fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                marginLeft: "-7px",
+              }}
+            >
+              chat_bubble
+            </span>
+            <span className="truncate">{project.title}</span>
+          </button>
+          <div ref={menuRef} className="relative mr-1">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((current) => !current);
+              }}
+              aria-label={`Open actions for ${project.title}`}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className={`flex h-8 w-8 items-center justify-center rounded-md text-on-surface-variant/70 transition-all hover:bg-primary/10 hover:text-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                menuOpen
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+              }`}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                more_horiz
+              </span>
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                aria-label={`Actions for ${project.title}`}
+                className="absolute right-0 top-full z-20 mt-1 w-32 rounded-xl border border-outline/20 bg-background p-1 shadow-lg"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={startRename}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-on-surface transition-colors hover:bg-primary/10"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                    edit
+                  </span>
+                  <span>Rename</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void onDelete(project.id, project.title);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-error transition-colors hover:bg-error/10"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                    delete
+                  </span>
+                  <span>Delete</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
