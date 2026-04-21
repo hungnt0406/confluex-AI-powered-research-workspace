@@ -147,7 +147,7 @@ export default function ChatWorkspace() {
               </div>
             </form>
             <p className="font-ui text-[10px] text-center mt-3 text-hint uppercase tracking-[0.2em] font-medium">
-              Secured Academic Session • Connected to FastAPI
+              Secured Academic Session • 225M Papers Indexed
             </p>
           </div>
         </div>
