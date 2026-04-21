@@ -2,7 +2,7 @@
 
 Next.js 14 App Router chat UI for the Automated Literature Review FastAPI backend.
 
-This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context, and starts grounded paper conversations on the top paper.
+This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, and starts grounded paper conversations on the top paper.
 
 ## Setup
 
