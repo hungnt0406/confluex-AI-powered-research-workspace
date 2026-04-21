@@ -27,6 +27,7 @@ from backend.api.schemas.projects import (
     ProjectPaperListResponse,
     ProjectPaperRead,
     ProjectRead,
+    ProjectTitleUpdate,
     ReferenceFileRead,
     RunPipelineResponse,
     WriterGenerateRequest,
@@ -220,6 +221,22 @@ async def get_project(
     """Fetch a single project for the authenticated user."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
+    return ProjectRead.model_validate(project)
+
+
+@router.patch("/{project_id}", response_model=ProjectRead)
+async def rename_project(
+    project_id: str,
+    payload: ProjectTitleUpdate,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> ProjectRead:
+    """Rename an owned project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    project.title = payload.title
+    await session.commit()
+    await session.refresh(project)
     return ProjectRead.model_validate(project)
 
 
