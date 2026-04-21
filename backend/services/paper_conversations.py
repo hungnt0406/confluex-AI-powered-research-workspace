@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
+import re
 
 import httpx
 from sqlalchemy import select
@@ -21,6 +22,35 @@ from backend.services.research_utils import cosine_similarity, has_live_api_key
 DEFAULT_MAX_ANSWER_TOKENS = 800
 MAX_LOCAL_SNIPPET_CHARS = 280
 RECENT_HISTORY_MESSAGE_LIMIT = 10
+CHUNK_LABEL_WITH_PAGES_PATTERN = re.compile(
+    r"\(\s*Chunk\s+\d+\s*,\s*pages?\s+([0-9]+(?:-[0-9]+)?)\s*\)",
+    re.IGNORECASE,
+)
+CHUNK_LABEL_PATTERN = re.compile(
+    r"\bChunk\s+\d+\s*,\s*pages?\s+([0-9]+(?:-[0-9]+)?)\b",
+    re.IGNORECASE,
+)
+BRACKETED_CHUNK_PATTERN = re.compile(
+    r"\[\s*Chunk\s+\d+\s*\]\s*pages?\s+([0-9]+(?:-[0-9]+)?)(?:\s*,\s*score\s*=\s*[0-9.]+)?",
+    re.IGNORECASE,
+)
+SCORE_SEGMENT_PATTERN = re.compile(r"(,\s*score\s*[=:]?\s*[0-9.]+|\bscore\s*[=:]?\s*[0-9.]+)", re.IGNORECASE)
+LIVE_ANSWER_SYSTEM_PROMPT = (
+    "You answer questions about one academic paper.\n"
+    "Answer the user's current question directly instead of drifting into a generic paper summary.\n"
+    "Use retrieved paper chunks as the primary source of truth.\n"
+    "Use metadata and the stored summary only as backup context.\n"
+    "Use recent conversation history only to resolve references like 'it', 'this method', or "
+    "'that result'; do not let earlier turns override the current question.\n"
+    "If the available evidence does not answer the question, say so explicitly instead of guessing.\n"
+    "If the user asks for a definition or explanation, explain the concept directly before tying "
+    "it back to the paper.\n"
+    "Do not invent details that are not supported by the provided evidence.\n"
+    "When referring to supporting evidence, mention page numbers only. Never mention internal "
+    "retrieval labels like chunk numbers or similarity scores.\n"
+    "Respond in concise markdown. Prefer these sections when they are supported:\n"
+    "## Answer\n## Evidence\n## Limits"
+)
 
 
 class DocumentExtractionClient(Protocol):
@@ -296,12 +326,7 @@ class PaperConversationService:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You answer questions about one academic paper. "
-                        "Use retrieved paper chunks as the primary source of truth. "
-                        "If chunk grounding is unavailable, answer only from the provided metadata "
-                        "and explicitly say the answer is limited."
-                    ),
+                    "content": LIVE_ANSWER_SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
@@ -358,7 +383,7 @@ class PaperConversationService:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("OpenRouter paper-answer response did not contain text content.")
 
-        return content.strip()
+        return self._sanitize_user_visible_text(content.strip())
 
     def _build_prompt(
         self,
@@ -371,6 +396,14 @@ class PaperConversationService:
     ) -> str:
         prompt_sections = [
             f"Question: {question}",
+            "",
+            "Answering rules:",
+            "- Answer the current question directly.",
+            "- Do not switch into a generic paper summary unless the question asks for one.",
+            "- Use recent conversation history only to resolve references from the current question.",
+            "- Prefer retrieved chunks over metadata or the stored summary.",
+            "- If the evidence is insufficient, say exactly what is missing instead of guessing.",
+            "- When citing evidence, mention page numbers only and never mention chunk labels or similarity scores.",
             "",
             "Paper metadata:",
             f"- Title: {paper.title}",
@@ -401,15 +434,12 @@ class PaperConversationService:
                 prompt_sections.append(f"{message.role.title()}: {message.content}")
 
         if retrieved_chunks:
-            prompt_sections.extend(["", "Retrieved paper chunks:"])
-            for index, retrieved_chunk in enumerate(retrieved_chunks, start=1):
+            prompt_sections.extend(["", "Retrieved paper excerpts:"])
+            for retrieved_chunk in retrieved_chunks:
                 chunk = retrieved_chunk.chunk
                 prompt_sections.extend(
                     [
-                        (
-                            f"[Chunk {index}] pages {chunk.page_start}-{chunk.page_end}, "
-                            f"score={retrieved_chunk.similarity:.3f}"
-                        ),
+                        f"Pages: {chunk.page_start}-{chunk.page_end}",
                         chunk.content,
                         "",
                     ]
@@ -444,34 +474,63 @@ class PaperConversationService:
                 self._format_chunk_snippet(retrieved_chunk)
                 for retrieved_chunk in retrieved_chunks[:2]
             )
-            response_sections = [f"Question: {question}"]
+            response_sections = [
+                "## Answer",
+                (
+                    f"Based on the retrieved paper text, the question '{question}' is best "
+                    f"answered by these passages."
+                ),
+            ]
             if conversation_context is not None:
-                response_sections.append(f"Recent conversation context: {conversation_context}")
-            response_sections.append(
-                f"Based on the extracted text for '{paper.title}', the most relevant evidence is: "
-                f"{relevant_passages}"
+                response_sections.extend(
+                    [
+                        "",
+                        "## Conversation Context",
+                        f"Recent conversation context: {conversation_context}",
+                    ]
+                )
+            response_sections.extend(
+                [
+                    "",
+                    "## Evidence",
+                    (
+                        f"Based on the extracted text for '{paper.title}', the most relevant "
+                        f"evidence is: {relevant_passages}"
+                    ),
+                    "",
+                    "## Limits",
+                    (
+                        "This response was produced by the deterministic fallback path because live "
+                        "answer synthesis is unavailable in the current environment."
+                    ),
+                ]
             )
-            response_sections.append(
-                "This response was produced by the deterministic fallback path because live answer "
-                "synthesis is unavailable in the current environment."
-            )
-            return "\n\n".join(response_sections)
+            return self._sanitize_user_visible_text("\n\n".join(response_sections))
 
         metadata_sections = [
+            "## Answer",
             (
                 "I could not ground this answer in extracted PDF chunks, so this response is limited "
                 "to the stored paper metadata."
             ),
-            f"Title: {paper.title}",
-            f"Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}",
-            f"Year: {paper.year if paper.year is not None else 'Unknown'}",
+            "",
+            "## Metadata",
+            f"- Title: {paper.title}",
+            f"- Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}",
+            f"- Year: {paper.year if paper.year is not None else 'Unknown'}",
         ]
 
         if conversation_context is not None:
-            metadata_sections.append(f"Recent conversation context: {conversation_context}")
+            metadata_sections.extend(
+                [
+                    "",
+                    "## Conversation Context",
+                    f"Recent conversation context: {conversation_context}",
+                ]
+            )
 
         if paper.abstract:
-            metadata_sections.append(f"Abstract: {paper.abstract}")
+            metadata_sections.extend(["", "## Abstract", paper.abstract])
 
         if paper.summary is not None and not paper.summary.has_error:
             summary_fragments = [
@@ -485,34 +544,52 @@ class PaperConversationService:
                 if value
             ]
             if summary_fragments:
-                metadata_sections.append("Stored summary: " + " ".join(summary_fragments))
+                metadata_sections.extend(
+                    ["", "## Stored Summary", "Stored summary: " + " ".join(summary_fragments)]
+                )
 
         if extraction_error:
-            metadata_sections.append(f"Grounding note: {extraction_error}")
+            metadata_sections.extend(["", "## Grounding Note", extraction_error])
 
-        metadata_sections.append(
-            "If you need a deeper answer, make sure the paper has a usable public pdf_url so chunk "
-            "grounding can succeed."
+        metadata_sections.extend(
+            [
+                "",
+                "## Limits",
+                (
+                    "If you need a deeper answer, make sure the paper has a usable public pdf_url "
+                    "so chunk grounding can succeed."
+                ),
+            ]
         )
-        return "\n\n".join(metadata_sections)
+        return self._sanitize_user_visible_text("\n\n".join(metadata_sections))
 
     def _format_chunk_snippet(self, retrieved_chunk: RetrievedPaperChunk) -> str:
         chunk = retrieved_chunk.chunk
         normalized_content = " ".join(chunk.content.split())
         snippet = normalized_content[:MAX_LOCAL_SNIPPET_CHARS].rstrip()
-        return (
-            f"(pages {chunk.page_start}-{chunk.page_end}, score {retrieved_chunk.similarity:.2f}) "
-            f"{snippet}"
-        )
+        return f"(pages {chunk.page_start}-{chunk.page_end}) {snippet}"
 
     def _format_recent_history(self, recent_messages: list[PaperMessage]) -> str | None:
         if not recent_messages:
             return None
 
         return " | ".join(
-            f"{message.role}: {' '.join(message.content.split())[:MAX_LOCAL_SNIPPET_CHARS].rstrip()}"
+            (
+                f"{message.role}: "
+                f"{self._sanitize_user_visible_text(' '.join(message.content.split()))[:MAX_LOCAL_SNIPPET_CHARS].rstrip()}"
+            )
             for message in recent_messages
         )
+
+    def _sanitize_user_visible_text(self, text: str) -> str:
+        sanitized = CHUNK_LABEL_WITH_PAGES_PATTERN.sub(r"(pages \1)", text)
+        sanitized = BRACKETED_CHUNK_PATTERN.sub(r"pages \1", sanitized)
+        sanitized = CHUNK_LABEL_PATTERN.sub(r"pages \1", sanitized)
+        sanitized = SCORE_SEGMENT_PATTERN.sub("", sanitized)
+        sanitized = re.sub(r"\(\s*pages\s+([0-9]+(?:-[0-9]+)?)\s*,\s*\)", r"(pages \1)", sanitized)
+        sanitized = re.sub(r"\s{2,}", " ", sanitized)
+        sanitized = re.sub(r" *\n", "\n", sanitized)
+        return sanitized.strip()
 
     async def _load_chunks(self, *, session: AsyncSession, paper_id: str) -> list[PaperChunk]:
         result = await session.execute(
