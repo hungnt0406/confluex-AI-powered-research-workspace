@@ -430,6 +430,7 @@ Verify:
 
 - Returned papers have `status: "summarized"`
 - Returned papers have `relevance_score` greater than or equal to `50`
+- Each paper includes `citation_count` and `reference_count` (nullable when unavailable from the source)
 - `summary.problem`, `summary.method`, `summary.result`, and `summary.relevance_to_topic` are populated when summarization succeeds
 
 ## 9. Inspect Citation Graph

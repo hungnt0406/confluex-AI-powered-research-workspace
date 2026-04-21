@@ -95,7 +95,7 @@ flowchart LR
 
 - **User goal:** Quickly decide which papers matter.
 - **User actions:** Sort by relevance, filter by year or relevance slider, expand cards to see structured summary, check papers to select for Q&A or writing.
-- **System:** `GET /projects/{id}/papers?status=...&min_relevance=...` paginated; summaries joined.
+- **System:** `GET /projects/{id}/papers?status=...&min_relevance=...` paginated; summaries plus persisted citation/reference counts joined.
 - **Touchpoint:** The current frontend shows ranked papers in the right-side context panel. A fuller paper-library screen remains planned.
 - **Feeling:** Empowered — "I can triage 30 papers in minutes."
 - **Pain points:** Relevance score may feel like a black box; no "why this was ranked high" explanation.
@@ -173,8 +173,8 @@ flowchart LR
 ### Stage 12 — Return & manage library
 
 - **User goal:** Run more projects, revisit prior outputs, keep an organized library.
-- **User actions:** Views project list, revisits a prior writer output, uploads more PDFs, asks follow-up questions on a paper.
-- **System:** `GET /projects` list, per-project paper library, persisted paper conversations, persisted writer outputs.
+- **User actions:** Views project list, revisits a prior writer output, uploads more PDFs, asks follow-up questions on a paper, or deletes a project that is no longer needed.
+- **System:** `GET /projects` list, `DELETE /projects/{id}` project removal, per-project paper library, persisted paper conversations, persisted writer outputs.
 - **Feeling:** Invested — the product becomes a research workspace, not a one-shot tool.
 - **Pain points:** No tagging, annotations, or search across past outputs yet.
 - **Opportunity:** Cross-project gap analysis, tagging, and notebook-style saved outputs (P1 / nice-to-have in `CORE_FEATURES.md`).
