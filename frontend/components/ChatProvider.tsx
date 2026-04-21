@@ -15,6 +15,7 @@ import {
   PaperConversation,
   Project,
   ProjectPaper,
+  ProjectTitleUpdate,
   RunPipelineResponse,
   api,
 } from "@/lib/api";
@@ -39,6 +40,7 @@ type ChatState = {
   busy: boolean;
   error: string | null;
   selectProject: (id: string) => Promise<void>;
+  renameProject: (id: string, title: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   startNewResearch: () => void;
   submitMessage: (text: string) => Promise<void>;
@@ -174,6 +176,37 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [activeProject, startNewResearch],
+  );
+
+  const renameProject = useCallback(
+    async (projectId: string, title: string) => {
+      if (!authedRef.current) return;
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) return;
+
+      setBusy(true);
+      setError(null);
+
+      try {
+        const updatedProject = await api<Project>(`/projects/${projectId}`, {
+          method: "PATCH",
+          token: authedRef.current,
+          json: { title: trimmedTitle } satisfies ProjectTitleUpdate,
+        });
+        setProjects((prev) =>
+          prev.map((project) =>
+            project.id === projectId ? { ...project, title: updatedProject.title } : project,
+          ),
+        );
+        setActiveProject((prev) => (prev?.id === projectId ? updatedProject : prev));
+      } catch (err: any) {
+        setError(err?.message ?? "Failed to rename project.");
+        throw err;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
   );
 
   const submitMessage = useCallback(
@@ -393,6 +426,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       error,
       selectProject,
+      renameProject,
       deleteProject,
       startNewResearch,
       submitMessage,
@@ -410,6 +444,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       error,
       selectProject,
+      renameProject,
       deleteProject,
       startNewResearch,
       submitMessage,
