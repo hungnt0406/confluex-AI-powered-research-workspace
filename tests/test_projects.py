@@ -56,6 +56,20 @@ async def test_get_project_returns_owned_project(client, auth_headers, sample_pr
 
 
 @pytest.mark.asyncio
+async def test_patch_project_renames_owned_project(client, auth_headers, sample_project) -> None:
+    response = await client.patch(
+        f"/projects/{sample_project['id']}",
+        headers=auth_headers,
+        json={"title": "  Renamed Research Thread  "},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == sample_project["id"]
+    assert payload["title"] == "Renamed Research Thread"
+
+
+@pytest.mark.asyncio
 async def test_delete_project_removes_owned_project_and_uploaded_files(
     client,
     auth_headers,
