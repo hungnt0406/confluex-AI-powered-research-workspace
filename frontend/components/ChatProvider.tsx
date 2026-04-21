@@ -13,6 +13,7 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   Paginated,
   PaperConversation,
+  PaperConversationSummary,
   Project,
   ProjectPaper,
   ProjectTitleUpdate,
@@ -48,6 +49,8 @@ type ChatState = {
 };
 
 const ChatContext = createContext<ChatState | null>(null);
+const ACTIVE_PROJECT_STORAGE_PREFIX = "a20.active_project";
+const GENERATED_OVERVIEW_PROMPT_PREFIX = "Give me a structured overview of this paper relative to: ";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -57,9 +60,86 @@ function now() {
   return new Date().toISOString();
 }
 
+function getActiveProjectStorageKey(userId: string) {
+  return `${ACTIVE_PROJECT_STORAGE_PREFIX}.${userId}`;
+}
+
+function loadSavedActiveProjectId(userId: string | null | undefined) {
+  if (typeof window === "undefined" || !userId) return null;
+  return window.localStorage.getItem(getActiveProjectStorageKey(userId));
+}
+
+function persistActiveProjectId(userId: string | null | undefined, projectId: string | null) {
+  if (typeof window === "undefined" || !userId) return;
+  const storageKey = getActiveProjectStorageKey(userId);
+  if (projectId) {
+    window.localStorage.setItem(storageKey, projectId);
+    return;
+  }
+  window.localStorage.removeItem(storageKey);
+}
+
+function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): ChatMessage[] {
+  const topPaper = papers[0] ?? null;
+  const initial: ChatMessage[] = [
+    {
+      id: uid(),
+      role: "user",
+      content: project.topic_description,
+      kind: "text",
+      createdAt: project.created_at,
+    },
+  ];
+
+  if (papers.length > 0) {
+    initial.push({
+      id: uid(),
+      role: "assistant",
+      kind: "summary",
+      content: `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". Ask a question about this paper and I'll ground my answer in it.`,
+      createdAt: now(),
+    });
+    return initial;
+  }
+
+  initial.push({
+    id: uid(),
+    role: "assistant",
+    kind: "status",
+    content: "This project has no ranked papers yet. Send a follow-up message to run the discovery pipeline.",
+    createdAt: now(),
+  });
+  return initial;
+}
+
+function buildRestoredConversationMessages(
+  project: Project,
+  restoredConversation: PaperConversation,
+): ChatMessage[] {
+  const generatedOverviewPrompt = `${GENERATED_OVERVIEW_PROMPT_PREFIX}${project.topic_description}`;
+
+  return restoredConversation.messages
+    .filter(
+      (message, index) =>
+        !(
+          index === 0 &&
+          message.role === "user" &&
+          message.content === generatedOverviewPrompt
+        ),
+    )
+    .map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      kind: "text" as const,
+      createdAt: message.created_at,
+    }));
+}
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const authedRef = useRef(token);
+  const restoreAttemptedRef = useRef(false);
   authedRef.current = token;
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -72,16 +152,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [runSummary, setRunSummary] = useState<RunPipelineResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
 
   const refreshProjects = useCallback(async () => {
     if (!authedRef.current) return;
-    const list = await api<Project[]>("/projects", { token: authedRef.current });
-    setProjects(list);
+    setProjectsLoaded(false);
+    try {
+      const list = await api<Project[]>("/projects", { token: authedRef.current });
+      setProjects(list);
+    } finally {
+      setProjectsLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
     if (token) refreshProjects().catch((e) => setError(String(e)));
   }, [token, refreshProjects]);
+
+  useEffect(() => {
+    persistActiveProjectId(user?.id, activeProject?.id ?? null);
+  }, [user?.id, activeProject?.id]);
 
   const startNewResearch = useCallback(() => {
     setActiveProject(null);
@@ -112,47 +202,61 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           `/projects/${project.id}/papers?per_page=30`,
           { token: authedRef.current },
         );
-        setPapers(papersResponse.data);
+        const nextPapers = papersResponse.data;
+        setPapers(nextPapers);
 
-        const topPaper = papersResponse.data[0] ?? null;
+        const topPaper = nextPapers[0] ?? null;
         setGroundingPaper(topPaper);
         setQueries([]);
 
-        const initial: ChatMessage[] = [
-          {
-            id: uid(),
-            role: "user",
-            content: project.topic_description,
-            kind: "text",
-            createdAt: project.created_at,
-          },
-        ];
-        if (papersResponse.data.length > 0) {
-          initial.push({
-            id: uid(),
-            role: "assistant",
-            kind: "summary",
-            content: `I found ${papersResponse.data.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". Ask a question about this paper and I'll ground my answer in it.`,
-            createdAt: now(),
-          });
-        } else {
-          initial.push({
-            id: uid(),
-            role: "assistant",
-            kind: "status",
-            content: `This project has no ranked papers yet. Send a follow-up message to run the discovery pipeline.`,
-            createdAt: now(),
-          });
+        let restoredConversation: PaperConversation | null = null;
+        if (topPaper) {
+          const conversationSummaries = await api<PaperConversationSummary[]>(
+            `/projects/${project.id}/papers/${topPaper.id}/conversations`,
+            { token: authedRef.current },
+          );
+          const latestConversation = conversationSummaries[0] ?? null;
+          if (latestConversation) {
+            restoredConversation = await api<PaperConversation>(
+              `/projects/${project.id}/papers/${topPaper.id}/conversations/${latestConversation.id}`,
+              { token: authedRef.current },
+            );
+          }
         }
-        setMessages(initial);
+
+        setConversation(restoredConversation);
+        const shellMessages = buildProjectShellMessages(project, nextPapers);
+        setMessages(
+          restoredConversation
+            ? [...shellMessages, ...buildRestoredConversationMessages(project, restoredConversation)]
+            : shellMessages,
+        );
       } catch (err: any) {
+        if (err?.status === 404) {
+          persistActiveProjectId(user?.id, null);
+        }
         setError(err?.message ?? "Failed to load project.");
       } finally {
         setBusy(false);
       }
     },
-    [],
+    [user?.id],
   );
+
+  useEffect(() => {
+    if (!projectsLoaded || activeProject || restoreAttemptedRef.current) return;
+
+    restoreAttemptedRef.current = true;
+    const savedProjectId = loadSavedActiveProjectId(user?.id);
+    if (!savedProjectId) return;
+
+    if (!projects.some((project) => project.id === savedProjectId)) {
+      persistActiveProjectId(user?.id, null);
+      return;
+    }
+
+    void selectProject(savedProjectId);
+  }, [projectsLoaded, projects, activeProject, selectProject, user?.id]);
 
   const deleteProject = useCallback(
     async (projectId: string) => {

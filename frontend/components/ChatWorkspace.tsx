@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { useChat } from "@/components/ChatProvider";
 import Logo from "@/components/Logo";
 
@@ -214,13 +214,181 @@ function AgentBubble({ text, kind }: { text: string; kind: "text" | "status" | "
         </span>
       </div>
       <div
-        className={`flex-1 space-y-2 text-xs leading-relaxed font-body whitespace-pre-wrap ${
+        className={`flex-1 text-xs leading-relaxed font-body ${
           isStatus ? "italic text-on-surface-variant" : "text-on-surface"
         }`}
       >
-        {text}
+        {isStatus ? text : <MarkdownContent text={text} />}
       </div>
     </div>
+  );
+}
+
+function MarkdownContent({ text }: { text: string }) {
+  return <div className="space-y-3">{renderMarkdownBlocks(text)}</div>;
+}
+
+function renderMarkdownBlocks(text: string): ReactNode[] {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith("```")) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) {
+        index += 1;
+      }
+      blocks.push(
+        <pre
+          key={`code-${index}`}
+          className="overflow-x-auto rounded-xl bg-surface-container-low px-3 py-2 text-[11px] leading-relaxed text-on-surface"
+        >
+          <code>{codeLines.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const content = headingMatch[2];
+      const className =
+        level === 1
+          ? "text-lg font-semibold"
+          : level === 2
+            ? "text-base font-semibold"
+            : "text-sm font-semibold";
+      blocks.push(
+        <div key={`heading-${index}`} className={className}>
+          {renderInlineMarkdown(content)}
+        </div>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ol key={`ordered-${index}`} className="list-decimal space-y-1.5 pl-5 marker:text-hint">
+          {items.map((item, itemIndex) => (
+            <li key={`ordered-item-${itemIndex}`} className="pl-1">
+              {renderInlineMarkdown(item)}
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    if (/^[-*+]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^[-*+]\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^[-*+]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(
+        <ul key={`unordered-${index}`} className="list-disc space-y-1.5 pl-5 marker:text-hint">
+          {items.map((item, itemIndex) => (
+            <li key={`unordered-item-${itemIndex}`} className="pl-1">
+              {renderInlineMarkdown(item)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !lines[index].trim().startsWith("```") &&
+      !/^(#{1,6})\s+/.test(lines[index].trim()) &&
+      !/^\d+\.\s+/.test(lines[index].trim()) &&
+      !/^[-*+]\s+/.test(lines[index].trim())
+    ) {
+      paragraphLines.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(
+      <p key={`paragraph-${index}`} className="whitespace-normal text-xs leading-relaxed">
+        {renderInlineMarkdown(paragraphLines.join(" "))}
+      </p>,
+    );
+  }
+
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const matches = text.match(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  if (!matches) {
+    return [text];
+  }
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let tokenIndex = 0;
+
+  for (const match of matches) {
+    const start = text.indexOf(match, cursor);
+    if (start > cursor) {
+      nodes.push(text.slice(cursor, start));
+    }
+
+    if (match.startsWith("**") && match.endsWith("**")) {
+      nodes.push(
+        <strong key={`strong-${tokenIndex}`} className="font-semibold text-on-surface">
+          {match.slice(2, -2)}
+        </strong>,
+      );
+    } else if (match.startsWith("`") && match.endsWith("`")) {
+      nodes.push(
+        <code
+          key={`code-${tokenIndex}`}
+          className="rounded bg-surface-container px-1 py-0.5 font-mono text-[11px] text-on-surface"
+        >
+          {match.slice(1, -1)}
+        </code>,
+      );
+    } else if (match.startsWith("*") && match.endsWith("*")) {
+      nodes.push(
+        <em key={`em-${tokenIndex}`} className="italic">
+          {match.slice(1, -1)}
+        </em>,
+      );
+    }
+
+    cursor = start + match.length;
+    tokenIndex += 1;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes.map((node, index) =>
+    typeof node === "string" ? <Fragment key={`text-${index}`}>{node}</Fragment> : node,
   );
 }
 

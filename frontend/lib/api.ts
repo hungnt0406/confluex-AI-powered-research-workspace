@@ -145,4 +145,13 @@ export type PaperConversation = {
   messages: PaperMessage[];
 };
 
+export type PaperConversationSummary = {
+  id: string;
+  paper_id: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  opening_question: string | null;
+};
+
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
