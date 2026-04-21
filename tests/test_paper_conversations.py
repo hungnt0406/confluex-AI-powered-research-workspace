@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from backend.api.dependencies import get_paper_conversation_service
 from backend.db.models import (
@@ -14,7 +15,7 @@ from backend.db.models import (
 )
 from backend.security import create_access_token, hash_password
 from backend.services.document_extraction import DocumentExtractionError
-from backend.services.paper_conversations import PaperConversationService
+from backend.services.paper_conversations import LIVE_ANSWER_SYSTEM_PROMPT, PaperConversationService
 
 
 class FakeEmbeddingService:
@@ -353,6 +354,65 @@ async def test_create_paper_conversation_message_persists_follow_up_turn(
         )
 
     assert message_total == 4
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_and_system_prompt_force_question_focused_answers(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project,
+) -> None:
+    created_paper = await create_sample_paper(session_factory, project_id=sample_project["id"])
+    async with session_factory() as session:
+        paper = (
+            await session.execute(
+                select(Paper)
+                .options(selectinload(Paper.summary))
+                .where(Paper.id == created_paper.id)
+            )
+        ).scalar_one()
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+    )
+
+    prompt = service._build_prompt(
+        paper=paper,
+        question="What is heatmap-based detection?",
+        recent_messages=[
+            PaperMessage(
+                conversation_id="conversation-1",
+                role="assistant",
+                content="Previous answer about the broader method.",
+            )
+        ],
+        retrieved_chunks=[],
+        extraction_error=None,
+    )
+
+    assert "Answering rules:" in prompt
+    assert "- Answer the current question directly." in prompt
+    assert "- Do not switch into a generic paper summary unless the question asks for one." in prompt
+    assert "Use recent conversation history only to resolve references from the current question." in prompt
+    assert "When citing evidence, mention page numbers only and never mention chunk labels or similarity scores." in prompt
+    assert "Pages:" not in prompt or "Retrieved paper excerpts:" in prompt
+    assert "[Chunk" not in prompt
+    assert "score=" not in prompt
+    assert "Answer the user's current question directly instead of drifting into a generic paper summary." in LIVE_ANSWER_SYSTEM_PROMPT
+    assert "Never mention internal retrieval labels like chunk numbers or similarity scores." in LIVE_ANSWER_SYSTEM_PROMPT
+
+
+def test_sanitize_user_visible_text_removes_internal_chunk_labels() -> None:
+    service = PaperConversationService(api_key="placeholder-key")
+
+    sanitized = service._sanitize_user_visible_text(
+        "Evidence: (Chunk 2, pages 4-4) text here. [Chunk 1] pages 6-6, score=0.981"
+    )
+
+    assert "Chunk 2" not in sanitized
+    assert "Chunk 1" not in sanitized
+    assert "score=0.981" not in sanitized
+    assert "(pages 4-4)" in sanitized
+    assert "pages 6-6" in sanitized
 
 
 @pytest.mark.asyncio
