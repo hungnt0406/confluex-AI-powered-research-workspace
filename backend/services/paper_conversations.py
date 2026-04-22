@@ -386,7 +386,7 @@ class PaperConversationService:
     ) -> str:
         if self.is_configured():
             try:
-                return await self._generate_live_answer(
+                answer = await self._generate_live_answer(
                     paper=paper,
                     question=question,
                     recent_messages=recent_messages,
@@ -394,14 +394,26 @@ class PaperConversationService:
                     extraction_error=extraction_error,
                 )
             except RuntimeError:
-                pass
+                answer = self._generate_local_answer(
+                    paper=paper,
+                    question=question,
+                    recent_messages=recent_messages,
+                    retrieved_chunks=retrieved_chunks,
+                    extraction_error=extraction_error,
+                )
+        else:
+            answer = self._generate_local_answer(
+                paper=paper,
+                question=question,
+                recent_messages=recent_messages,
+                retrieved_chunks=retrieved_chunks,
+                extraction_error=extraction_error,
+            )
 
-        return self._generate_local_answer(
+        return self._append_grounding_recovery_note(
+            answer=answer,
             paper=paper,
-            question=question,
-            recent_messages=recent_messages,
             retrieved_chunks=retrieved_chunks,
-            extraction_error=extraction_error,
         )
 
     async def _generate_live_answer(
@@ -667,6 +679,34 @@ class PaperConversationService:
         normalized_content = " ".join(chunk.content.split())
         snippet = normalized_content[:MAX_LOCAL_SNIPPET_CHARS].rstrip()
         return f"(pages {chunk.page_start}-{chunk.page_end}) {snippet}"
+
+    def _append_grounding_recovery_note(
+        self,
+        *,
+        answer: str,
+        paper: Paper,
+        retrieved_chunks: list[RetrievedPaperChunk],
+    ) -> str:
+        if retrieved_chunks:
+            return answer
+
+        source_url = (paper.source_url or "").strip()
+        if not source_url:
+            return answer
+
+        note_sections = [
+            answer.strip(),
+            "## Access Note",
+            (
+                "This answer is based on the abstract and stored metadata because I could not "
+                "access a usable PDF for grounding in the current environment."
+            ),
+            (
+                f"You can visit {source_url} to open the paper and upload the PDF here for more "
+                "grounded follow-up questions."
+            ),
+        ]
+        return self._sanitize_user_visible_text("\n\n".join(note_sections))
 
     def _format_recent_history(self, recent_messages: list[PaperMessage]) -> str | None:
         if not recent_messages:
