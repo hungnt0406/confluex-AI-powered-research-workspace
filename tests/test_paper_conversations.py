@@ -418,6 +418,9 @@ async def test_create_paper_conversation_falls_back_to_metadata_when_extraction_
     assert "limited to the stored paper metadata" in assistant_message
     assert "Simulated extraction failure." in assistant_message
     assert "Persist chunks and retrieve them per question." in assistant_message
+    assert "This answer is based on the abstract and stored metadata" in assistant_message
+    assert "visit https://papers.example.com/landing" in assistant_message
+    assert "upload the PDF here for more grounded follow-up questions" in assistant_message
 
 
 @pytest.mark.asyncio
