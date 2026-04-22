@@ -229,7 +229,7 @@ function MarkdownContent({ text }: { text: string }) {
 }
 
 function renderMarkdownBlocks(text: string): ReactNode[] {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const lines = normalizeMarkdownForDisplay(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
 
@@ -338,6 +338,12 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
   }
 
   return blocks;
+}
+
+function normalizeMarkdownForDisplay(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/([^\n])([ \t]+)(#{1,6}\s+\S)/g, "$1\n\n$3");
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
