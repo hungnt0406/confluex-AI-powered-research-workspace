@@ -16,6 +16,7 @@ from backend.db.models import (
 from backend.security import create_access_token, hash_password
 from backend.services.document_extraction import DocumentExtractionError
 from backend.services.paper_conversations import LIVE_ANSWER_SYSTEM_PROMPT, PaperConversationService
+from backend.services.semantic_scholar import SemanticScholarPaperDetails
 
 
 class FakeEmbeddingService:
@@ -74,12 +75,26 @@ class FailingExtractionService:
         raise DocumentExtractionError(self.message)
 
 
+class RecordingSemanticScholarClient:
+    """Semantic Scholar details stub that returns one exact resolved paper."""
+
+    def __init__(self, *, paper_details: SemanticScholarPaperDetails) -> None:
+        self.paper_details = paper_details
+        self.calls: list[str] = []
+
+    async def get_paper_details(self, paper_identifier: str) -> SemanticScholarPaperDetails:
+        self.calls.append(paper_identifier)
+        return self.paper_details
+
+
 async def create_sample_paper(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     project_id: str,
     title: str = "Grounded Paper Conversations",
     pdf_url: str | None = "https://papers.example.com/paper.pdf",
+    source_paper_id: str | None = "paper-source-1",
+    source_url: str | None = "https://papers.example.com/landing",
 ) -> Paper:
     async with session_factory() as session:
         paper = Paper(
@@ -90,8 +105,8 @@ async def create_sample_paper(
             abstract="This paper studies grounded Q&A over scientific PDFs.",
             doi="10.1000/grounded-paper",
             source="semantic_scholar",
-            source_paper_id="paper-source-1",
-            source_url="https://papers.example.com/landing",
+            source_paper_id=source_paper_id,
+            source_url=source_url,
             pdf_url=pdf_url,
             status="summarized",
             relevance_score=92.0,
@@ -239,6 +254,137 @@ async def test_create_paper_conversation_extracts_chunks_when_missing(
         )
 
     assert len(stored_chunks) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_paper_conversation_backfills_semantic_scholar_pdf_url_before_extraction(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        pdf_url=None,
+    )
+    extraction_service = RecordingExtractionService(
+        chunk_text="Generated chunk content after Semantic Scholar PDF backfill."
+    )
+    semantic_scholar_client = RecordingSemanticScholarClient(
+        paper_details=SemanticScholarPaperDetails(
+            paper_id="paper-source-1",
+            title=paper.title,
+            authors=["Ada Lovelace", "Grace Hopper"],
+            year=2024,
+            abstract="This paper studies grounded Q&A over scientific PDFs.",
+            doi="10.1000/grounded-paper",
+            source="semantic_scholar",
+            source_paper_id="paper-source-1",
+            source_url="https://www.semanticscholar.org/paper/paper-source-1",
+            pdf_url="https://pdf.example.com/paper-source-1.pdf",
+            citation_count=42,
+            reference_count=13,
+        )
+    )
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        extraction_service=extraction_service,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+        semantic_scholar_client=semantic_scholar_client,
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "What can be grounded from the paper PDF?"},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert semantic_scholar_client.calls == ["paper-source-1"]
+    assert extraction_service.calls == 1
+    assert "Semantic Scholar PDF backfill" in payload["messages"][1]["content"]
+
+    async with session_factory() as session:
+        refreshed_paper = await session.get(Paper, paper.id)
+
+    assert refreshed_paper is not None
+    assert refreshed_paper.pdf_url == "https://pdf.example.com/paper-source-1.pdf"
+    assert refreshed_paper.source_url == "https://papers.example.com/landing"
+    assert refreshed_paper.citation_count == 42
+    assert refreshed_paper.reference_count == 13
+
+
+@pytest.mark.asyncio
+async def test_create_paper_conversation_backfills_pdf_url_from_semantic_scholar_source_url(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        pdf_url=None,
+        source_paper_id=None,
+        source_url="https://www.semanticscholar.org/paper/ac2ad20791952c7237aa63e56d18bca6d33940d0",
+    )
+    extraction_service = RecordingExtractionService(
+        chunk_text="Generated chunk content after Semantic Scholar URL fallback."
+    )
+    semantic_scholar_client = RecordingSemanticScholarClient(
+        paper_details=SemanticScholarPaperDetails(
+            paper_id="resolved-semantic-paper",
+            title=paper.title,
+            authors=["Ada Lovelace", "Grace Hopper"],
+            year=2024,
+            abstract="This paper studies grounded Q&A over scientific PDFs.",
+            doi="10.1000/grounded-paper",
+            source="semantic_scholar",
+            source_paper_id="resolved-semantic-paper",
+            source_url="https://www.semanticscholar.org/paper/ac2ad20791952c7237aa63e56d18bca6d33940d0",
+            pdf_url="https://pdf.example.com/resolved-semantic-paper.pdf",
+            citation_count=101,
+            reference_count=21,
+        )
+    )
+    service = PaperConversationService(
+        api_key="placeholder-key",
+        retrieval_top_k=1,
+        extraction_service=extraction_service,
+        embedding_service=FakeEmbeddingService([[1.0, 0.0]]),
+        semantic_scholar_client=semantic_scholar_client,
+    )
+    app.dependency_overrides[get_paper_conversation_service] = lambda: service
+
+    response = await client.post(
+        f"/projects/{sample_project['id']}/papers/{paper.id}/conversations",
+        headers=auth_headers,
+        json={"question": "What can be grounded from the recovered PDF?"},
+    )
+    app.dependency_overrides.pop(get_paper_conversation_service, None)
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert semantic_scholar_client.calls == [
+        "URL:https://www.semanticscholar.org/paper/ac2ad20791952c7237aa63e56d18bca6d33940d0"
+    ]
+    assert extraction_service.calls == 1
+    assert "Semantic Scholar URL fallback" in payload["messages"][1]["content"]
+
+    async with session_factory() as session:
+        refreshed_paper = await session.get(Paper, paper.id)
+
+    assert refreshed_paper is not None
+    assert refreshed_paper.pdf_url == "https://pdf.example.com/resolved-semantic-paper.pdf"
+    assert refreshed_paper.citation_count == 101
+    assert refreshed_paper.reference_count == 21
 
 
 @pytest.mark.asyncio

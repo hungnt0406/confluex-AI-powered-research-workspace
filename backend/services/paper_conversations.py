@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
-import re
 
 import httpx
 from sqlalchemy import select
@@ -18,6 +18,12 @@ from backend.services.document_extraction import (
 )
 from backend.services.embeddings import EmbeddingService
 from backend.services.research_utils import cosine_similarity, has_live_api_key
+from backend.services.semantic_scholar import (
+    SemanticScholarPaperLookupError,
+    SemanticScholarPaperNotFoundError,
+    SemanticScholarProviderError,
+    get_paper_details,
+)
 
 DEFAULT_MAX_ANSWER_TOKENS = 800
 MAX_LOCAL_SNIPPET_CHARS = 280
@@ -72,6 +78,20 @@ class EmbeddingClient(Protocol):
         """Return embeddings for the provided texts."""
 
 
+class SemanticScholarDetailsClient(Protocol):
+    """Minimal Semantic Scholar details interface used for PDF backfill."""
+
+    async def get_paper_details(self, paper_identifier: str) -> object:
+        """Resolve one Semantic Scholar paper exactly."""
+
+
+class DefaultSemanticScholarDetailsClient:
+    """Thin adapter over the Semantic Scholar paper-details helper."""
+
+    async def get_paper_details(self, paper_identifier: str) -> object:
+        return await get_paper_details(paper_identifier)
+
+
 @dataclass(frozen=True)
 class RetrievedPaperChunk:
     """Paper chunk plus retrieval score for answer construction."""
@@ -101,6 +121,7 @@ class PaperConversationService:
         http_client: httpx.AsyncClient | None = None,
         extraction_service: DocumentExtractionClient | None = None,
         embedding_service: EmbeddingClient | None = None,
+        semantic_scholar_client: SemanticScholarDetailsClient | None = None,
     ) -> None:
         settings = get_settings()
         self.api_key = api_key if api_key is not None else settings.openrouter_api_key
@@ -115,6 +136,7 @@ class PaperConversationService:
         self.timeout_seconds = settings.external_api_timeout_seconds
         self.extraction_service = extraction_service or PaperDocumentExtractionService()
         self.embedding_service = embedding_service or EmbeddingService()
+        self.semantic_scholar_client = semantic_scholar_client or DefaultSemanticScholarDetailsClient()
 
     def is_configured(self) -> bool:
         """Return whether live OpenRouter answer synthesis is available."""
@@ -235,7 +257,7 @@ class PaperConversationService:
     ) -> tuple[list[RetrievedPaperChunk], str | None]:
         extraction_error: str | None = None
         paper_id = paper.id
-        paper_pdf_url = paper.pdf_url
+        paper_pdf_url = await self._ensure_grounding_pdf_url(session=session, paper=paper)
         chunks = await self._load_chunks(session=session, paper_id=paper_id)
 
         if not chunks and paper_pdf_url:
@@ -263,6 +285,83 @@ class PaperConversationService:
 
         scored_chunks.sort(key=lambda item: item.similarity, reverse=True)
         return scored_chunks[: self.retrieval_top_k], extraction_error
+
+    async def _ensure_grounding_pdf_url(
+        self,
+        *,
+        session: AsyncSession,
+        paper: Paper,
+    ) -> str | None:
+        existing_pdf_url = (paper.pdf_url or "").strip()
+        if existing_pdf_url:
+            return existing_pdf_url
+
+        candidate_identifiers = self._build_pdf_resolution_candidates(paper)
+        if not candidate_identifiers:
+            return None
+
+        paper_details: object | None = None
+        for paper_identifier in candidate_identifiers:
+            try:
+                paper_details = await self.semantic_scholar_client.get_paper_details(
+                    paper_identifier
+                )
+                break
+            except (SemanticScholarPaperLookupError, SemanticScholarPaperNotFoundError):
+                continue
+            except SemanticScholarProviderError:
+                return None
+
+        if paper_details is None:
+            return None
+
+        updated = False
+
+        resolved_pdf_url = getattr(paper_details, "pdf_url", None)
+        if isinstance(resolved_pdf_url, str) and resolved_pdf_url.strip():
+            paper.pdf_url = resolved_pdf_url.strip()
+            updated = True
+
+        resolved_source_url = getattr(paper_details, "source_url", None)
+        if not paper.source_url and isinstance(resolved_source_url, str) and resolved_source_url.strip():
+            paper.source_url = resolved_source_url.strip()
+            updated = True
+
+        resolved_citation_count = getattr(paper_details, "citation_count", None)
+        if isinstance(resolved_citation_count, int) and paper.citation_count != resolved_citation_count:
+            paper.citation_count = resolved_citation_count
+            updated = True
+
+        resolved_reference_count = getattr(paper_details, "reference_count", None)
+        if isinstance(resolved_reference_count, int) and paper.reference_count != resolved_reference_count:
+            paper.reference_count = resolved_reference_count
+            updated = True
+
+        if updated:
+            await session.flush()
+
+        normalized_pdf_url = (paper.pdf_url or "").strip()
+        return normalized_pdf_url or None
+
+    def _build_pdf_resolution_candidates(self, paper: Paper) -> list[str]:
+        candidates: list[str] = []
+        seen_identifiers: set[str] = set()
+
+        def add_candidate(raw_identifier: str | None) -> None:
+            if raw_identifier is None:
+                return
+            normalized_identifier = raw_identifier.strip()
+            if not normalized_identifier or normalized_identifier in seen_identifiers:
+                return
+            seen_identifiers.add(normalized_identifier)
+            candidates.append(normalized_identifier)
+
+        if paper.source == "semantic_scholar":
+            add_candidate(paper.source_paper_id)
+            add_candidate(f"URL:{paper.source_url}" if paper.source_url else None)
+
+        add_candidate(f"DOI:{paper.doi}" if paper.doi else None)
+        return candidates
 
     async def _embed_question(self, question: str) -> list[float]:
         try:
