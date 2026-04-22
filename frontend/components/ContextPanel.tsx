@@ -14,7 +14,7 @@ export default function ContextPanel() {
   const startWidth = useRef(0);
 
   useEffect(() => {
-    setWidth(Math.round(window.innerWidth * 0.5));
+    setWidth(Math.round(window.innerWidth * 0.3));
   }, []);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
