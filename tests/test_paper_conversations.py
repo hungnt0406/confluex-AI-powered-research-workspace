@@ -564,6 +564,20 @@ def test_sanitize_user_visible_text_removes_internal_chunk_labels() -> None:
     assert "pages 6-6" in sanitized
 
 
+def test_sanitize_user_visible_text_preserves_markdown_block_structure() -> None:
+    service = PaperConversationService(api_key="placeholder-key")
+
+    sanitized = service._sanitize_user_visible_text(
+        "## Access Note\n\nThis answer is metadata-only.\n\nUpload the PDF for grounded follow-up."
+    )
+
+    assert sanitized == (
+        "## Access Note\n\n"
+        "This answer is metadata-only.\n\n"
+        "Upload the PDF for grounded follow-up."
+    )
+
+
 @pytest.mark.asyncio
 async def test_list_paper_conversations_returns_summaries_in_latest_activity_order(
     app,
