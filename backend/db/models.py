@@ -62,6 +62,11 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    conversations: Mapped[list[ProjectConversation]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ProjectConversation.updated_at.desc()",
+    )
     reference_files: Mapped[list[ReferenceFile]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
@@ -233,6 +238,51 @@ class PaperMessage(Base):
     )
 
     conversation: Mapped[PaperConversation] = relationship(back_populates="messages")
+
+
+class ProjectConversation(Base):
+    __tablename__ = "project_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    selected_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project] = relationship(back_populates="conversations")
+    messages: Mapped[list[ProjectMessage]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ProjectMessage.created_at.asc()",
+    )
+
+
+class ProjectMessage(Base):
+    __tablename__ = "project_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("project_conversations.id", ondelete="CASCADE"),
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    conversation: Mapped[ProjectConversation] = relationship(back_populates="messages")
 
 
 class Summary(Base):
