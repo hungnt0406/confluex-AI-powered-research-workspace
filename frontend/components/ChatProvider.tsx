@@ -12,14 +12,19 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import {
   Paginated,
-  PaperConversation,
-  PaperConversationSummary,
   Project,
+  ProjectConversation,
+  ProjectConversationSummary,
   ProjectPaper,
   ProjectTitleUpdate,
   RunPipelineResponse,
   api,
 } from "@/lib/api";
+
+const ACTIVE_PROJECT_STORAGE_PREFIX = "a20.active_project";
+const SELECTED_PAPERS_STORAGE_PREFIX = "a20.selected_papers";
+const GENERATED_OVERVIEW_PROMPT_PREFIX = "Give me a structured overview of this paper relative to: ";
+const MAX_SELECTED_PAPERS = 5;
 
 export type ChatMessage = {
   id: string;
@@ -34,9 +39,10 @@ type ChatState = {
   activeProject: Project | null;
   messages: ChatMessage[];
   papers: ProjectPaper[];
+  selectedPaperIds: string[];
+  selectedPapers: ProjectPaper[];
   queries: string[];
-  conversation: PaperConversation | null;
-  groundingPaper: ProjectPaper | null;
+  conversation: ProjectConversation | null;
   runSummary: RunPipelineResponse | null;
   busy: boolean;
   error: string | null;
@@ -45,12 +51,11 @@ type ChatState = {
   deleteProject: (id: string) => Promise<void>;
   startNewResearch: () => void;
   submitMessage: (text: string) => Promise<void>;
+  togglePaperSelection: (paperId: string) => void;
   refreshProjects: () => Promise<void>;
 };
 
 const ChatContext = createContext<ChatState | null>(null);
-const ACTIVE_PROJECT_STORAGE_PREFIX = "a20.active_project";
-const GENERATED_OVERVIEW_PROMPT_PREFIX = "Give me a structured overview of this paper relative to: ";
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -62,6 +67,10 @@ function now() {
 
 function getActiveProjectStorageKey(userId: string) {
   return `${ACTIVE_PROJECT_STORAGE_PREFIX}.${userId}`;
+}
+
+function getSelectedPapersStorageKey(userId: string, projectId: string) {
+  return `${SELECTED_PAPERS_STORAGE_PREFIX}.${userId}.${projectId}`;
 }
 
 function loadSavedActiveProjectId(userId: string | null | undefined) {
@@ -77,6 +86,47 @@ function persistActiveProjectId(userId: string | null | undefined, projectId: st
     return;
   }
   window.localStorage.removeItem(storageKey);
+}
+
+function loadSavedSelectedPaperIds(userId: string | null | undefined, projectId: string | null) {
+  if (typeof window === "undefined" || !userId || !projectId) return [];
+  const raw = window.localStorage.getItem(getSelectedPapersStorageKey(userId, projectId));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSelectedPaperIds(
+  userId: string | null | undefined,
+  projectId: string | null,
+  paperIds: string[],
+) {
+  if (typeof window === "undefined" || !userId || !projectId) return;
+  const storageKey = getSelectedPapersStorageKey(userId, projectId);
+  if (paperIds.length > 0) {
+    window.localStorage.setItem(storageKey, JSON.stringify(paperIds));
+    return;
+  }
+  window.localStorage.removeItem(storageKey);
+}
+
+function normalizeSelectedPaperIds(paperIds: string[], papers: ProjectPaper[]) {
+  const availableIds = new Set(papers.map((paper) => paper.id));
+  return Array.from(new Set(paperIds)).filter((paperId) => availableIds.has(paperId)).slice(0, MAX_SELECTED_PAPERS);
+}
+
+function buildSelectionStatusText(selectedPapers: ProjectPaper[]) {
+  if (selectedPapers.length === 0) {
+    return "No papers are selected for future questions.";
+  }
+  if (selectedPapers.length === 1) {
+    return `Selected paper for future questions: "${selectedPapers[0]?.title}".`;
+  }
+  return `Selected papers for future questions: ${selectedPapers.map((paper) => `"${paper.title}"`).join(", ")}.`;
 }
 
 function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): ChatMessage[] {
@@ -96,7 +146,7 @@ function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): Ch
       id: uid(),
       role: "assistant",
       kind: "summary",
-      content: `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". Ask a question about this paper and I'll ground my answer in it.`,
+      content: `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". You can now choose up to ${MAX_SELECTED_PAPERS} papers for grounded questions.`,
       createdAt: now(),
     });
     return initial;
@@ -114,13 +164,14 @@ function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): Ch
 
 function buildRestoredConversationMessages(
   project: Project,
-  restoredConversation: PaperConversation,
+  restoredConversation: ProjectConversation,
 ): ChatMessage[] {
   const generatedOverviewPrompt = `${GENERATED_OVERVIEW_PROMPT_PREFIX}${project.topic_description}`;
 
   return restoredConversation.messages
     .filter(
       (message, index) =>
+        message.role !== "system" &&
         !(
           index === 0 &&
           message.role === "user" &&
@@ -131,7 +182,7 @@ function buildRestoredConversationMessages(
       id: message.id,
       role: message.role,
       content: message.content,
-      kind: "text" as const,
+      kind: message.role === "system" ? ("status" as const) : ("text" as const),
       createdAt: message.created_at,
     }));
 }
@@ -146,9 +197,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [papers, setPapers] = useState<ProjectPaper[]>([]);
+  const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
   const [queries, setQueries] = useState<string[]>([]);
-  const [conversation, setConversation] = useState<PaperConversation | null>(null);
-  const [groundingPaper, setGroundingPaper] = useState<ProjectPaper | null>(null);
+  const [conversation, setConversation] = useState<ProjectConversation | null>(null);
   const [runSummary, setRunSummary] = useState<RunPipelineResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,13 +224,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     persistActiveProjectId(user?.id, activeProject?.id ?? null);
   }, [user?.id, activeProject?.id]);
 
+  useEffect(() => {
+    persistSelectedPaperIds(user?.id, activeProject?.id ?? null, selectedPaperIds);
+  }, [user?.id, activeProject?.id, selectedPaperIds]);
+
+  const selectedPapers = useMemo(
+    () => selectedPaperIds
+      .map((paperId) => papers.find((paper) => paper.id === paperId) ?? null)
+      .filter((paper): paper is ProjectPaper => paper !== null),
+    [papers, selectedPaperIds],
+  );
+
   const startNewResearch = useCallback(() => {
     setActiveProject(null);
     setMessages([]);
     setPapers([]);
+    setSelectedPaperIds([]);
     setQueries([]);
     setConversation(null);
-    setGroundingPaper(null);
     setRunSummary(null);
     setError(null);
   }, []);
@@ -190,12 +252,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setBusy(true);
       setError(null);
       try {
+        setPapers([]);
+        setSelectedPaperIds([]);
+        setMessages([]);
         const project = await api<Project>(`/projects/${projectId}`, {
           token: authedRef.current,
         });
         setActiveProject(project);
         setConversation(null);
-        setGroundingPaper(null);
         setRunSummary(null);
 
         const papersResponse = await api<Paginated<ProjectPaper>>(
@@ -204,27 +268,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         );
         const nextPapers = papersResponse.data;
         setPapers(nextPapers);
-
-        const topPaper = nextPapers[0] ?? null;
-        setGroundingPaper(topPaper);
         setQueries([]);
 
-        let restoredConversation: PaperConversation | null = null;
-        if (topPaper) {
-          const conversationSummaries = await api<PaperConversationSummary[]>(
-            `/projects/${project.id}/papers/${topPaper.id}/conversations`,
-            { token: authedRef.current },
-          );
-          const latestConversation = conversationSummaries[0] ?? null;
-          if (latestConversation) {
-            restoredConversation = await api<PaperConversation>(
-              `/projects/${project.id}/papers/${topPaper.id}/conversations/${latestConversation.id}`,
-              { token: authedRef.current },
-            );
-          }
-        }
+        const savedSelectedPaperIds = normalizeSelectedPaperIds(
+          loadSavedSelectedPaperIds(user?.id, project.id),
+          nextPapers,
+        );
 
+        const conversationSummaries = await api<ProjectConversationSummary[]>(
+          `/projects/${project.id}/conversations`,
+          { token: authedRef.current },
+        );
+        const latestConversation = conversationSummaries[0] ?? null;
+        const restoredConversation = latestConversation
+          ? await api<ProjectConversation>(
+              `/projects/${project.id}/conversations/${latestConversation.id}`,
+              { token: authedRef.current },
+            )
+          : null;
+
+        const fallbackSelectedPaperIds = normalizeSelectedPaperIds(
+          restoredConversation?.selected_paper_ids ?? [],
+          nextPapers,
+        );
+        const topPaperId = nextPapers[0]?.id;
+        const nextSelectedPaperIds =
+          savedSelectedPaperIds.length > 0
+            ? savedSelectedPaperIds
+            : fallbackSelectedPaperIds.length > 0
+              ? fallbackSelectedPaperIds
+              : topPaperId
+                ? [topPaperId]
+                : [];
+
+        setSelectedPaperIds(nextSelectedPaperIds);
         setConversation(restoredConversation);
+
         const shellMessages = buildProjectShellMessages(project, nextPapers);
         setMessages(
           restoredConversation
@@ -313,6 +392,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const togglePaperSelection = useCallback(
+    (paperId: string) => {
+      if (!activeProject) return;
+      setSelectedPaperIds((prev) => {
+        const normalizedPrev = normalizeSelectedPaperIds(prev, papers);
+        const isSelected = normalizedPrev.includes(paperId);
+        if (isSelected) {
+          return normalizedPrev.filter((id) => id !== paperId);
+        }
+
+        if (normalizedPrev.length >= MAX_SELECTED_PAPERS) {
+          setError(`You can select up to ${MAX_SELECTED_PAPERS} papers for one grounded answer.`);
+          return normalizedPrev;
+        }
+
+        setError(null);
+        return [...normalizedPrev, paperId];
+      });
+    },
+    [activeProject, papers],
+  );
+
   const submitMessage = useCallback(
     async (text: string) => {
       if (!authedRef.current) return;
@@ -331,7 +432,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setMessages((prev) => [...prev, userMessage]);
 
       try {
-        // Branch 1: first message of a brand new research thread -> create project + run pipeline.
         if (!activeProject) {
           setMessages((prev) => [
             ...prev,
@@ -371,7 +471,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setPapers(papersResponse.data);
 
           const topPaper = papersResponse.data[0] ?? null;
-          setGroundingPaper(topPaper);
+          const nextSelectedPaperIds = topPaper ? [topPaper.id] : [];
+          setSelectedPaperIds(nextSelectedPaperIds);
 
           if (!topPaper) {
             setMessages((prev) => [
@@ -390,28 +491,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          const conversation = await api<PaperConversation>(
-            `/projects/${project.id}/papers/${topPaper.id}/conversations`,
+          const createdConversation = await api<ProjectConversation>(
+            `/projects/${project.id}/conversations`,
             {
               method: "POST",
               token: authedRef.current,
               json: {
-                question: `Give me a structured overview of this paper relative to: ${trimmed}`,
+                paper_ids: nextSelectedPaperIds,
+                question: `${GENERATED_OVERVIEW_PROMPT_PREFIX}${trimmed}`,
               },
             },
           );
-          setConversation(conversation);
+          setConversation(createdConversation);
 
-          const lastAssistant = [...conversation.messages]
+          const lastAssistant = [...createdConversation.messages]
             .reverse()
-            .find((m) => m.role === "assistant");
+            .find((message) => message.role === "assistant");
           setMessages((prev) => [
             ...prev,
             {
               id: uid(),
               role: "assistant",
               kind: "summary",
-              content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. Grounded on "${topPaper.title}".`,
+              content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. Currently selected: "${topPaper.title}".`,
               createdAt: now(),
             },
             {
@@ -425,45 +527,39 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Branch 2: follow-up inside an existing project.
-        if (!groundingPaper) {
-          // Try to (re)load ranked papers then pick the top.
-          const papersResponse = await api<Paginated<ProjectPaper>>(
-            `/projects/${activeProject.id}/papers?per_page=30`,
-            { token: authedRef.current },
-          );
-          setPapers(papersResponse.data);
-          const topPaper = papersResponse.data[0] ?? null;
-          setGroundingPaper(topPaper);
-          if (!topPaper) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: uid(),
-                role: "assistant",
-                kind: "status",
-                content: "No ranked papers available on this project yet.",
-                createdAt: now(),
-              },
-            ]);
-            return;
-          }
+        let nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
+        if (nextSelectedPaperIds.length === 0) {
+          const topPaperId = papers[0]?.id;
+          nextSelectedPaperIds = topPaperId ? [topPaperId] : [];
+          setSelectedPaperIds(nextSelectedPaperIds);
+        }
+        if (nextSelectedPaperIds.length === 0) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uid(),
+              role: "assistant",
+              kind: "status",
+              content: "No ranked papers are selected for this project yet.",
+              createdAt: now(),
+            },
+          ]);
+          return;
         }
 
-        const paper = groundingPaper!;
         if (!conversation) {
-          const created = await api<PaperConversation>(
-            `/projects/${activeProject.id}/papers/${paper.id}/conversations`,
+          const createdConversation = await api<ProjectConversation>(
+            `/projects/${activeProject.id}/conversations`,
             {
               method: "POST",
               token: authedRef.current,
-              json: { question: trimmed },
+              json: { paper_ids: nextSelectedPaperIds, question: trimmed },
             },
           );
-          setConversation(created);
-          const assistantTurn = [...created.messages]
+          setConversation(createdConversation);
+          const assistantTurn = [...createdConversation.messages]
             .reverse()
-            .find((m) => m.role === "assistant");
+            .find((message) => message.role === "assistant");
           setMessages((prev) => [
             ...prev,
             {
@@ -477,24 +573,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const updated = await api<PaperConversation>(
-          `/projects/${activeProject.id}/papers/${paper.id}/conversations/${conversation.id}/messages`,
+        const updatedConversation = await api<ProjectConversation>(
+          `/projects/${activeProject.id}/conversations/${conversation.id}/messages`,
           {
             method: "POST",
             token: authedRef.current,
-            json: { question: trimmed },
+            json: { paper_ids: nextSelectedPaperIds, question: trimmed },
           },
         );
-        setConversation(updated);
-        const last = [...updated.messages].reverse().find((m) => m.role === "assistant");
+        setConversation(updatedConversation);
+        const lastAssistant = [...updatedConversation.messages]
+          .reverse()
+          .find((message) => message.role === "assistant");
         setMessages((prev) => [
           ...prev,
           {
             id: uid(),
             role: "assistant",
             kind: "text",
-            content: last?.content ?? "(No grounded answer returned.)",
-            createdAt: last?.created_at ?? now(),
+            content: lastAssistant?.content ?? "(No grounded answer returned.)",
+            createdAt: lastAssistant?.created_at ?? now(),
           },
         ]);
       } catch (err: any) {
@@ -514,7 +612,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [activeProject, groundingPaper, conversation, refreshProjects],
+    [activeProject, selectedPaperIds, papers, conversation, refreshProjects],
   );
 
   const value = useMemo<ChatState>(
@@ -523,9 +621,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       activeProject,
       messages,
       papers,
+      selectedPaperIds,
+      selectedPapers,
       queries,
       conversation,
-      groundingPaper,
       runSummary,
       busy,
       error,
@@ -534,6 +633,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       startNewResearch,
       submitMessage,
+      togglePaperSelection,
       refreshProjects,
     }),
     [
@@ -541,9 +641,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       activeProject,
       messages,
       papers,
+      selectedPaperIds,
+      selectedPapers,
       queries,
       conversation,
-      groundingPaper,
       runSummary,
       busy,
       error,
@@ -552,6 +653,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       startNewResearch,
       submitMessage,
+      togglePaperSelection,
       refreshProjects,
     ],
   );
