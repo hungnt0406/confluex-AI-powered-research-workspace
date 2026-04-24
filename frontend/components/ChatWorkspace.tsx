@@ -18,6 +18,7 @@ export default function ChatWorkspace() {
     busy,
     submitMessage,
     startNewResearch,
+    togglePaperSelection,
   } = useChat();
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -106,7 +107,10 @@ export default function ChatWorkspace() {
         <div className="w-full bg-gradient-to-t from-background via-background to-transparent pt-10 pb-6">
           <div className="chat-container px-4">
             {activeProject && (
-              <SelectedPapersStrip titles={selectedPapers.map((paper) => paper.title)} />
+              <SelectedPapersStrip
+                papers={selectedPapers.map((paper) => ({ id: paper.id, title: paper.title }))}
+                onRemove={togglePaperSelection}
+              />
             )}
             <form
               onSubmit={onSubmit}
@@ -165,23 +169,43 @@ export default function ChatWorkspace() {
   );
 }
 
-function SelectedPapersStrip({ titles }: { titles: string[] }) {
-  const visibleTitles = titles.slice(0, 3);
-  const remainingCount = Math.max(titles.length - visibleTitles.length, 0);
+function SelectedPapersStrip({
+  papers,
+  onRemove,
+}: {
+  papers: { id: string; title: string }[];
+  onRemove: (paperId: string) => void;
+}) {
+  const visiblePapers = papers.slice(0, 3);
+  const remainingCount = Math.max(papers.length - visiblePapers.length, 0);
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
       <span className="text-[10px] uppercase tracking-[0.2em] text-hint">
         Selected Papers
       </span>
-      {visibleTitles.length > 0 ? (
+      {visiblePapers.length > 0 ? (
         <>
-          {visibleTitles.map((title) => (
+          {visiblePapers.map((paper) => (
             <span
-              key={title}
-              className="inline-flex max-w-full items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] text-primary"
+              key={paper.id}
+              className="group inline-flex max-w-full items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] text-primary"
             >
-              <span className="truncate">{title}</span>
+              <span className="truncate">{paper.title}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(paper.id)}
+                aria-label={`Remove ${paper.title} from selected papers`}
+                className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-primary/70 opacity-0 transition-opacity hover:bg-primary/10 hover:text-primary focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-primary/40 group-hover:opacity-100"
+              >
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{ fontSize: "14px" }}
+                >
+                  close
+                </span>
+              </button>
             </span>
           ))}
           {remainingCount > 0 && (
