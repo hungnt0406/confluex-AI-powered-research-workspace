@@ -14,6 +14,7 @@ export default function ChatWorkspace() {
   const {
     messages,
     activeProject,
+    selectedPapers,
     busy,
     submitMessage,
     startNewResearch,
@@ -45,7 +46,7 @@ export default function ChatWorkspace() {
 
   const showGreeting = messages.length === 0 && !activeProject;
   const composerPlaceholder = activeProject
-    ? "Ask a grounded follow-up about this project…"
+    ? "Ask a grounded question about the selected papers…"
     : "Describe a research topic to begin…";
 
   return (
@@ -104,6 +105,9 @@ export default function ChatWorkspace() {
 
         <div className="w-full bg-gradient-to-t from-background via-background to-transparent pt-10 pb-6">
           <div className="chat-container px-4">
+            {activeProject && (
+              <SelectedPapersStrip titles={selectedPapers.map((paper) => paper.title)} />
+            )}
             <form
               onSubmit={onSubmit}
               className="relative flex flex-col w-full bg-surface-container-low rounded-2xl border border-outline/30 focus-within:border-primary/40 transition-all shadow-sm"
@@ -158,6 +162,38 @@ export default function ChatWorkspace() {
         </div>
       </div>
     </main>
+  );
+}
+
+function SelectedPapersStrip({ titles }: { titles: string[] }) {
+  const visibleTitles = titles.slice(0, 3);
+  const remainingCount = Math.max(titles.length - visibleTitles.length, 0);
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <span className="text-[10px] uppercase tracking-[0.2em] text-hint">
+        Selected Papers
+      </span>
+      {visibleTitles.length > 0 ? (
+        <>
+          {visibleTitles.map((title) => (
+            <span
+              key={title}
+              className="inline-flex max-w-full items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] text-primary"
+            >
+              <span className="truncate">{title}</span>
+            </span>
+          ))}
+          {remainingCount > 0 && (
+            <span className="inline-flex items-center rounded-full border border-outline/30 px-3 py-1 text-[11px] text-hint">
+              +{remainingCount} more
+            </span>
+          )}
+        </>
+      ) : (
+        <span className="text-[11px] text-hint">Choose at least one paper from the panel.</span>
+      )}
+    </div>
   );
 }
 
@@ -346,10 +382,70 @@ function normalizeMarkdownForDisplay(text: string): string {
     .replace(/([^\n])([ \t]+)(#{1,6}\s+\S)/g, "$1\n\n$3");
 }
 
+function renderTextWithLinks(text: string, keyPrefix: string): ReactNode[] {
+  const urlPattern = /https?:\/\/[^\s<]+/g;
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = 0;
+
+  for (const match of text.matchAll(urlPattern)) {
+    const url = match[0];
+    const start = match.index ?? 0;
+    let trimmedUrl = url;
+    let trailing = "";
+
+    while (/[),.;!?]$/.test(trimmedUrl)) {
+      trailing = trimmedUrl.slice(-1) + trailing;
+      trimmedUrl = trimmedUrl.slice(0, -1);
+    }
+
+    if (start > cursor) {
+      nodes.push(
+        <Fragment key={`${keyPrefix}-text-${matchIndex}`}>
+          {text.slice(cursor, start)}
+        </Fragment>,
+      );
+    }
+
+    nodes.push(
+      <a
+        key={`${keyPrefix}-link-${matchIndex}`}
+        href={trimmedUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline underline-offset-2 break-all hover:opacity-80"
+      >
+        {trimmedUrl}
+      </a>,
+    );
+
+    if (trailing) {
+      nodes.push(
+        <Fragment key={`${keyPrefix}-trailing-${matchIndex}`}>
+          {trailing}
+        </Fragment>,
+      );
+    }
+
+    cursor = start + url.length;
+    matchIndex += 1;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(
+      <Fragment key={`${keyPrefix}-tail`}>
+        {text.slice(cursor)}
+      </Fragment>,
+    );
+  }
+
+  return nodes.length > 0 ? nodes : [text];
+}
+
 function renderInlineMarkdown(text: string): ReactNode[] {
   const matches = text.match(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
   if (!matches) {
-    return [text];
+    return renderTextWithLinks(text, "plain");
   }
 
   const nodes: ReactNode[] = [];
@@ -393,8 +489,8 @@ function renderInlineMarkdown(text: string): ReactNode[] {
     nodes.push(text.slice(cursor));
   }
 
-  return nodes.map((node, index) =>
-    typeof node === "string" ? <Fragment key={`text-${index}`}>{node}</Fragment> : node,
+  return nodes.flatMap((node, index) =>
+    typeof node === "string" ? renderTextWithLinks(node, `text-${index}`) : [node],
   );
 }
 
