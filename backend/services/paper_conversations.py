@@ -726,8 +726,9 @@ class PaperConversationService:
         sanitized = CHUNK_LABEL_PATTERN.sub(r"pages \1", sanitized)
         sanitized = SCORE_SEGMENT_PATTERN.sub("", sanitized)
         sanitized = re.sub(r"\(\s*pages\s+([0-9]+(?:-[0-9]+)?)\s*,\s*\)", r"(pages \1)", sanitized)
-        sanitized = re.sub(r"\s{2,}", " ", sanitized)
-        sanitized = re.sub(r" *\n", "\n", sanitized)
+        sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
+        sanitized = re.sub(r" *\n *", "\n", sanitized)
+        sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
         return sanitized.strip()
 
     async def _load_chunks(self, *, session: AsyncSession, paper_id: str) -> list[PaperChunk]:

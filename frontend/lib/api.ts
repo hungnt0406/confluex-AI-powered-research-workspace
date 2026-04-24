@@ -154,4 +154,31 @@ export type PaperConversationSummary = {
   opening_question: string | null;
 };
 
+export type ProjectMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+};
+
+export type ProjectConversation = {
+  id: string;
+  project_id: string;
+  selected_paper_ids: string[];
+  created_at: string;
+  updated_at: string;
+  messages: ProjectMessage[];
+};
+
+export type ProjectConversationSummary = {
+  id: string;
+  project_id: string;
+  selected_paper_ids: string[];
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  opening_question: string | null;
+};
+
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
