@@ -12,6 +12,7 @@ from backend.db.session import get_db_session
 from backend.security import decode_access_token
 from backend.services.paper_citations import PaperCitationService
 from backend.services.paper_conversations import PaperConversationService
+from backend.services.project_conversations import ProjectConversationService
 from backend.services.reference_files import ReferenceFileService
 from backend.services.writer_outputs import WriterOutputService
 
@@ -78,6 +79,12 @@ def get_paper_citation_service() -> PaperCitationService:
     return PaperCitationService()
 
 
+def get_project_conversation_service() -> ProjectConversationService:
+    """Return the default project conversation service."""
+
+    return ProjectConversationService()
+
+
 def get_writer_output_service() -> WriterOutputService:
     """Return the default writer output service."""
 
@@ -97,6 +104,10 @@ PaperConversationServiceDependency = Annotated[
 PaperCitationServiceDependency = Annotated[
     PaperCitationService,
     Depends(get_paper_citation_service),
+]
+ProjectConversationServiceDependency = Annotated[
+    ProjectConversationService,
+    Depends(get_project_conversation_service),
 ]
 WriterOutputServiceDependency = Annotated[
     WriterOutputService,
