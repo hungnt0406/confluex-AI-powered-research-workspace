@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
-    from backend.db.models import PaperConversation, ReferenceFile, WriterOutput
+    from backend.db.models import (
+        PaperConversation,
+        ProjectConversation,
+        ReferenceFile,
+        WriterOutput,
+    )
 
 
 class ProjectCreate(BaseModel):
@@ -250,6 +255,100 @@ class PaperConversationSummaryRead(BaseModel):
         return cls(
             id=conversation.id,
             paper_id=conversation.paper_id,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            message_count=len(conversation.messages),
+            opening_question=opening_question,
+        )
+
+
+class ProjectConversationQuestionCreate(BaseModel):
+    """Request body for project-scoped multi-paper chat questions."""
+
+    paper_ids: list[str] = Field(min_length=1, max_length=5)
+    question: str = Field(min_length=1, max_length=8_000)
+
+    @model_validator(mode="after")
+    def validate_paper_ids(self) -> "ProjectConversationQuestionCreate":
+        normalized_ids = [paper_id.strip() for paper_id in self.paper_ids]
+        if any(not paper_id for paper_id in normalized_ids):
+            raise ValueError("paper_ids must not contain empty values.")
+        if len(dict.fromkeys(normalized_ids)) != len(normalized_ids):
+            raise ValueError("paper_ids must be unique.")
+        self.paper_ids = normalized_ids
+        self.question = self.question.strip()
+        return self
+
+
+class ProjectConversationCreate(ProjectConversationQuestionCreate):
+    """Request body for starting a project-scoped multi-paper conversation."""
+
+
+class ProjectConversationMessageCreate(ProjectConversationQuestionCreate):
+    """Request body for adding a follow-up turn to a project-scoped conversation."""
+
+
+class ProjectMessageRead(BaseModel):
+    """Serialized message payload for a project-scoped conversation."""
+
+    id: str
+    conversation_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectConversationRead(BaseModel):
+    """Serialized project conversation with its persisted messages."""
+
+    id: str
+    project_id: str
+    selected_paper_ids: list[str]
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ProjectMessageRead]
+
+    @classmethod
+    def from_conversation(cls, conversation: "ProjectConversation") -> "ProjectConversationRead":
+        return cls(
+            id=conversation.id,
+            project_id=conversation.project_id,
+            selected_paper_ids=list(conversation.selected_paper_ids_json),
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            messages=[
+                ProjectMessageRead.model_validate(message)
+                for message in conversation.messages
+            ],
+        )
+
+
+class ProjectConversationSummaryRead(BaseModel):
+    """Serialized summary payload for project-scoped conversations."""
+
+    id: str
+    project_id: str
+    selected_paper_ids: list[str]
+    created_at: datetime
+    updated_at: datetime
+    message_count: int
+    opening_question: str | None
+
+    @classmethod
+    def from_conversation(
+        cls,
+        conversation: "ProjectConversation",
+    ) -> "ProjectConversationSummaryRead":
+        opening_question = next(
+            (message.content for message in conversation.messages if message.role == "user"),
+            None,
+        )
+        return cls(
+            id=conversation.id,
+            project_id=conversation.project_id,
+            selected_paper_ids=list(conversation.selected_paper_ids_json),
             created_at=conversation.created_at,
             updated_at=conversation.updated_at,
             message_count=len(conversation.messages),
