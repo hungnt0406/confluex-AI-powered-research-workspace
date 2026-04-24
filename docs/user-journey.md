@@ -6,7 +6,7 @@ Use this as a shared reference when designing UI, prioritizing backlog items, or
 
 Status note:
 
-- Shipped frontend today: login plus a chat-style workspace in `frontend/` that can create projects, run discovery, list ranked papers in context, and start grounded paper conversations.
+- Shipped frontend today: login plus a chat-style workspace in `frontend/` that can create projects, run discovery, list ranked papers in context, select up to 5 papers, and ask grounded questions across the selected set.
 - Planned frontend still missing: the full stage-based UI for reference-file management, paper drill-down workflows, writer workspace, downloads, and richer iteration tools.
 
 > **Paradigm note (post phase 3 refactor):** The product is no longer "push one button and get a full literature review." Paper discovery is automatic (`searcher → reader`), but **Writer + QA are user-invoked after paper selection**. The user picks papers, writes an instruction, picks an output format (LaTeX, docs, markdown, plain text), and receives a grounded, QA-validated artifact (prose, references, BibTeX, etc.).
@@ -103,13 +103,16 @@ flowchart LR
 
 ### Stage 7 — Deep-dive into a paper (grounded Q&A)
 
-- **User goal:** Understand a specific paper without reading the PDF end-to-end.
-- **User actions:** Pick a paper → ask a question → ask follow-ups in a persisted conversation.
+- **User goal:** Understand one paper or a small selected set without reading every PDF end-to-end.
+- **User actions:** Pick 1 to 5 papers → ask a question → ask follow-ups in a persisted conversation.
 - **System (implemented):**
   - `POST /projects/{id}/papers/{paper_id}/conversations` — first turn. If PDF chunks are missing, extraction runs on demand via OpenRouter (`native` PDF engine, retries with `cloudflare-ai`), persists `paper_documents` + `paper_chunks` with embeddings, retrieves top-k chunks, answers grounded to the paper. Falls back to abstract + summary if extraction fails.
   - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` — follow-up turns, using the newest 10 messages plus top-k retrieved chunks for the new question.
   - `GET /projects/{id}/papers/{paper_id}/conversations` and `/conversations/{conversation_id}` — list and detail.
-- **Touchpoint:** The current frontend automatically grounds on the top paper in the chat workspace. A dedicated per-paper conversation UI remains planned.
+  - `POST /projects/{id}/conversations` — first turn for the main workspace chat. Validates 1 to 5 selected papers, retrieves evidence across the selected set, and persists the selected paper ids with the conversation.
+  - `POST /projects/{id}/conversations/{conversation_id}/messages` — follow-up turns for the main workspace chat. If the selected paper set changes, the system stores a selection-change system message before the user turn.
+  - `GET /projects/{id}/conversations` and `/conversations/{conversation_id}` — list and detail for the project-scoped chat thread.
+- **Touchpoint:** The current frontend uses the project-scoped chat flow in the main workspace, with selected papers shown near the composer and in the right-side context panel. A dedicated per-paper conversation UI still remains planned.
 - **Feeling:** Confident — "I can interrogate the paper like a tutor."
 - **Pain points:** Scanned-only PDFs → limited answers; first-turn latency while extraction runs.
 - **Opportunity:** Show a "grounded vs metadata fallback" badge so the user knows the answer's evidence source.
@@ -173,8 +176,8 @@ flowchart LR
 ### Stage 12 — Return & manage library
 
 - **User goal:** Run more projects, revisit prior outputs, keep an organized library.
-- **User actions:** Views project list, revisits a prior writer output, uploads more PDFs, asks follow-up questions on a paper, or deletes a project that is no longer needed.
-- **System:** `GET /projects` list, `DELETE /projects/{id}` project removal, per-project paper library, persisted paper conversations, persisted writer outputs.
+- **User actions:** Views project list, revisits a prior writer output, uploads more PDFs, asks follow-up questions on a paper, or renames/deletes a project that is no longer needed.
+- **System:** `GET /projects` list, `PATCH /projects/{id}` rename, `DELETE /projects/{id}` project removal, per-project paper library, persisted paper conversations, persisted writer outputs.
 - **Feeling:** Invested — the product becomes a research workspace, not a one-shot tool.
 - **Pain points:** No tagging, annotations, or search across past outputs yet.
 - **Opportunity:** Cross-project gap analysis, tagging, and notebook-style saved outputs (P1 / nice-to-have in `CORE_FEATURES.md`).

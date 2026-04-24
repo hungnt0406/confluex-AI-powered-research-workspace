@@ -10,6 +10,10 @@ This document describes the grounded paper Q&A feature for project papers.
 | Add follow-up message | `POST` | `/projects/{project_id}/papers/{paper_id}/conversations/{conversation_id}/messages` |
 | List conversations for a paper | `GET` | `/projects/{project_id}/papers/{paper_id}/conversations` |
 | Get one conversation | `GET` | `/projects/{project_id}/papers/{paper_id}/conversations/{conversation_id}` |
+| Create project-scoped multi-paper conversation | `POST` | `/projects/{project_id}/conversations` |
+| Add project-scoped follow-up message | `POST` | `/projects/{project_id}/conversations/{conversation_id}/messages` |
+| List project-scoped conversations | `GET` | `/projects/{project_id}/conversations` |
+| Get one project-scoped conversation | `GET` | `/projects/{project_id}/conversations/{conversation_id}` |
 
 Router ownership: `backend/api/routers/projects.py`
 
@@ -18,6 +22,7 @@ Router ownership: `backend/api/routers/projects.py`
 - Route handlers: `backend/api/routers/projects.py`
 - Schemas: `backend/api/schemas/projects.py`
 - Conversation service: `backend/services/paper_conversations.py`
+- Project conversation service: `backend/services/project_conversations.py`
 - PDF extraction and chunk persistence: `backend/services/document_extraction.py`
 - Persistence models: `backend/db/models.py`
 
@@ -43,10 +48,12 @@ Router ownership: `backend/api/routers/projects.py`
 - Preferred path: answer from retrieved PDF chunks.
 - Fallback path: answer from abstract and summary metadata if extraction fails or no chunks exist.
 - Follow-up turns use recent persisted conversation history plus newly retrieved chunks for the new question.
+- Project-scoped workspace chat can retrieve evidence across 1 to 5 selected papers, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
 
 ## Related Tests
 
 - `tests/test_paper_conversations.py`
+- `tests/test_project_conversations.py`
 - `tests/test_document_extraction.py`
 
 These tests cover:
