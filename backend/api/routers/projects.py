@@ -12,6 +12,7 @@ from backend.api.dependencies import (
     PaperCitationServiceDependency,
     PaperConversationServiceDependency,
     PipelineServiceDependency,
+    ProjectConversationServiceDependency,
     ReferenceFileServiceDependency,
     WriterOutputServiceDependency,
 )
@@ -23,6 +24,10 @@ from backend.api.schemas.projects import (
     PaperConversationMessageCreate,
     PaperConversationRead,
     PaperConversationSummaryRead,
+    ProjectConversationCreate,
+    ProjectConversationMessageCreate,
+    ProjectConversationRead,
+    ProjectConversationSummaryRead,
     ProjectCreate,
     ProjectPaperListResponse,
     ProjectPaperRead,
@@ -33,7 +38,14 @@ from backend.api.schemas.projects import (
     WriterGenerateRequest,
     WriterOutputRead,
 )
-from backend.db.models import Paper, PaperConversation, Project, ReferenceFile, WriterOutput
+from backend.db.models import (
+    Paper,
+    PaperConversation,
+    Project,
+    ProjectConversation,
+    ReferenceFile,
+    WriterOutput,
+)
 from backend.services.paper_citations import (
     CitationNotFoundError,
     CitationProviderError,
@@ -126,6 +138,34 @@ async def get_project_paper_or_404(
     return paper
 
 
+async def get_project_papers_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    paper_ids: list[str],
+) -> list[Paper]:
+    """Return ordered project papers for the provided ids."""
+
+    unique_paper_ids = list(dict.fromkeys(paper_ids))
+    result = await session.execute(
+        select(Paper)
+        .options(selectinload(Paper.summary))
+        .where(
+            Paper.project_id == project_id,
+            Paper.id.in_(unique_paper_ids),
+        )
+    )
+    papers_by_id = {paper.id: paper for paper in result.scalars().all()}
+    missing_paper_ids = [paper_id for paper_id in unique_paper_ids if paper_id not in papers_by_id]
+    if missing_paper_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more selected papers were not found in the project.",
+        )
+
+    return [papers_by_id[paper_id] for paper_id in unique_paper_ids]
+
+
 async def get_project_paper_conversation_or_404(
     session: DbSession,
     *,
@@ -140,6 +180,31 @@ async def get_project_paper_conversation_or_404(
         .where(
             PaperConversation.paper_id == paper_id,
             PaperConversation.id == conversation_id,
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        )
+    return conversation
+
+
+async def get_project_conversation_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    conversation_id: str,
+) -> ProjectConversation:
+    """Return a project-scoped conversation belonging to a project."""
+
+    result = await session.execute(
+        select(ProjectConversation)
+        .options(selectinload(ProjectConversation.messages))
+        .where(
+            ProjectConversation.project_id == project_id,
+            ProjectConversation.id == conversation_id,
         )
     )
     conversation = result.scalar_one_or_none()
@@ -617,6 +682,117 @@ async def get_paper_conversation(
         conversation_id=conversation_id,
     )
     return PaperConversationRead.model_validate(conversation)
+
+
+@router.post(
+    "/{project_id}/conversations",
+    response_model=ProjectConversationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_project_conversation(
+    project_id: str,
+    payload: ProjectConversationCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+    response: Response,
+) -> ProjectConversationRead:
+    """Start a grounded multi-paper conversation for a project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    result = await conversation_service.create_conversation(
+        session=session,
+        project_id=project.id,
+        selected_papers=selected_papers,
+        question=payload.question,
+    )
+    response.headers["Location"] = f"/projects/{project.id}/conversations/{result.conversation.id}"
+    return ProjectConversationRead.from_conversation(result.conversation)
+
+
+@router.post(
+    "/{project_id}/conversations/{conversation_id}/messages",
+    response_model=ProjectConversationRead,
+)
+async def create_project_conversation_message(
+    project_id: str,
+    conversation_id: str,
+    payload: ProjectConversationMessageCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+) -> ProjectConversationRead:
+    """Persist a follow-up turn for a project-scoped multi-paper conversation."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    conversation = await get_project_conversation_or_404(
+        session,
+        project_id=project.id,
+        conversation_id=conversation_id,
+    )
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    result = await conversation_service.continue_conversation(
+        session=session,
+        conversation=conversation,
+        selected_papers=selected_papers,
+        question=payload.question,
+    )
+    return ProjectConversationRead.from_conversation(result.conversation)
+
+
+@router.get(
+    "/{project_id}/conversations",
+    response_model=list[ProjectConversationSummaryRead],
+)
+async def list_project_conversations(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> list[ProjectConversationSummaryRead]:
+    """List project-scoped grounded conversations."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    result = await session.execute(
+        select(ProjectConversation)
+        .options(selectinload(ProjectConversation.messages))
+        .where(ProjectConversation.project_id == project.id)
+        .order_by(ProjectConversation.updated_at.desc(), ProjectConversation.created_at.desc())
+    )
+    conversations = result.scalars().all()
+    return [
+        ProjectConversationSummaryRead.from_conversation(conversation)
+        for conversation in conversations
+    ]
+
+
+@router.get(
+    "/{project_id}/conversations/{conversation_id}",
+    response_model=ProjectConversationRead,
+)
+async def get_project_conversation(
+    project_id: str,
+    conversation_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> ProjectConversationRead:
+    """Fetch one project-scoped grounded conversation."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    conversation = await get_project_conversation_or_404(
+        session,
+        project_id=project.id,
+        conversation_id=conversation_id,
+    )
+    return ProjectConversationRead.from_conversation(conversation)
 
 
 @router.post(
