@@ -5,7 +5,7 @@ import { useChat } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 
 export default function ContextPanel() {
-  const { papers, runSummary, groundingPaper } = useChat();
+  const { papers, runSummary, selectedPaperIds, togglePaperSelection } = useChat();
   const open = papers.length > 0;
 
   const [width, setWidth] = useState<number>(600);
@@ -94,7 +94,8 @@ export default function ContextPanel() {
             <PaperCard
               key={paper.id}
               paper={paper}
-              isGrounding={groundingPaper?.id === paper.id}
+              isSelected={selectedPaperIds.includes(paper.id)}
+              onToggle={() => togglePaperSelection(paper.id)}
             />
           ))}
         </ul>
@@ -105,10 +106,12 @@ export default function ContextPanel() {
 
 function PaperCard({
   paper,
-  isGrounding,
+  isSelected,
+  onToggle,
 }: {
   paper: ProjectPaper;
-  isGrounding: boolean;
+  isSelected: boolean;
+  onToggle: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const summaryId = `paper-summary-${paper.id}`;
@@ -117,21 +120,33 @@ function PaperCard({
   return (
     <li
       className={`p-3 rounded-xl border transition-colors ${
-        isGrounding
+        isSelected
           ? "bg-primary/10 border-primary/30"
           : "bg-surface-container-low border-outline/20 hover:border-outline/40"
       }`}
     >
       <div className="flex items-start gap-2">
-        <span
-          className="material-symbols-outlined text-primary mt-0.5 flex-shrink-0"
-          style={{
-            fontSize: "14px",
-            fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-          }}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={isSelected}
+          aria-label={isSelected ? "Deselect paper" : "Select paper"}
+          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border transition-colors ${
+            isSelected
+              ? "border-primary bg-primary text-white"
+              : "border-outline/40 text-hint hover:border-primary/50"
+          }`}
         >
-          {isGrounding ? "chat_bubble" : "article"}
-        </span>
+          <span
+            className="material-symbols-outlined"
+            style={{
+              fontSize: "14px",
+              fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+            }}
+          >
+            {isSelected ? "check" : "add"}
+          </span>
+        </button>
         <div className="min-w-0 flex-1">
           {paper.source_url ? (
             <a
