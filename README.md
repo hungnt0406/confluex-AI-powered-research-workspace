@@ -15,6 +15,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
 - On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
 - Grounded paper conversations with persisted first-turn and follow-up Q&A
+- Project-scoped multi-paper grounded conversations for the main chat workspace
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
 - Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
 - GitHub Actions CI for migrations, linting, type-checking, and tests
@@ -93,6 +94,7 @@ npm run dev
 - `POST /projects`
 - `GET /projects`
 - `GET /projects/{id}`
+- `PATCH /projects/{id}`
 - `DELETE /projects/{id}`
 - `POST /projects/{id}/run`
 - `GET /projects/{id}/papers`
@@ -101,16 +103,24 @@ npm run dev
 - `GET /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
 - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages`
+- `POST /projects/{id}/conversations`
+- `GET /projects/{id}/conversations`
+- `GET /projects/{id}/conversations/{conversation_id}`
+- `POST /projects/{id}/conversations/{conversation_id}/messages`
 - `POST /projects/{id}/writer/generate`
 - `GET /projects/{id}/writer/outputs/{output_id}`
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
+`PATCH /projects/{id}` renames an owned project without changing any of its persisted papers, conversations, or writer outputs.
 `DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
 `GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
+`POST /projects/{id}/conversations` starts a project-scoped grounded conversation over 1 to 5 selected papers, retrieving evidence across the selected set and persisting the selected paper ids with the conversation.
+`POST /projects/{id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn for the currently selected paper set; when the selected set changes, the conversation stores a system message describing the new selection before the user turn.
+`GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
 
