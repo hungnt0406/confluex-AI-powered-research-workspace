@@ -114,50 +114,33 @@ export default function ChatWorkspace() {
             )}
             <form
               onSubmit={onSubmit}
-              className="relative flex flex-col w-full bg-surface-container-low rounded-2xl border border-outline/30 focus-within:border-primary/40 transition-all shadow-sm"
+              className="flex w-full items-center gap-1 bg-surface-container-low rounded-2xl border border-outline/30 px-2 py-2 focus-within:border-primary/40 transition-all shadow-sm"
             >
-              {!draft && (
-                <div className="pointer-events-none absolute left-4 right-14 top-3.5 overflow-hidden text-ellipsis whitespace-nowrap text-base text-hint">
-                  {composerPlaceholder}
-                </div>
-              )}
+              <button
+                type="button"
+                className="relative top-[2px] flex-shrink-0 p-2 text-secondary hover:bg-primary/5 rounded-lg transition-colors"
+                disabled
+                title="Coming soon"
+              >
+                <span className="material-symbols-outlined text-xl">add_circle</span>
+              </button>
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKey}
                 disabled={busy}
-                className="w-full bg-transparent border-none focus:ring-0 text-base py-3.5 px-4 pr-12 resize-none font-ui text-on-surface placeholder:text-hint max-h-52 outline-none"
-                placeholder=""
+                className="min-h-10 flex-1 bg-transparent border-none focus:ring-0 text-base leading-6 px-1 py-[7px] resize-none font-ui text-on-surface placeholder:text-hint max-h-52 outline-none"
+                placeholder={composerPlaceholder}
                 aria-label={composerPlaceholder}
                 rows={1}
               />
-              <div className="flex items-center justify-between px-2 pb-2">
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    className="p-2 text-secondary hover:bg-primary/5 rounded-lg transition-colors"
-                    disabled
-                    title="Coming soon"
-                  >
-                    <span className="material-symbols-outlined text-xl">add_circle</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="p-2 text-secondary hover:bg-primary/5 rounded-lg transition-colors"
-                    disabled
-                    title="Coming soon"
-                  >
-                    <span className="material-symbols-outlined text-xl">mic</span>
-                  </button>
-                </div>
-                <button
-                  type="submit"
-                  disabled={busy || !draft.trim()}
-                  className="bg-primary text-white w-8 h-8 rounded-lg shadow-sm hover:opacity-90 active:scale-95 transition-all flex items-center justify-center disabled:opacity-20"
-                >
-                  <span className="material-symbols-outlined text-lg">arrow_upward</span>
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={busy || !draft.trim()}
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-20"
+              >
+                <span className="material-symbols-outlined text-lg">arrow_upward</span>
+              </button>
             </form>
             <p className="font-ui text-[10px] text-center mt-3 text-hint uppercase tracking-[0.2em] font-medium">
               Secured Academic Session • 225M Papers Indexed
