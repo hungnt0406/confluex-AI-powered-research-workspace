@@ -238,6 +238,35 @@ Verify:
 - `topic_description` is present
 - `candidate_limit` and `summary_limit` match the create request
 
+### PATCH Rename Project
+
+```text
+PATCH {{base_url}}/projects/{{project_id}}
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "title": "Renamed Research Thread"
+}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- `id` still equals `{{project_id}}`
+- `title` equals `"Renamed Research Thread"`
+- `topic_description` is unchanged
+
 ### DELETE Project
 
 Run this only after you finish the other project-scoped checks, because it removes the entire project.
