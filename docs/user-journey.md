@@ -73,6 +73,7 @@ flowchart LR
 - **User goal:** Bring existing reading into the system so results are anchored.
 - **User actions:** Drag-and-drop PDFs into the project.
 - **System:** `POST /projects/{id}/reference-files` → validate, hash-dedup, store under `data/reference_uploads/`, parse with PyMuPDF, create a linked `Paper` with `source=user_upload`. Used as LLM query-expansion context during discovery and as a candidate for ranking, summarization, and writer selection.
+- **Touchpoint:** The current frontend supports PDF upload directly from the main composer. With no active project, the user provides a topic first; with an active project, the PDF uploads into the current project without creating a chat turn or running discovery. Parsed uploads show up in Related Papers with an `Uploaded PDF` marker.
 - **Feeling:** Relief — "The system respects what I already know."
 - **Pain points:** Scanned PDFs without text degrade silently (no OCR in v1).
 - **Opportunity:** Surface "couldn't extract text" early and offer gap messaging.
@@ -96,7 +97,7 @@ flowchart LR
 - **User goal:** Quickly decide which papers matter.
 - **User actions:** Sort by relevance, filter by year or relevance slider, expand cards to see structured summary, check papers to select for Q&A or writing.
 - **System:** `GET /projects/{id}/papers?status=...&min_relevance=...` paginated; summaries plus persisted citation/reference counts joined.
-- **Touchpoint:** The current frontend shows ranked papers in the right-side context panel. A fuller paper-library screen remains planned.
+- **Touchpoint:** The current frontend shows ranked and uploaded papers in the right-side context panel, with uploaded references visibly marked and available for the same multi-select flow. A fuller paper-library screen remains planned.
 - **Feeling:** Empowered — "I can triage 30 papers in minutes."
 - **Pain points:** Relevance score may feel like a black box; no "why this was ranked high" explanation.
 - **Opportunity:** Show per-paper evidence snippet, allow re-rank with user feedback.
@@ -113,6 +114,7 @@ flowchart LR
   - `POST /projects/{id}/conversations/{conversation_id}/messages` — follow-up turns for the main workspace chat. If the selected paper set changes, the system stores a selection-change system message before the user turn.
   - `GET /projects/{id}/conversations` and `/conversations/{conversation_id}` — list and detail for the project-scoped chat thread.
 - **Touchpoint:** The current frontend uses the project-scoped chat flow in the main workspace, with selected papers shown near the composer and in the right-side context panel. A dedicated per-paper conversation UI still remains planned.
+- **Touchpoint note:** Selected-paper state is browser-persisted per project, and an intentionally empty selection now remains empty on reopen instead of silently falling back to the top paper.
 - **Feeling:** Confident — "I can interrogate the paper like a tutor."
 - **Pain points:** Scanned-only PDFs → limited answers; first-turn latency while extraction runs.
 - **Opportunity:** Show a "grounded vs metadata fallback" badge so the user knows the answer's evidence source.
