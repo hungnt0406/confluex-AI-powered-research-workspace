@@ -37,9 +37,12 @@ export class ApiError extends Error {
 
 export async function api<T>(
   path: string,
-  init: RequestInit & { token?: string | null; json?: unknown } = {},
+  init: RequestInit & { token?: string | null; json?: unknown; formData?: FormData } = {},
 ): Promise<T> {
-  const { token, json, headers, ...rest } = init;
+  const { token, json, formData, headers, ...rest } = init;
+  if (json !== undefined && formData !== undefined) {
+    throw new Error("api() received both json and formData; only one body type is supported.");
+  }
   const finalHeaders: Record<string, string> = {
     Accept: "application/json",
     ...(headers as Record<string, string> | undefined),
@@ -50,7 +53,7 @@ export async function api<T>(
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: finalHeaders,
-    body: json !== undefined ? JSON.stringify(json) : rest.body,
+    body: json !== undefined ? JSON.stringify(json) : formData ?? rest.body,
   });
 
   if (!response.ok) {
@@ -109,12 +112,14 @@ export type PaperSummary = {
 export type ProjectPaper = {
   id: string;
   project_id: string;
+  reference_file_id: string | null;
   title: string;
   authors: string[];
   year: number | null;
   abstract: string | null;
   doi: string | null;
   source: string;
+  source_paper_id: string | null;
   source_url: string | null;
   pdf_url: string | null;
   citation_count: number | null;
@@ -122,6 +127,24 @@ export type ProjectPaper = {
   status: string;
   relevance_score: number | null;
   summary: PaperSummary | null;
+};
+
+export type ReferenceFileRead = {
+  id: string;
+  project_id: string;
+  original_filename: string;
+  content_type: string | null;
+  byte_size: number;
+  sha256: string;
+  parse_status: string;
+  extracted_title: string | null;
+  extracted_authors: string[];
+  extracted_year: number | null;
+  extracted_abstract: string | null;
+  linked_paper_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Paginated<T> = {
@@ -182,3 +205,17 @@ export type ProjectConversationSummary = {
 };
 
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
+
+export async function uploadProjectReferenceFile(
+  projectId: string,
+  file: File,
+  token: string,
+): Promise<ReferenceFileRead> {
+  const formData = new FormData();
+  formData.set("file", file);
+  return api<ReferenceFileRead>(`/projects/${projectId}/reference-files`, {
+    method: "POST",
+    token,
+    formData,
+  });
+}
