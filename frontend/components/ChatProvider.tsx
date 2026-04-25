@@ -19,12 +19,14 @@ import {
   ProjectTitleUpdate,
   RunPipelineResponse,
   api,
+  uploadProjectReferenceFile,
 } from "@/lib/api";
 
 const ACTIVE_PROJECT_STORAGE_PREFIX = "a20.active_project";
 const SELECTED_PAPERS_STORAGE_PREFIX = "a20.selected_papers";
 const GENERATED_OVERVIEW_PROMPT_PREFIX = "Give me a structured overview of this paper relative to: ";
 const MAX_SELECTED_PAPERS = 5;
+const DEFAULT_CITATION_FORMAT = "APA";
 
 export type ChatMessage = {
   id: string;
@@ -32,6 +34,15 @@ export type ChatMessage = {
   content: string;
   kind?: "text" | "status" | "summary";
   createdAt: string;
+};
+
+export type ComposerNotice = {
+  tone: "success" | "warning" | "error";
+  message: string;
+};
+
+export type UploadReferenceFileOptions = {
+  topic?: string;
 };
 
 type ChatState = {
@@ -45,13 +56,18 @@ type ChatState = {
   conversation: ProjectConversation | null;
   runSummary: RunPipelineResponse | null;
   busy: boolean;
+  uploadingReferenceFile: boolean;
   error: string | null;
+  composerNotice: ComposerNotice | null;
+  lastUploadedPaperId: string | null;
   selectProject: (id: string) => Promise<void>;
   renameProject: (id: string, title: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   startNewResearch: () => void;
   submitMessage: (text: string) => Promise<void>;
+  uploadReferenceFile: (file: File, options?: UploadReferenceFileOptions) => Promise<void>;
   togglePaperSelection: (paperId: string) => void;
+  clearComposerNotice: () => void;
   refreshProjects: () => Promise<void>;
 };
 
@@ -88,15 +104,18 @@ function persistActiveProjectId(userId: string | null | undefined, projectId: st
   window.localStorage.removeItem(storageKey);
 }
 
-function loadSavedSelectedPaperIds(userId: string | null | undefined, projectId: string | null) {
-  if (typeof window === "undefined" || !userId || !projectId) return [];
+function loadSavedSelectedPaperIds(
+  userId: string | null | undefined,
+  projectId: string | null,
+): string[] | null {
+  if (typeof window === "undefined" || !userId || !projectId) return null;
   const raw = window.localStorage.getItem(getSelectedPapersStorageKey(userId, projectId));
-  if (!raw) return [];
+  if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -107,11 +126,7 @@ function persistSelectedPaperIds(
 ) {
   if (typeof window === "undefined" || !userId || !projectId) return;
   const storageKey = getSelectedPapersStorageKey(userId, projectId);
-  if (paperIds.length > 0) {
-    window.localStorage.setItem(storageKey, JSON.stringify(paperIds));
-    return;
-  }
-  window.localStorage.removeItem(storageKey);
+  window.localStorage.setItem(storageKey, JSON.stringify(paperIds));
 }
 
 function normalizeSelectedPaperIds(paperIds: string[], papers: ProjectPaper[]) {
@@ -119,18 +134,26 @@ function normalizeSelectedPaperIds(paperIds: string[], papers: ProjectPaper[]) {
   return Array.from(new Set(paperIds)).filter((paperId) => availableIds.has(paperId)).slice(0, MAX_SELECTED_PAPERS);
 }
 
-function buildSelectionStatusText(selectedPapers: ProjectPaper[]) {
-  if (selectedPapers.length === 0) {
-    return "No papers are selected for future questions.";
-  }
-  if (selectedPapers.length === 1) {
-    return `Selected paper for future questions: "${selectedPapers[0]?.title}".`;
-  }
-  return `Selected papers for future questions: ${selectedPapers.map((paper) => `"${paper.title}"`).join(", ")}.`;
+function arePaperIdListsEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((paperId, index) => paperId === right[index]);
+}
+
+function buildProjectCreatePayload(topic: string) {
+  return {
+    title: topic.slice(0, 120),
+    topic_description: topic,
+    citation_format: DEFAULT_CITATION_FORMAT,
+  };
+}
+
+function isUploadedProjectPaper(paper: ProjectPaper) {
+  return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
 }
 
 function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): ChatMessage[] {
   const topPaper = papers[0] ?? null;
+  const uploadedPaperCount = papers.filter(isUploadedProjectPaper).length;
+  const hasOnlyUploadedPapers = uploadedPaperCount > 0 && uploadedPaperCount === papers.length;
   const initial: ChatMessage[] = [
     {
       id: uid(),
@@ -146,7 +169,9 @@ function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): Ch
       id: uid(),
       role: "assistant",
       kind: "summary",
-      content: `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". You can now choose up to ${MAX_SELECTED_PAPERS} papers for grounded questions.`,
+      content: hasOnlyUploadedPapers
+        ? `This project currently contains ${uploadedPaperCount} uploaded paper${uploadedPaperCount === 1 ? "" : "s"}. Choose which ones to use for grounded questions, or run discovery to find related work.`
+        : `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". You can now choose up to ${MAX_SELECTED_PAPERS} papers for grounded questions.`,
       createdAt: now(),
     });
     return initial;
@@ -190,6 +215,7 @@ function buildRestoredConversationMessages(
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const authedRef = useRef(token);
+  const activeProjectIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
   authedRef.current = token;
 
@@ -202,8 +228,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [conversation, setConversation] = useState<ProjectConversation | null>(null);
   const [runSummary, setRunSummary] = useState<RunPipelineResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadingReferenceFile, setUploadingReferenceFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [composerNotice, setComposerNotice] = useState<ComposerNotice | null>(null);
+  const [lastUploadedPaperId, setLastUploadedPaperId] = useState<string | null>(null);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  activeProjectIdRef.current = activeProject?.id ?? null;
 
   const refreshProjects = useCallback(async () => {
     if (!authedRef.current) return;
@@ -214,6 +244,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setProjectsLoaded(true);
     }
+  }, []);
+
+  const fetchProjectPapers = useCallback(async (projectId: string) => {
+    const papersResponse = await api<Paginated<ProjectPaper>>(
+      `/projects/${projectId}/papers?per_page=30`,
+      { token: authedRef.current },
+    );
+    return papersResponse.data;
+  }, []);
+
+  const clearComposerNotice = useCallback(() => {
+    setComposerNotice(null);
   }, []);
 
   useEffect(() => {
@@ -243,6 +285,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setQueries([]);
     setConversation(null);
     setRunSummary(null);
+    setComposerNotice(null);
+    setLastUploadedPaperId(null);
     setError(null);
   }, []);
 
@@ -251,29 +295,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) return;
       setBusy(true);
       setError(null);
+      setComposerNotice(null);
+      setLastUploadedPaperId(null);
       try {
+        setActiveProject(null);
         setPapers([]);
         setSelectedPaperIds([]);
         setMessages([]);
+        setConversation(null);
+        setRunSummary(null);
         const project = await api<Project>(`/projects/${projectId}`, {
           token: authedRef.current,
         });
-        setActiveProject(project);
-        setConversation(null);
-        setRunSummary(null);
 
-        const papersResponse = await api<Paginated<ProjectPaper>>(
-          `/projects/${project.id}/papers?per_page=30`,
-          { token: authedRef.current },
-        );
-        const nextPapers = papersResponse.data;
+        const nextPapers = await fetchProjectPapers(project.id);
         setPapers(nextPapers);
         setQueries([]);
 
-        const savedSelectedPaperIds = normalizeSelectedPaperIds(
-          loadSavedSelectedPaperIds(user?.id, project.id),
-          nextPapers,
-        );
+        const savedSelectedPaperIds = loadSavedSelectedPaperIds(user?.id, project.id);
+        const normalizedSavedSelectedPaperIds = savedSelectedPaperIds === null
+          ? null
+          : normalizeSelectedPaperIds(savedSelectedPaperIds, nextPapers);
 
         const conversationSummaries = await api<ProjectConversationSummary[]>(
           `/projects/${project.id}/conversations`,
@@ -293,14 +335,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         );
         const topPaperId = nextPapers[0]?.id;
         const nextSelectedPaperIds =
-          savedSelectedPaperIds.length > 0
-            ? savedSelectedPaperIds
+          normalizedSavedSelectedPaperIds !== null
+            ? normalizedSavedSelectedPaperIds
             : fallbackSelectedPaperIds.length > 0
               ? fallbackSelectedPaperIds
               : topPaperId
                 ? [topPaperId]
                 : [];
 
+        setActiveProject(project);
         setSelectedPaperIds(nextSelectedPaperIds);
         setConversation(restoredConversation);
 
@@ -319,7 +362,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [user?.id],
+    [fetchProjectPapers, user?.id],
   );
 
   useEffect(() => {
@@ -342,6 +385,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) return;
       setBusy(true);
       setError(null);
+      setComposerNotice(null);
+      setLastUploadedPaperId(null);
 
       try {
         await api<void>(`/projects/${projectId}`, {
@@ -414,6 +459,113 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [activeProject, papers],
   );
 
+  const uploadReferenceFile = useCallback(
+    async (file: File, options?: UploadReferenceFileOptions) => {
+      if (!authedRef.current || uploadingReferenceFile) return;
+
+      setUploadingReferenceFile(true);
+      setError(null);
+      setComposerNotice(null);
+      setLastUploadedPaperId(null);
+
+      try {
+        let project = activeProject;
+
+        if (!project) {
+          const trimmedTopic = options?.topic?.trim() ?? "";
+          if (!trimmedTopic) {
+            throw new Error("A research topic is required before uploading a reference PDF.");
+          }
+
+          project = await api<Project>("/projects", {
+            method: "POST",
+            token: authedRef.current,
+            json: buildProjectCreatePayload(trimmedTopic),
+          });
+
+          const referenceFile = await uploadProjectReferenceFile(project.id, file, authedRef.current);
+          await refreshProjects();
+
+          if (activeProjectIdRef.current && activeProjectIdRef.current !== project.id) {
+            return;
+          }
+
+          setActiveProject(project);
+          setMessages([]);
+          setConversation(null);
+          setQueries([]);
+          setRunSummary(null);
+
+          const nextPapers = await fetchProjectPapers(project.id);
+          setPapers(nextPapers);
+          setSelectedPaperIds([]);
+
+          const matchedUploadedPaper = referenceFile.linked_paper_id
+            ? nextPapers.find((paper) => paper.id === referenceFile.linked_paper_id) ?? null
+            : null;
+          setLastUploadedPaperId(matchedUploadedPaper?.id ?? null);
+          setComposerNotice(
+            matchedUploadedPaper
+              ? {
+                  tone: "success",
+                  message: `Uploaded "${file.name}" and added "${matchedUploadedPaper.title}" to this project.`,
+                }
+              : {
+                  tone: "warning",
+                  message: referenceFile.error_message
+                    ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
+                    : `Uploaded "${file.name}", but no linked paper was added to the project.`,
+                },
+          );
+          return;
+        }
+
+        const referenceFile = await uploadProjectReferenceFile(project.id, file, authedRef.current);
+        const nextPapers = await fetchProjectPapers(project.id);
+        const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, nextPapers);
+
+        if (activeProjectIdRef.current !== project.id) {
+          return;
+        }
+
+        setPapers(nextPapers);
+        if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
+          setSelectedPaperIds(nextSelectedPaperIds);
+        }
+
+        const linkedPaper = referenceFile.linked_paper_id
+          ? nextPapers.find((paper) => paper.id === referenceFile.linked_paper_id) ?? null
+          : null;
+
+        setLastUploadedPaperId(linkedPaper?.id ?? null);
+        setComposerNotice(
+          linkedPaper
+            ? {
+                tone: "success",
+                message: `Uploaded "${file.name}" and added "${linkedPaper.title}" to this project's papers.`,
+              }
+            : {
+                tone: "warning",
+                message: referenceFile.error_message
+                  ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
+                  : `Uploaded "${file.name}", but no linked paper was added to the project.`,
+              },
+        );
+      } catch (err: any) {
+        const detail = err?.message ?? "Failed to upload the reference PDF.";
+        setError(detail);
+        setComposerNotice({
+          tone: "error",
+          message: detail,
+        });
+        throw err;
+      } finally {
+        setUploadingReferenceFile(false);
+      }
+    },
+    [activeProject, fetchProjectPapers, refreshProjects, selectedPaperIds, uploadingReferenceFile],
+  );
+
   const submitMessage = useCallback(
     async (text: string) => {
       if (!authedRef.current) return;
@@ -421,6 +573,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) return;
       setBusy(true);
       setError(null);
+      setComposerNotice(null);
+      setLastUploadedPaperId(null);
 
       const userMessage: ChatMessage = {
         id: uid(),
@@ -444,15 +598,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             },
           ]);
 
-          const title = trimmed.slice(0, 120);
           const project = await api<Project>("/projects", {
             method: "POST",
             token: authedRef.current,
-            json: {
-              title,
-              topic_description: trimmed,
-              citation_format: "APA",
-            },
+            json: buildProjectCreatePayload(trimmed),
           });
           setActiveProject(project);
           await refreshProjects();
@@ -464,13 +613,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setRunSummary(runResponse);
           setQueries(runResponse.queries);
 
-          const papersResponse = await api<Paginated<ProjectPaper>>(
-            `/projects/${project.id}/papers?per_page=30`,
-            { token: authedRef.current },
-          );
-          setPapers(papersResponse.data);
+          const nextPapers = await fetchProjectPapers(project.id);
+          setPapers(nextPapers);
 
-          const topPaper = papersResponse.data[0] ?? null;
+          const topPaper = nextPapers[0] ?? null;
           const nextSelectedPaperIds = topPaper ? [topPaper.id] : [];
           setSelectedPaperIds(nextSelectedPaperIds);
 
@@ -527,10 +673,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        let nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
-        if (nextSelectedPaperIds.length === 0) {
-          const topPaperId = papers[0]?.id;
-          nextSelectedPaperIds = topPaperId ? [topPaperId] : [];
+        const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
+        if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
           setSelectedPaperIds(nextSelectedPaperIds);
         }
         if (nextSelectedPaperIds.length === 0) {
@@ -612,7 +756,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [activeProject, selectedPaperIds, papers, conversation, refreshProjects],
+    [activeProject, conversation, fetchProjectPapers, papers, refreshProjects, selectedPaperIds],
   );
 
   const value = useMemo<ChatState>(
@@ -627,13 +771,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       conversation,
       runSummary,
       busy,
+      uploadingReferenceFile,
       error,
+      composerNotice,
+      lastUploadedPaperId,
       selectProject,
       renameProject,
       deleteProject,
       startNewResearch,
       submitMessage,
+      uploadReferenceFile,
       togglePaperSelection,
+      clearComposerNotice,
       refreshProjects,
     }),
     [
@@ -647,13 +796,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       conversation,
       runSummary,
       busy,
+      uploadingReferenceFile,
       error,
+      composerNotice,
+      lastUploadedPaperId,
       selectProject,
       renameProject,
       deleteProject,
       startNewResearch,
       submitMessage,
+      uploadReferenceFile,
       togglePaperSelection,
+      clearComposerNotice,
       refreshProjects,
     ],
   );
