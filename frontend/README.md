@@ -2,7 +2,7 @@
 
 Next.js 14 App Router chat UI for the Automated Literature Review FastAPI backend.
 
-This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, and asks grounded questions across that selected paper set.
+This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, and asks grounded questions across the current selected paper set.
 
 ## Setup
 
@@ -19,13 +19,17 @@ Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http:/
 - `POST /auth/register` / `POST /auth/login` — session stored in `localStorage` via `AuthProvider`.
 - `GET /projects` — sidebar "Recents" list.
 - `PATCH /projects/{id}` — sidebar overflow menu can rename a saved chat/project in place.
+- Composer upload button:
+  1. With an active project: `POST /projects/{id}/reference-files` uploads a PDF reference into the current project.
+  2. With no active project: the workspace first creates a project from the provided topic, then uploads the PDF without running discovery or creating a conversation.
+  3. After upload: `GET /projects/{id}/papers` refreshes the right panel; uploaded papers are marked with an `Uploaded PDF` badge and are not auto-selected.
 - First user message without an active project:
   1. `POST /projects` (title = first 120 chars, topic = full message, citation_format = APA).
   2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
   3. `GET /projects/{id}/papers` — ranked papers populate the right panel; the top paper is selected by default.
   4. `POST /projects/{id}/conversations` — starts a project-scoped grounded Q&A over the currently selected paper set.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages` appended to the same grounded thread, carrying the current selected `paper_ids`.
-- Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, and restores the last-open project after refresh.
+- Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
 ## Files
@@ -34,12 +38,12 @@ Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http:/
 - `app/login/page.tsx` — sign in / register.
 - `app/chat/page.tsx` — auth-gated workspace.
 - `components/AuthProvider.tsx` — token/user state.
-- `components/ChatProvider.tsx` — orchestrates project creation, pipeline run, selected-paper persistence, and grounded project conversations.
-- `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels.
+- `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, and grounded project conversations.
+- `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, and uploaded-paper markers.
 - `lib/api.ts` — typed `fetch` wrapper and backend DTO types.
 
 ## Current limitations
 
 - No frontend tests are present yet.
-- The frontend does not yet expose reference-file management or writer generation.
+- The frontend still does not expose full reference-file management or writer generation.
 - The UI is a shipped shell, not the full multi-stage product flow described in `docs/user-journey.md`.
