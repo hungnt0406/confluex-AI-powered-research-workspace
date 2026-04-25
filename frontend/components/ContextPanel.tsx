@@ -5,7 +5,13 @@ import { useChat } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 
 export default function ContextPanel() {
-  const { papers, runSummary, selectedPaperIds, togglePaperSelection } = useChat();
+  const {
+    papers,
+    runSummary,
+    selectedPaperIds,
+    togglePaperSelection,
+    lastUploadedPaperId = null,
+  } = useChat();
   const open = papers.length > 0;
 
   const [width, setWidth] = useState<number>(600);
@@ -95,6 +101,7 @@ export default function ContextPanel() {
               key={paper.id}
               paper={paper}
               isSelected={selectedPaperIds.includes(paper.id)}
+              isFreshlyUploaded={lastUploadedPaperId === paper.id}
               onToggle={() => togglePaperSelection(paper.id)}
             />
           ))}
@@ -107,22 +114,44 @@ export default function ContextPanel() {
 function PaperCard({
   paper,
   isSelected,
+  isFreshlyUploaded,
   onToggle,
 }: {
   paper: ProjectPaper;
   isSelected: boolean;
+  isFreshlyUploaded: boolean;
   onToggle: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showUploadHighlight, setShowUploadHighlight] = useState(isFreshlyUploaded);
   const summaryId = `paper-summary-${paper.id}`;
   const showSummaryToggle = paper.summary != null;
+  const isUploadedPaper = isUploadedReferencePaper(paper);
+
+  useEffect(() => {
+    if (!isFreshlyUploaded) {
+      setShowUploadHighlight(false);
+      return;
+    }
+
+    setShowUploadHighlight(true);
+    const timeoutId = window.setTimeout(() => {
+      setShowUploadHighlight(false);
+    }, 2200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isFreshlyUploaded]);
 
   return (
     <li
-      className={`p-3 rounded-xl border transition-colors ${
+      className={`p-3 rounded-xl border transition-[background-color,border-color,box-shadow] ${
         isSelected
           ? "bg-primary/10 border-primary/30"
           : "bg-surface-container-low border-outline/20 hover:border-outline/40"
+      } ${
+        showUploadHighlight
+          ? "shadow-[0_0_0_1px_rgba(53,130,75,0.22),0_0_0_10px_rgba(53,130,75,0.08)]"
+          : ""
       }`}
     >
       <div className="flex items-start gap-2">
@@ -161,6 +190,13 @@ function PaperCard({
             <p className="text-[11px] font-medium text-on-surface leading-snug line-clamp-2">
               {paper.title}
             </p>
+          )}
+          {isUploadedPaper && (
+            <div className="mt-1">
+              <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+                Uploaded PDF
+              </span>
+            </div>
           )}
           <p className="text-[10px] text-hint mt-1 truncate">
             {paper.authors.slice(0, 2).join(", ")}
@@ -275,4 +311,19 @@ function SummarySection({
       <p className="text-[10px] text-on-surface leading-snug">{value ?? <span className="text-hint">—</span>}</p>
     </div>
   );
+}
+
+function isUploadedReferencePaper(paper: ProjectPaper) {
+  const paperWithReference = paper as ProjectPaper & {
+    reference_file_id?: string | null;
+  };
+
+  if (paperWithReference.reference_file_id) {
+    return true;
+  }
+
+  const normalizedSource = paper.source.trim().toLowerCase();
+  return normalizedSource === "user_upload"
+    || normalizedSource.includes("uploaded")
+    || normalizedSource.includes("reference");
 }
