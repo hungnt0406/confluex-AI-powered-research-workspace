@@ -1,7 +1,17 @@
 "use client";
 
-import { FormEvent, Fragment, KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { useChat } from "@/components/ChatProvider";
+import {
+  ChangeEvent,
+  FormEvent,
+  Fragment,
+  KeyboardEvent,
+  ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { type ComposerNotice, useChat } from "@/components/ChatProvider";
+import { ProjectPaper } from "@/lib/api";
 import Logo from "@/components/Logo";
 
 const SUGGESTIONS = [
@@ -10,25 +20,50 @@ const SUGGESTIONS = [
   "Policy-driven shifts in remote education",
 ];
 
+type PendingReferenceUpload = {
+  file: File;
+  topic: string;
+};
+
 export default function ChatWorkspace() {
   const {
     messages,
     activeProject,
     selectedPapers,
     busy,
+    uploadingReferenceFile,
+    composerNotice,
+    clearComposerNotice,
     submitMessage,
     startNewResearch,
+    uploadReferenceFile,
     togglePaperSelection,
   } = useChat();
   const [draft, setDraft] = useState("");
+  const [localComposerNotice, setLocalComposerNotice] = useState<ComposerNotice | null>(null);
+  const [pendingReferenceUpload, setPendingReferenceUpload] =
+    useState<PendingReferenceUpload | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerBusy = busy || uploadingReferenceFile;
+  const visibleComposerNotice = localComposerNotice ?? composerNotice;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    if (!activeProject) return;
+    setPendingReferenceUpload(null);
+  }, [activeProject?.id]);
+
+  useEffect(() => {
+    if (!composerNotice) return;
+    setLocalComposerNotice(null);
+  }, [composerNotice]);
+
   async function send(text: string) {
-    if (!text.trim() || busy) return;
+    if (!text.trim() || composerBusy) return;
     setDraft("");
     await submitMessage(text);
   }
@@ -42,6 +77,64 @@ export default function ChatWorkspace() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void send(draft);
+    }
+  }
+
+  async function performReferenceUpload(file: File, topic?: string) {
+    if (!isPdfFile(file)) {
+      clearComposerNotice();
+      setLocalComposerNotice({ tone: "error", message: "Only PDF files are supported." });
+      return false;
+    }
+    setLocalComposerNotice(null);
+    clearComposerNotice();
+
+    try {
+      await uploadReferenceFile(file, topic ? { topic: topic.trim() } : undefined);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function openReferencePicker() {
+    if (composerBusy) return;
+    clearComposerNotice();
+    setLocalComposerNotice(null);
+    fileInputRef.current?.click();
+  }
+
+  function onReferenceFilePicked(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file) return;
+
+    if (activeProject) {
+      setPendingReferenceUpload(null);
+      void performReferenceUpload(file);
+      return;
+    }
+
+    clearComposerNotice();
+    setLocalComposerNotice(null);
+    setPendingReferenceUpload({ file, topic: draft.trim() });
+  }
+
+  async function confirmPendingReferenceUpload() {
+    if (!pendingReferenceUpload) return;
+    const topic = pendingReferenceUpload.topic.trim();
+    if (!topic) {
+      clearComposerNotice();
+      setLocalComposerNotice({
+        tone: "warning",
+        message: "Add a research topic before uploading a PDF without an active project.",
+      });
+      return;
+    }
+
+    const uploaded = await performReferenceUpload(pendingReferenceUpload.file, topic);
+    if (uploaded) {
+      setPendingReferenceUpload(null);
     }
   }
 
@@ -108,19 +201,81 @@ export default function ChatWorkspace() {
           <div className="chat-container px-4">
             {activeProject && (
               <SelectedPapersStrip
-                papers={selectedPapers.map((paper) => ({ id: paper.id, title: paper.title }))}
+                papers={selectedPapers.map((paper) => ({
+                  id: paper.id,
+                  title: paper.title,
+                  isUploaded: isUploadedPaper(paper),
+                }))}
                 onRemove={togglePaperSelection}
               />
             )}
+            {pendingReferenceUpload && !activeProject && (
+              <div className="mb-3 rounded-2xl border border-outline/30 bg-surface-container-low px-3 py-3 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-hint">
+                      Reference PDF
+                    </p>
+                    <p className="mt-1 truncate text-xs font-medium text-on-surface">
+                      {pendingReferenceUpload.file.name}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPendingReferenceUpload(null)}
+                    disabled={composerBusy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-primary/5 disabled:opacity-40"
+                    aria-label="Cancel pending PDF upload"
+                  >
+                    <span className="material-symbols-outlined text-lg">close</span>
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    value={pendingReferenceUpload.topic}
+                    onChange={(e) =>
+                      setPendingReferenceUpload((prev) =>
+                        prev ? { ...prev, topic: e.target.value } : prev,
+                      )
+                    }
+                    disabled={composerBusy}
+                    autoFocus
+                    className="h-10 flex-1 rounded-xl border border-outline/30 bg-background px-3 text-sm text-on-surface outline-none transition-colors placeholder:text-hint focus:border-primary/40 disabled:opacity-60"
+                    placeholder="Add a topic for this uploaded PDF"
+                    aria-label="Topic for uploaded PDF"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void confirmPendingReferenceUpload()}
+                    disabled={composerBusy || !pendingReferenceUpload.topic.trim()}
+                    className="inline-flex h-10 items-center justify-center rounded-xl bg-primary px-4 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30"
+                  >
+                    Upload PDF
+                  </button>
+                </div>
+              </div>
+            )}
+            {visibleComposerNotice && <ComposerInlineNotice notice={visibleComposerNotice} />}
             <form
               onSubmit={onSubmit}
               className="flex w-full items-center gap-1 bg-surface-container-low rounded-2xl border border-outline/30 px-2 py-2 focus-within:border-primary/40 transition-all shadow-sm"
             >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={onReferenceFilePicked}
+                className="sr-only"
+                tabIndex={-1}
+              />
               <button
                 type="button"
+                onClick={openReferencePicker}
                 className="relative top-[2px] flex-shrink-0 p-2 text-secondary hover:bg-primary/5 rounded-lg transition-colors"
-                disabled
-                title="Coming soon"
+                disabled={composerBusy}
+                title={activeProject ? "Upload PDF reference" : "Upload PDF to start a topic"}
+                aria-label={activeProject ? "Upload PDF reference" : "Upload PDF to start a topic"}
               >
                 <span className="material-symbols-outlined text-xl">add_circle</span>
               </button>
@@ -128,7 +283,7 @@ export default function ChatWorkspace() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKey}
-                disabled={busy}
+                disabled={composerBusy}
                 className="min-h-10 flex-1 bg-transparent border-none focus:ring-0 text-base leading-6 px-1 py-[7px] resize-none font-ui text-on-surface placeholder:text-hint max-h-52 outline-none"
                 placeholder={composerPlaceholder}
                 aria-label={composerPlaceholder}
@@ -136,7 +291,7 @@ export default function ChatWorkspace() {
               />
               <button
                 type="submit"
-                disabled={busy || !draft.trim()}
+                disabled={composerBusy || !draft.trim()}
                 className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-20"
               >
                 <span className="material-symbols-outlined text-lg">arrow_upward</span>
@@ -156,7 +311,7 @@ function SelectedPapersStrip({
   papers,
   onRemove,
 }: {
-  papers: { id: string; title: string }[];
+  papers: { id: string; title: string; isUploaded?: boolean }[];
   onRemove: (paperId: string) => void;
 }) {
   const visiblePapers = papers.slice(0, 3);
@@ -174,6 +329,18 @@ function SelectedPapersStrip({
               key={paper.id}
               className="group inline-flex max-w-full items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] text-primary"
             >
+              {paper.isUploaded && (
+                <span className="mr-2 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.16em] text-primary/80">
+                  <span
+                    className="material-symbols-outlined"
+                    aria-hidden="true"
+                    style={{ fontSize: "10px" }}
+                  >
+                    upload_file
+                  </span>
+                  PDF
+                </span>
+              )}
               <span className="truncate">{paper.title}</span>
               <button
                 type="button"
@@ -200,6 +367,23 @@ function SelectedPapersStrip({
       ) : (
         <span className="text-[11px] text-hint">Choose at least one paper from the panel.</span>
       )}
+    </div>
+  );
+}
+
+function ComposerInlineNotice({ notice }: { notice: ComposerNotice }) {
+  return (
+    <div
+      className={`mb-3 rounded-2xl border px-3 py-2 text-xs ${
+        notice.tone === "success"
+          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+          : notice.tone === "warning"
+            ? "border-amber-500/20 bg-amber-500/10 text-amber-700"
+            : "border-rose-500/20 bg-rose-500/10 text-rose-700"
+      }`}
+      role={notice.tone === "error" ? "alert" : "status"}
+    >
+      {notice.message}
     </div>
   );
 }
@@ -514,4 +698,12 @@ function TypingIndicator() {
       </div>
     </div>
   );
+}
+
+function isPdfFile(file: File) {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function isUploadedPaper(paper: ProjectPaper) {
+  return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
 }
