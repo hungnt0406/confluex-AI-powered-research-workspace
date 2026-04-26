@@ -1,4 +1,6 @@
 import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.dependencies import get_project_conversation_service
@@ -86,10 +88,10 @@ async def create_auth_headers_for_email(
 
 @pytest.mark.asyncio
 async def test_create_project_conversation_returns_grounded_multi_paper_answer(
-    app,
-    client,
-    auth_headers,
-    sample_project,
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     paper_one = await create_project_paper(
@@ -135,11 +137,51 @@ async def test_create_project_conversation_returns_grounded_multi_paper_answer(
 
 
 @pytest.mark.asyncio
+async def test_create_project_conversation_allows_no_selected_papers(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_project_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        title="Top Ranked Paper",
+        doi="top-ranked-paper",
+        embedding=[1.0, 0.0],
+    )
+
+    service = ProjectConversationService(
+        api_key="placeholder-key",
+        embedding_service=FakeEmbeddingService([]),
+    )
+    app.dependency_overrides[get_project_conversation_service] = lambda: service
+
+    response = await client.post(
+        f"/projects/{sample_project['id']}/conversations",
+        headers=auth_headers,
+        json={
+            "paper_ids": [],
+            "question": "What is a distributed system?",
+        },
+    )
+    app.dependency_overrides.pop(get_project_conversation_service, None)
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["selected_paper_ids"] == []
+    assert payload["messages"][0]["content"] == "What is a distributed system?"
+    assert "No papers are selected yet" in payload["messages"][1]["content"]
+    assert paper.title not in payload["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
 async def test_project_conversation_follow_up_inserts_system_message_when_selection_changes(
-    app,
-    client,
-    auth_headers,
-    sample_project,
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     paper_one = await create_project_paper(
@@ -203,10 +245,10 @@ async def test_project_conversation_follow_up_inserts_system_message_when_select
 
 @pytest.mark.asyncio
 async def test_project_conversation_rejects_missing_selected_paper(
-    app,
-    client,
-    auth_headers,
-    sample_project,
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     paper = await create_project_paper(
@@ -239,10 +281,10 @@ async def test_project_conversation_rejects_missing_selected_paper(
 
 @pytest.mark.asyncio
 async def test_list_and_get_project_conversations_enforce_ownership(
-    app,
-    client,
-    auth_headers,
-    sample_project,
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     paper = await create_project_paper(
@@ -292,9 +334,9 @@ async def test_list_and_get_project_conversations_enforce_ownership(
 
 @pytest.mark.asyncio
 async def test_project_conversation_validates_unique_and_max_selected_papers(
-    client,
-    auth_headers,
-    sample_project,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
 ) -> None:
     duplicate_response = await client.post(
         f"/projects/{sample_project['id']}/conversations",
