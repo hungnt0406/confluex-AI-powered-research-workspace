@@ -100,6 +100,38 @@ export type RunPipelineResponse = {
   errors: string[];
 };
 
+export type TokenUsageBreakdownRow = {
+  key: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+};
+
+export type TokenUsageDailyRow = {
+  day: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+};
+
+export type ProjectTokenUsage = {
+  project_id: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+  by_feature: TokenUsageBreakdownRow[];
+  by_model: TokenUsageBreakdownRow[];
+  by_day: TokenUsageDailyRow[];
+};
+
 export type PaperSummary = {
   problem: string | null;
   method: string | null;

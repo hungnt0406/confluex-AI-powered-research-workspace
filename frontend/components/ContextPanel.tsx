@@ -8,11 +8,12 @@ export default function ContextPanel() {
   const {
     papers,
     runSummary,
+    tokenUsage,
     selectedPaperIds,
     togglePaperSelection,
     lastUploadedPaperId = null,
   } = useChat();
-  const open = papers.length > 0;
+  const open = papers.length > 0 || tokenUsage != null;
 
   const [width, setWidth] = useState<number>(600);
   const dragging = useRef(false);
@@ -106,8 +107,66 @@ export default function ContextPanel() {
             />
           ))}
         </ul>
+
+        {tokenUsage && (
+          <TokenUsageCard
+            totalTokens={tokenUsage.total_tokens}
+            costCredits={tokenUsage.cost_credits}
+            topFeature={tokenUsage.by_feature[0]?.key ?? null}
+            topFeatureTokens={tokenUsage.by_feature[0]?.total_tokens ?? 0}
+          />
+        )}
       </div>
     </aside>
+  );
+}
+
+function TokenUsageCard({
+  totalTokens,
+  costCredits,
+  topFeature,
+  topFeatureTokens,
+}: {
+  totalTokens: number;
+  costCredits: number | null;
+  topFeature: string | null;
+  topFeatureTokens: number;
+}) {
+  return (
+    <section className="border-t border-outline/20 pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+          Token Usage
+        </h3>
+        <span className="material-symbols-outlined text-hint" style={{ fontSize: "17px" }}>
+          monitoring
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+        <Metric label="Total" value={formatInteger(totalTokens)} />
+        <Metric label="Credits" value={formatCredits(costCredits)} />
+      </div>
+      <div className="mt-3 rounded-lg border border-outline/20 bg-surface-container-low p-3">
+        <p className="text-[9px] uppercase tracking-widest text-hint">Top Source</p>
+        <p className="mt-1 truncate text-[11px] font-medium text-on-surface">
+          {topFeature ? formatFeatureName(topFeature) : "No live AI usage yet"}
+        </p>
+        {topFeature && (
+          <p className="mt-0.5 text-[10px] text-hint tabular-nums">
+            {formatInteger(topFeatureTokens)} tokens
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-outline/20 bg-surface-container-low p-3">
+      <p className="text-[9px] uppercase tracking-widest text-hint">{label}</p>
+      <p className="mt-1 text-[13px] font-semibold text-on-surface tabular-nums">{value}</p>
+    </div>
   );
 }
 
@@ -326,4 +385,22 @@ function isUploadedReferencePaper(paper: ProjectPaper) {
   return normalizedSource === "user_upload"
     || normalizedSource.includes("uploaded")
     || normalizedSource.includes("reference");
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCredits(value: number | null) {
+  if (value === null) return "—";
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 4,
+  });
+}
+
+function formatFeatureName(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
