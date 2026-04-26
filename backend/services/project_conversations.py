@@ -221,6 +221,9 @@ class ProjectConversationService:
         selected_papers: list[Paper],
         question: str,
     ) -> tuple[list[RetrievedProjectChunk], list[str]]:
+        if not selected_papers:
+            return [], []
+
         question_embedding = await self._embed_question(question)
         scored_chunks: list[RetrievedProjectChunk] = []
         extraction_errors: list[str] = []
@@ -485,6 +488,24 @@ class ProjectConversationService:
         retrieved_chunks: list[RetrievedProjectChunk],
         extraction_errors: list[str],
     ) -> str:
+        if not selected_papers:
+            prompt_sections = [
+                f"Question: {question}",
+                "",
+                "Answering rules:",
+                "- Answer the current question directly as general knowledge.",
+                "- No papers are selected, so do not cite or claim support from any project paper.",
+                "- Do not mention the ranked paper list unless the user asks about it.",
+                "- If the question requires paper-specific evidence, ask the user to select one or more papers.",
+                "",
+                "Selection state: no papers selected.",
+            ]
+            if recent_messages:
+                prompt_sections.extend(["", "Recent conversation history:"])
+                for message in recent_messages:
+                    prompt_sections.append(f"{message.role.title()}: {message.content}")
+            return "\n".join(prompt_sections).strip()
+
         prompt_sections = [
             f"Question: {question}",
             "",
@@ -566,6 +587,35 @@ class ProjectConversationService:
         extraction_errors: list[str],
     ) -> str:
         conversation_context = self._format_recent_history(recent_messages)
+
+        if not selected_papers:
+            response_sections = [
+                "## Answer",
+                (
+                    "No papers are selected yet, so this is a general answer rather than a "
+                    "paper-grounded one."
+                ),
+                f"Question: {question}",
+            ]
+            if conversation_context is not None:
+                response_sections.extend(
+                    [
+                        "",
+                        "## Conversation Context",
+                        f"Recent conversation context: {conversation_context}",
+                    ]
+                )
+            response_sections.extend(
+                [
+                    "",
+                    "## Limits",
+                    (
+                        "Select one or more papers when you want the answer grounded in retrieved "
+                        "PDF chunks, abstracts, or stored summaries."
+                    ),
+                ]
+            )
+            return self._sanitize_user_visible_text("\n\n".join(response_sections))
 
         if retrieved_chunks:
             evidence_lines = [
@@ -696,6 +746,8 @@ class ProjectConversationService:
 
     def _build_selection_change_message(self, selected_papers: list[Paper]) -> str:
         titles = [paper.title for paper in selected_papers]
+        if not titles:
+            return "Selected papers cleared."
         if len(titles) == 1:
             return f"Selected paper updated: {titles[0]}"
         return "Selected papers updated: " + "; ".join(titles)
