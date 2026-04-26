@@ -7,11 +7,43 @@ from sqlalchemy import select
 from backend.api.dependencies import get_reference_file_service
 from backend.db.models import Paper, ReferenceFile, User
 from backend.security import create_access_token, hash_password
+from backend.services.document_extraction import (
+    DocumentExtractionError,
+    DocumentTextBlock,
+    ExtractedDocument,
+)
 from backend.services.reference_files import (
     ReferenceFileService,
     compute_sha256,
-    parse_pdf_metadata,
 )
+
+
+class FakeReferenceExtractionService:
+    """Controllable extractor stub for reference upload tests."""
+
+    def __init__(
+        self,
+        *,
+        text: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        self.text = text or (
+            "LLM Extracted Uploaded Paper\n\n"
+            "Abstract\n\n"
+            "This paper studies uploaded references for research workflows in 2024."
+        )
+        self.error_message = error_message
+        self.calls: list[tuple[bytes, str]] = []
+
+    async def extract_uploaded_pdf(self, *, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
+        self.calls.append((pdf_bytes, filename))
+        if self.error_message is not None:
+            raise DocumentExtractionError(self.error_message)
+        return ExtractedDocument(
+            blocks=[DocumentTextBlock(page_number=1, text=self.text)],
+            page_count=1,
+            file_hash="fake-openrouter-hash",
+        )
 
 
 def build_pdf_bytes(
@@ -40,52 +72,22 @@ def build_empty_pdf_bytes() -> bytes:
     return document.tobytes()
 
 
-def override_reference_service(app, upload_dir: Path, *, max_file_bytes: int = 20_971_520) -> None:
+def override_reference_service(
+    app,
+    upload_dir: Path,
+    *,
+    extraction_service: FakeReferenceExtractionService | None = None,
+) -> FakeReferenceExtractionService:
+    extractor = extraction_service or FakeReferenceExtractionService()
     app.dependency_overrides[get_reference_file_service] = lambda: ReferenceFileService(
         upload_dir=upload_dir,
-        max_file_bytes=max_file_bytes,
+        extraction_service=extractor,
     )
+    return extractor
 
 
 def clear_reference_service_override(app) -> None:
     app.dependency_overrides.pop(get_reference_file_service, None)
-
-
-def test_parse_pdf_metadata_extracts_title_year_authors_and_abstract(tmp_path: Path) -> None:
-    pdf_path = tmp_path / "reference.pdf"
-    pdf_path.write_bytes(
-        build_pdf_bytes(
-            "\n".join(
-                [
-                    "A visible first title line",
-                    "Abstract",
-                    "This paper studies transformer retrieval for literature review workflows.",
-                    "Keywords: transformers, retrieval",
-                    "Introduction",
-                    "The introduction starts here.",
-                ]
-            )
-        )
-    )
-
-    metadata = parse_pdf_metadata(pdf_path, max_extracted_chars=10_000)
-
-    assert metadata.parse_status == "parsed"
-    assert metadata.title == "Uploaded Transformer Study"
-    assert metadata.authors == ["Jane Doe", "John Roe"]
-    assert metadata.year == 2024
-    assert metadata.abstract == "This paper studies transformer retrieval for literature review workflows."
-
-
-def test_parse_pdf_metadata_records_parse_error_for_empty_pdf(tmp_path: Path) -> None:
-    pdf_path = tmp_path / "empty.pdf"
-    pdf_path.write_bytes(build_empty_pdf_bytes())
-
-    metadata = parse_pdf_metadata(pdf_path, max_extracted_chars=10_000)
-
-    assert metadata.parse_status == "parse_error"
-    assert metadata.error_message == "No extractable text was found in the uploaded PDF."
-    assert metadata.text is None
 
 
 @pytest.mark.asyncio
@@ -97,7 +99,7 @@ async def test_upload_list_and_delete_reference_file(
     session_factory,
     tmp_path: Path,
 ) -> None:
-    override_reference_service(app, tmp_path)
+    extractor = override_reference_service(app, tmp_path)
     pdf_content = build_pdf_bytes(
         "Uploaded Paper Title\nAbstract\nThis paper studies uploaded references for research."
     )
@@ -112,8 +114,11 @@ async def test_upload_list_and_delete_reference_file(
         payload = upload_response.json()
         assert payload["parse_status"] == "parsed"
         assert payload["original_filename"] == "seed.pdf"
+        assert payload["extracted_title"] == "LLM Extracted Uploaded Paper"
+        assert payload["extracted_year"] == 2024
         assert payload["linked_paper_id"] is not None
         assert payload["sha256"] == compute_sha256(pdf_content)
+        assert extractor.calls == [(pdf_content, "seed.pdf")]
 
         list_response = await client.get(
             f"/projects/{sample_project['id']}/reference-files",
@@ -141,6 +146,38 @@ async def test_upload_list_and_delete_reference_file(
             ).scalars().all()
         assert papers == []
         assert reference_files == []
+    finally:
+        clear_reference_service_override(app)
+
+
+@pytest.mark.asyncio
+async def test_upload_reference_file_records_parse_error_when_extraction_fails(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    tmp_path: Path,
+) -> None:
+    override_reference_service(
+        app,
+        tmp_path,
+        extraction_service=FakeReferenceExtractionService(error_message="OpenRouter parser failed."),
+    )
+    pdf_content = build_pdf_bytes("Reference\nAbstract\nThis PDF cannot be extracted.")
+
+    try:
+        response = await client.post(
+            f"/projects/{sample_project['id']}/reference-files",
+            headers=auth_headers,
+            files={"file": ("broken.pdf", pdf_content, "application/pdf")},
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["parse_status"] == "parse_error"
+        assert payload["linked_paper_id"] is None
+        assert payload["extracted_title"] == "broken"
+        assert payload["error_message"] == "PDF extraction failed: OpenRouter parser failed."
     finally:
         clear_reference_service_override(app)
 
@@ -194,32 +231,6 @@ async def test_upload_reference_file_rejects_non_pdf(
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Only PDF reference files are supported."
-    finally:
-        clear_reference_service_override(app)
-
-
-@pytest.mark.asyncio
-async def test_upload_reference_file_rejects_oversized_pdf(
-    app,
-    client,
-    auth_headers,
-    sample_project,
-    tmp_path: Path,
-) -> None:
-    override_reference_service(app, tmp_path, max_file_bytes=8)
-
-    try:
-        response = await client.post(
-            f"/projects/{sample_project['id']}/reference-files",
-            headers=auth_headers,
-            files={"file": ("large.pdf", b"%PDF-1.4\n0123456789", "application/pdf")},
-        )
-
-        assert response.status_code == 400
-        assert (
-            response.json()["detail"]
-            == "Uploaded reference file exceeds the size limit. Maximum allowed size is 8 bytes."
-        )
     finally:
         clear_reference_service_override(app)
 
