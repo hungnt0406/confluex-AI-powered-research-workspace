@@ -15,7 +15,7 @@ class FakeQueryPlanner:
     def is_configured(self) -> bool:
         return True
 
-    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024, feature=None):
         return self.payload
 
 
@@ -24,7 +24,7 @@ class CapturingQueryPlanner(FakeQueryPlanner):
         super().__init__(payload)
         self.user_prompt = ""
 
-    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024, feature=None):
         self.user_prompt = user_prompt
         return self.payload
 
@@ -41,7 +41,7 @@ class FakeEmbeddingService:
     def __init__(self, embeddings):
         self.embeddings = embeddings
 
-    async def embed_texts(self, texts):
+    async def embed_texts(self, texts, *, feature=None):
         return self.embeddings
 
     def embed_texts_locally(self, texts):
@@ -55,7 +55,7 @@ class FakeSummaryGenerator:
     def is_configured(self) -> bool:
         return True
 
-    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024):
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024, feature=None):
         if "Reliable Paper" in user_prompt:
             return {
                 "problem": "Improve paper ranking",
