@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -27,6 +28,72 @@ class FakeEmbeddingService:
 def build_pdf_bytes(pages: list[str]) -> bytes:
     joined_pages = "\n\n".join(pages)
     return f"%PDF-1.4\n%mock\n{joined_pages}\n%%EOF".encode()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_document_extraction_service_extracts_uploaded_pdf_via_openrouter_base64() -> None:
+    pdf_bytes = build_pdf_bytes(["Uploaded PDF\n\nThis content is sent as a local PDF."])
+    captured_request: dict[str, object] | None = None
+
+    def openrouter_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_request
+        captured_request = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "Acknowledged.",
+                            "annotations": [
+                                {
+                                    "type": "file",
+                                    "file": {
+                                        "hash": "uploaded-file-hash",
+                                        "content": [
+                                            {
+                                                "type": "text",
+                                                "text": (
+                                                    "LLM Extracted Uploaded Paper\n\n"
+                                                    "Abstract\n\n"
+                                                    "This paper was extracted from uploaded bytes."
+                                                ),
+                                            }
+                                        ],
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+
+    route = respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        side_effect=openrouter_handler
+    )
+
+    service = PaperDocumentExtractionService(
+        api_key="sk-or-test-key",
+        model="google/gemini-2.5-flash-lite",
+    )
+    document = await service.extract_uploaded_pdf(pdf_bytes=pdf_bytes, filename="seed.pdf")
+
+    assert route.called
+    assert captured_request is not None
+    messages = captured_request["messages"]
+    assert isinstance(messages, list)
+    file_payload = messages[0]["content"][1]["file"]
+    assert file_payload["filename"] == "seed.pdf"
+    assert file_payload["file_data"].startswith("data:application/pdf;base64,")
+    encoded_payload = file_payload["file_data"].split(",", maxsplit=1)[1]
+    assert base64.b64decode(encoded_payload) == pdf_bytes
+    assert captured_request["plugins"] == [{"id": "file-parser", "pdf": {"engine": "native"}}]
+    assert document.file_hash == "uploaded-file-hash"
+    assert document.page_count == 1
+    assert document.blocks[0].text.startswith("LLM Extracted Uploaded Paper")
 
 
 async def create_sample_paper(
