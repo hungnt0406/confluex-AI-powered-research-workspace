@@ -106,9 +106,11 @@ npm run dev
 - `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
 - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages`
 - `POST /projects/{id}/conversations`
+- `POST /projects/{id}/conversations/stream`
 - `GET /projects/{id}/conversations`
 - `GET /projects/{id}/conversations/{conversation_id}`
 - `POST /projects/{id}/conversations/{conversation_id}/messages`
+- `POST /projects/{id}/conversations/{conversation_id}/messages/stream`
 - `POST /projects/{id}/writer/generate`
 - `GET /projects/{id}/writer/outputs/{output_id}`
 - `GET /pipeline/health`
@@ -122,7 +124,9 @@ npm run dev
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
 `POST /projects/{id}/conversations` starts a project-scoped chat over 0 to 5 selected papers, answering generally when no papers are selected and retrieving evidence across the selected set once papers are selected.
+`POST /projects/{id}/conversations/stream` provides the same first-turn behavior over backend-proxied `text/event-stream`, emitting status, conversation, token, done, and error events for the main chat UI.
 `POST /projects/{id}/conversations/{conversation_id}/messages` appends a follow-up turn for the current selected paper set; when the selected set changes, including being cleared, the conversation stores a system message describing the new selection before the user turn.
+`POST /projects/{id}/conversations/{conversation_id}/messages/stream` provides the same follow-up behavior over `text/event-stream` while preserving usage telemetry and persisted message semantics.
 `GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
