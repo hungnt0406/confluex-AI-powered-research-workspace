@@ -14,6 +14,18 @@ npm run dev
 
 Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http://localhost:3000` (already configured in `backend/main.py`).
 
+On Linux machines with user systemd available, prefer the bounded dev server when testing Turbopack compiles:
+
+```bash
+npm run dev:bounded
+```
+
+This runs `next dev` inside the `a20-next-dev` user scope with `MemoryMax=10G` and `MemorySwapMax=0`, so a bad dev compile is killed without consuming the whole machine. If Turbopack behaves oddly after config changes, reset only the dev cache first:
+
+```bash
+npm run dev:reset
+```
+
 ## What it wires up
 
 - `POST /auth/register` / `POST /auth/login` — session stored in `localStorage` via `AuthProvider`.

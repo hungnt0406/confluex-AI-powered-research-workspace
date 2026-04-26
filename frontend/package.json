@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:bounded": "systemd-run --user --scope --unit=a20-next-dev -p MemoryMax=10G -p MemorySwapMax=0 --working-directory=$(pwd) npm run dev",
+    "dev:reset": "rm -rf .next/dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
