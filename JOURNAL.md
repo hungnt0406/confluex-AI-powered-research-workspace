@@ -47,6 +47,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-26 16:00
+- **done:**
+  - Docked the frontend token usage card at the bottom of the right context panel while allowing the related-paper list to scroll independently.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `JOURNAL.md`.
+- **doing:**
+  - Frontend build verification completed with `npm run build`.
+- **blocked:**
+  - None.
+
 ### 2026-04-26 15:07
 - **done:**
   - Added frontend guardrails for the Turbopack dev-memory issue: `npm run dev:bounded` for a 10 GB user-systemd scope, `npm run dev:reset` for stale dev cache cleanup, README usage notes, and a pytest check that keeps `turbopack.root` pinned to `frontend/`.
