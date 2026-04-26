@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -11,6 +12,7 @@ from backend.db.models import Paper, PaperChunk, PaperDocument, Project
 from backend.services.document_extraction import (
     DocumentExtractionError,
     DocumentTextBlock,
+    ExtractedDocument,
     PaperDocumentExtractionService,
 )
 
@@ -145,6 +147,154 @@ async def load_document_and_chunks(
             ).scalars()
         )
         return document, chunks
+
+
+@pytest.mark.asyncio
+async def test_document_extraction_service_routes_local_pdf_paths_through_uploaded_pdf_extraction(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = build_pdf_bytes(
+        ["Local Upload\n\nThis local PDF should be routed through uploaded PDF extraction."]
+    )
+    local_pdf_path = tmp_path / "uploaded-local.pdf"
+    local_pdf_path.write_bytes(pdf_bytes)
+
+    paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        pdf_url=str(local_pdf_path),
+    )
+
+    extracted_payloads: list[tuple[bytes, str]] = []
+
+    async with session_factory() as session:
+        persisted_paper = await session.get(Paper, paper.id)
+        assert persisted_paper is not None
+
+        service = PaperDocumentExtractionService(
+            api_key="placeholder-key",
+            local_pdf_roots=[tmp_path],
+            embedding_service=FakeEmbeddingService(),
+        )
+
+        async def fake_extract_uploaded_pdf(*, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
+            extracted_payloads.append((pdf_bytes, filename))
+            return ExtractedDocument(
+                blocks=[
+                    DocumentTextBlock(
+                        page_number=1,
+                        section_title="Local Upload",
+                        text="This local PDF should be routed through uploaded PDF extraction.",
+                    )
+                ],
+                page_count=1,
+                file_hash=None,
+            )
+
+        async def fail_download(_: str) -> bytes:
+            raise AssertionError("Local PDF paths should not use public HTTP download.")
+
+        async def fail_openrouter(*, pdf_url: str, filename: str) -> ExtractedDocument:
+            raise AssertionError(f"Local PDF path should not be sent to OpenRouter: {pdf_url}")
+
+        monkeypatch.setattr(service, "extract_uploaded_pdf", fake_extract_uploaded_pdf)
+        monkeypatch.setattr(service, "_download_pdf", fail_download)
+        monkeypatch.setattr(service, "_extract_with_openrouter", fail_openrouter)
+
+        await service.ensure_document_chunks(session=session, paper=persisted_paper)
+        await session.commit()
+
+    document, chunks = await load_document_and_chunks(session_factory, paper_id=paper.id)
+
+    assert extracted_payloads == [(pdf_bytes, "uploaded-local.pdf")]
+    assert document is not None
+    assert document.status == "ready"
+    assert document.source_pdf_url == str(local_pdf_path)
+    assert document.page_count == 1
+    assert len(chunks) == 1
+    assert chunks[0].content == "This local PDF should be routed through uploaded PDF extraction."
+
+
+@pytest.mark.asyncio
+async def test_document_extraction_service_extracts_local_pdf_paths_without_http_when_openrouter_is_unconfigured(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_bytes = build_pdf_bytes(
+        [
+            (
+                "1 Introduction\n\n"
+                "This uploaded local PDF should still become retrievable chunks without HTTP."
+            )
+        ]
+    )
+    local_pdf_path = tmp_path / "offline-local.pdf"
+    local_pdf_path.write_bytes(pdf_bytes)
+
+    paper = await create_sample_paper(
+        session_factory,
+        project_id=sample_project["id"],
+        pdf_url=str(local_pdf_path),
+    )
+
+    async with session_factory() as session:
+        persisted_paper = await session.get(Paper, paper.id)
+        assert persisted_paper is not None
+
+        service = PaperDocumentExtractionService(
+            api_key="placeholder-key",
+            local_pdf_roots=[tmp_path],
+            paper_chunk_size_chars=150,
+            embedding_service=FakeEmbeddingService(),
+        )
+
+        async def fail_download(_: str) -> bytes:
+            raise AssertionError("Local PDF paths should not use public HTTP download.")
+
+        async def fail_openrouter(*, pdf_url: str, filename: str) -> ExtractedDocument:
+            raise AssertionError(f"Local PDF path should not be sent to OpenRouter: {pdf_url}")
+
+        monkeypatch.setattr(service, "_download_pdf", fail_download)
+        monkeypatch.setattr(service, "_extract_with_openrouter", fail_openrouter)
+        monkeypatch.setattr(
+            service,
+            "_extract_blocks_from_pdf_bytes",
+            lambda _: (
+                [
+                    DocumentTextBlock(
+                        page_number=1,
+                        section_title="1 Introduction",
+                        text=(
+                            "This uploaded local PDF should still become retrievable chunks without "
+                            "HTTP."
+                        ),
+                    )
+                ],
+                1,
+            ),
+        )
+
+        await service.ensure_document_chunks(session=session, paper=persisted_paper)
+        await session.commit()
+
+    document, chunks = await load_document_and_chunks(session_factory, paper_id=paper.id)
+
+    assert document is not None
+    assert document.status == "ready"
+    assert document.source_pdf_url == str(local_pdf_path)
+    assert document.openrouter_file_hash is None
+    assert document.page_count == 1
+    assert document.error_message is None
+    assert len(chunks) == 1
+    assert chunks[0].page_start == 1
+    assert chunks[0].page_end == 1
+    assert chunks[0].section_title == "1 Introduction"
+    assert chunks[0].embedding_json
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.api.dependencies import get_project_conversation_service
 from backend.db.models import Paper, PaperChunk, ProjectConversation, Summary, User
 from backend.security import create_access_token, hash_password
-from backend.services.project_conversations import ProjectConversationService
+from backend.services.project_conversations import (
+    PROJECT_GROUNDING_UNAVAILABLE_MESSAGE,
+    ProjectConversationService,
+)
 
 
 class FakeEmbeddingService:
@@ -354,3 +357,51 @@ async def test_project_conversation_validates_unique_and_max_selected_papers(
 
     assert duplicate_response.status_code == 422
     assert too_many_response.status_code == 422
+
+
+def test_project_prompt_and_answer_hide_raw_grounding_provider_errors() -> None:
+    service = ProjectConversationService(api_key="placeholder-key")
+    paper = Paper(
+        project_id="project-1",
+        title="TrackNet",
+        authors=[],
+        year=2024,
+        abstract="TrackNet abstract.",
+        doi=None,
+        source="user_upload",
+        source_paper_id="tracknet",
+        source_url=None,
+        pdf_url="data/reference_uploads/project-1/tracknet.pdf",
+        status="candidate",
+        relevance_score=None,
+    )
+    raw_error = (
+        "TrackNet: OpenRouter PDF extraction with engine 'native' failed with status 400: "
+        '{"error":{"message":"Invalid content","metadata":{"provider_name":"Google AI Studio"}}}; '
+        "Public PDF download failed."
+    )
+
+    prompt = service._build_prompt(
+        selected_papers=[paper],
+        question="What architecture does it use?",
+        recent_messages=[],
+        retrieved_chunks=[],
+        extraction_errors=[raw_error],
+    )
+    answer = service._generate_local_answer(
+        selected_papers=[paper],
+        question="What architecture does it use?",
+        recent_messages=[],
+        retrieved_chunks=[],
+        extraction_errors=[raw_error],
+    )
+
+    assert raw_error not in prompt
+    assert "OpenRouter PDF extraction" not in prompt
+    assert "Public PDF download failed" not in prompt
+    assert "No retrieved chunk grounding is available" not in prompt
+    assert PROJECT_GROUNDING_UNAVAILABLE_MESSAGE in prompt
+    assert "OpenRouter PDF extraction" not in answer
+    assert "Public PDF download failed" not in answer
+    assert "provider_name" not in answer
+    assert PROJECT_GROUNDING_UNAVAILABLE_MESSAGE in answer

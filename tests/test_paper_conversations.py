@@ -15,7 +15,11 @@ from backend.db.models import (
 )
 from backend.security import create_access_token, hash_password
 from backend.services.document_extraction import DocumentExtractionError
-from backend.services.paper_conversations import LIVE_ANSWER_SYSTEM_PROMPT, PaperConversationService
+from backend.services.paper_conversations import (
+    LIVE_ANSWER_SYSTEM_PROMPT,
+    PAPER_GROUNDING_UNAVAILABLE_MESSAGE,
+    PaperConversationService,
+)
 from backend.services.semantic_scholar import SemanticScholarPaperDetails
 
 
@@ -416,7 +420,8 @@ async def test_create_paper_conversation_falls_back_to_metadata_when_extraction_
     assistant_message = payload["messages"][1]["content"]
     assert extraction_service.calls == 1
     assert "limited to the stored paper metadata" in assistant_message
-    assert "Simulated extraction failure." in assistant_message
+    assert "Simulated extraction failure." not in assistant_message
+    assert PAPER_GROUNDING_UNAVAILABLE_MESSAGE in assistant_message
     assert "Persist chunks and retrieve them per question." in assistant_message
     assert "This answer is based on the abstract and stored metadata" in assistant_message
     assert "visit https://papers.example.com/landing" in assistant_message
@@ -562,6 +567,52 @@ def test_sanitize_user_visible_text_removes_internal_chunk_labels() -> None:
     assert "score=0.981" not in sanitized
     assert "(pages 4-4)" in sanitized
     assert "pages 6-6" in sanitized
+
+
+def test_prompt_and_sanitizer_hide_raw_grounding_provider_errors() -> None:
+    service = PaperConversationService(api_key="placeholder-key")
+    paper = Paper(
+        project_id="project-1",
+        title="TrackNet",
+        authors=[],
+        year=2024,
+        abstract="TrackNet abstract.",
+        doi=None,
+        source="user_upload",
+        source_paper_id="tracknet",
+        source_url=None,
+        pdf_url="data/reference_uploads/project-1/tracknet.pdf",
+        status="candidate",
+        relevance_score=None,
+    )
+    raw_error = (
+        "OpenRouter PDF extraction with engine 'native' failed with status 400: "
+        '{"error":{"message":"Invalid content","metadata":{"provider_name":"Google AI Studio"}}}; '
+        "Public PDF download failed."
+    )
+
+    prompt = service._build_prompt(
+        paper=paper,
+        question="What architecture does it use?",
+        recent_messages=[],
+        retrieved_chunks=[],
+        extraction_error=raw_error,
+    )
+    sanitized = service._sanitize_user_visible_text(
+        "Limits\n"
+        "No retrieved chunk grounding is available.\n"
+        "Answer only from metadata and explicitly say the answer is limited.\n"
+        f"Grounding note: {raw_error}"
+    )
+
+    assert raw_error not in prompt
+    assert "OpenRouter PDF extraction" not in prompt
+    assert "Public PDF download failed" not in prompt
+    assert "No retrieved chunk grounding is available" not in prompt
+    assert PAPER_GROUNDING_UNAVAILABLE_MESSAGE in prompt
+    assert "OpenRouter PDF extraction" not in sanitized
+    assert "Public PDF download failed" not in sanitized
+    assert "No retrieved chunk grounding is available" not in sanitized
 
 
 def test_sanitize_user_visible_text_preserves_markdown_block_structure() -> None:
