@@ -20,7 +20,7 @@ from backend.services.document_extraction import (
 class FakeEmbeddingService:
     """Deterministic embedding stub for chunk-persistence tests."""
 
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def embed_texts(self, texts: list[str], *, feature: str | None = None) -> list[list[float]]:
         return [
             [float(index), float(len(text)), float(len(text.split()))]
             for index, text in enumerate(texts, start=1)

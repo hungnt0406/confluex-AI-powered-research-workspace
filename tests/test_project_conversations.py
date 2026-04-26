@@ -16,7 +16,7 @@ class FakeEmbeddingService:
     def __init__(self, embeddings: list[list[float]]) -> None:
         self.embeddings = list(embeddings)
 
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def embed_texts(self, texts: list[str], *, feature: str | None = None) -> list[list[float]]:
         assert len(texts) == 1
         assert self.embeddings
         return [self.embeddings.pop(0)]
