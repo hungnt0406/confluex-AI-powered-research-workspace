@@ -118,8 +118,8 @@ npm run dev
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
-`POST /projects/{id}/conversations` starts a project-scoped grounded conversation over 1 to 5 selected papers, retrieving evidence across the selected set and persisting the selected paper ids with the conversation.
-`POST /projects/{id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn for the currently selected paper set; when the selected set changes, the conversation stores a system message describing the new selection before the user turn.
+`POST /projects/{id}/conversations` starts a project-scoped chat over 0 to 5 selected papers, answering generally when no papers are selected and retrieving evidence across the selected set once papers are selected.
+`POST /projects/{id}/conversations/{conversation_id}/messages` appends a follow-up turn for the current selected paper set; when the selected set changes, including being cleared, the conversation stores a system message describing the new selection before the user turn.
 `GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
