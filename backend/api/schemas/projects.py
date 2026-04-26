@@ -265,7 +265,7 @@ class PaperConversationSummaryRead(BaseModel):
 class ProjectConversationQuestionCreate(BaseModel):
     """Request body for project-scoped multi-paper chat questions."""
 
-    paper_ids: list[str] = Field(min_length=1, max_length=5)
+    paper_ids: list[str] = Field(max_length=5)
     question: str = Field(min_length=1, max_length=8_000)
 
     @model_validator(mode="after")
