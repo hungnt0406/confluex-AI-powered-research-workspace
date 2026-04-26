@@ -1,14 +1,17 @@
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.api.dependencies import get_db_session
 from backend.db.base import Base
 from backend.db.models import Project, User
+from backend.db.session import normalize_database_url
 from backend.main import create_app
 from backend.security import create_access_token, hash_password
 
@@ -22,15 +25,39 @@ def anyio_backend() -> str:
 async def session_factory(
     tmp_path: Path,
 ) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    database_path = tmp_path / "test.db"
-    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path}", future=True)
+    test_database_url = os.getenv("TEST_DATABASE_URL")
+    if test_database_url:
+        database_url = normalize_database_url(test_database_url)
+        _validate_test_database_url(database_url)
+    else:
+        database_path = tmp_path / "test.db"
+        database_url = f"sqlite+aiosqlite:///{database_path}"
+
+    engine = create_async_engine(database_url, future=True)
 
     async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
         await connection.run_sync(Base.metadata.create_all)
 
     factory = async_sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     yield factory
     await engine.dispose()
+
+
+def _validate_test_database_url(database_url: str) -> None:
+    """Refuse to reset a non-test Postgres database from pytest fixtures."""
+
+    parsed_url = make_url(database_url)
+    if not parsed_url.drivername.startswith("postgresql"):
+        return
+
+    database_name = parsed_url.database or ""
+    normalized_name = database_name.lower()
+    if "test" not in normalized_name and "pytest" not in normalized_name:
+        raise RuntimeError(
+            "TEST_DATABASE_URL must point to a dedicated test database whose name contains "
+            "'test' or 'pytest'."
+        )
 
 
 @pytest_asyncio.fixture

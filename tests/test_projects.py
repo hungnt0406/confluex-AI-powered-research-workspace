@@ -5,8 +5,9 @@ from sqlalchemy import select
 
 from backend.agents.state import AgentState
 from backend.api.dependencies import get_paper_citation_service, get_pipeline_service
-from backend.db.models import Paper, Project, ReferenceFile, Summary, User
+from backend.db.models import AIUsageEvent, Paper, Project, ReferenceFile, Summary, User
 from backend.security import hash_password
+from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.paper_citations import (
     CitationGraphResult,
     CitationNotFoundError,
@@ -200,6 +201,171 @@ async def test_run_project_pipeline_returns_completed_result(
     assert payload["candidate_count"] == 1
     assert payload["ranked_count"] == 1
     assert payload["summary_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_project_pipeline_persists_openrouter_usage(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    class FakePipelineService:
+        async def run_project(self, *, session, project) -> AgentState:
+            collect_openrouter_usage(
+                endpoint="chat/completions",
+                feature="query_expansion",
+                model="google/gemma-test",
+                response_payload={
+                    "usage": {
+                        "prompt_tokens": 11,
+                        "completion_tokens": 7,
+                        "total_tokens": 18,
+                        "cost": 0.002,
+                    }
+                },
+            )
+            collect_openrouter_usage(
+                endpoint="embeddings",
+                feature="ranking_embedding",
+                model="openai/text-embedding-3-small",
+                response_payload={"usage": {"prompt_tokens": 3, "total_tokens": 3}},
+            )
+
+            return AgentState(
+                project_id=project.id,
+                topic=project.topic_description,
+                queries=["agentic systems survey"],
+                raw_papers=[],
+                ranked_papers=[],
+                summaries=[],
+                qa_flags=[],
+                errors=[],
+            )
+
+    app.dependency_overrides[get_pipeline_service] = lambda: FakePipelineService()
+    response = await client.post(f"/projects/{sample_project['id']}/run", headers=auth_headers)
+    app.dependency_overrides.pop(get_pipeline_service, None)
+
+    assert response.status_code == 200
+    async with session_factory() as session:
+        events = (
+            await session.execute(
+                select(AIUsageEvent).where(AIUsageEvent.project_id == sample_project["id"])
+            )
+        ).scalars().all()
+
+    assert {(event.feature, event.endpoint) for event in events} == {
+        ("query_expansion", "chat/completions"),
+        ("ranking_embedding", "embeddings"),
+    }
+    assert sum(event.total_tokens or 0 for event in events) == 21
+
+
+@pytest.mark.asyncio
+async def test_get_project_token_usage_returns_owner_scoped_aggregates(
+    client,
+    auth_headers,
+    sample_project,
+    sample_user,
+    session_factory,
+) -> None:
+    async with session_factory() as session:
+        other_user = User(
+            email="usage-other@example.com",
+            hashed_password=hash_password("supersecret123"),
+        )
+        session.add(other_user)
+        await session.flush()
+        other_project = Project(
+            user_id=other_user.id,
+            title="Private Project",
+            topic_description="Not visible to sample user.",
+            citation_format="APA",
+            year_start=2020,
+            candidate_limit=10,
+            summary_limit=5,
+        )
+        session.add(other_project)
+        await session.flush()
+        session.add_all(
+            [
+                AIUsageEvent(
+                    user_id=sample_user["id"],
+                    project_id=sample_project["id"],
+                    provider="openrouter",
+                    endpoint="chat/completions",
+                    feature="paper_summary",
+                    model="model-a",
+                    status="success",
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    total_tokens=15,
+                    reasoning_tokens=2,
+                    cached_tokens=1,
+                    cost_credits=0.01,
+                    metadata_json={},
+                ),
+                AIUsageEvent(
+                    user_id=sample_user["id"],
+                    project_id=sample_project["id"],
+                    provider="openrouter",
+                    endpoint="embeddings",
+                    feature="ranking_embedding",
+                    model="model-b",
+                    status="success",
+                    prompt_tokens=8,
+                    completion_tokens=0,
+                    total_tokens=8,
+                    reasoning_tokens=None,
+                    cached_tokens=None,
+                    cost_credits=0.002,
+                    metadata_json={},
+                ),
+                AIUsageEvent(
+                    user_id=other_user.id,
+                    project_id=other_project.id,
+                    provider="openrouter",
+                    endpoint="chat/completions",
+                    feature="paper_summary",
+                    model="model-a",
+                    status="success",
+                    prompt_tokens=99,
+                    completion_tokens=99,
+                    total_tokens=198,
+                    metadata_json={},
+                ),
+            ]
+        )
+        await session.commit()
+        other_project_id = other_project.id
+
+    response = await client.get(
+        f"/projects/{sample_project['id']}/token-usage",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_id"] == sample_project["id"]
+    assert payload["total_tokens"] == 23
+    assert payload["prompt_tokens"] == 18
+    assert payload["completion_tokens"] == 5
+    assert payload["reasoning_tokens"] == 2
+    assert payload["cached_tokens"] == 1
+    assert payload["request_count"] == 2
+    assert payload["cost_credits"] == pytest.approx(0.012)
+    assert payload["by_feature"][0]["key"] == "paper_summary"
+    assert payload["by_feature"][0]["total_tokens"] == 15
+    assert {row["key"] for row in payload["by_model"]} == {"model-a", "model-b"}
+    assert payload["by_day"][0]["total_tokens"] == 23
+
+    forbidden_response = await client.get(
+        f"/projects/{other_project_id}/token-usage",
+        headers=auth_headers,
+    )
+    assert forbidden_response.status_code == 404
 
 
 @pytest.mark.asyncio
