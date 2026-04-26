@@ -40,9 +40,9 @@ npm run dev:reset
   1. `POST /projects` (title = first 120 chars, topic = full message, citation_format = APA).
   2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
   3. `GET /projects/{id}/papers` — ranked papers populate the right panel with no paper selected by default.
-  4. `POST /projects/{id}/conversations` — starts a project-scoped chat with `paper_ids: []` for a general answer until papers are selected.
+  4. `POST /projects/{id}/conversations/stream` — starts a project-scoped chat with `paper_ids: []` for a streamed general answer until papers are selected.
 - Usage summary: `GET /projects/{id}/token-usage` refreshes when selecting a project and after pipeline/conversation actions that may call OpenRouter.
-- Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages` appended to the same thread, carrying the current selected `paper_ids`.
+- Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
@@ -54,7 +54,7 @@ npm run dev:reset
 - `components/AuthProvider.tsx` — token/user state.
 - `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, and grounded project conversations.
 - `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, and uploaded-paper markers.
-- `lib/api.ts` — typed `fetch` wrapper and backend DTO types.
+- `lib/api.ts` — typed `fetch` wrapper, SSE stream parser, and backend DTO types.
 
 ## Current limitations
 

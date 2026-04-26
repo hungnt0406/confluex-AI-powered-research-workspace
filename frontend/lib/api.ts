@@ -236,7 +236,79 @@ export type ProjectConversationSummary = {
   opening_question: string | null;
 };
 
+export type ProjectConversationStreamEvent =
+  | { event: "status"; data: { phase: "retrieving" | "generating" | "persisting" } }
+  | { event: "conversation"; data: ProjectConversation }
+  | { event: "token"; data: { delta: string } }
+  | { event: "done"; data: ProjectConversation }
+  | { event: "error"; data: { detail: string } };
+
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
+
+export async function streamProjectConversation(
+  path: string,
+  options: {
+    token: string;
+    json: { paper_ids: string[]; question: string };
+    onEvent: (event: ProjectConversationStreamEvent) => void;
+  },
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${options.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(options.json),
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const data = await response.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: any) => d.msg).join("; ");
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body was not available.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flushFrame = (frame: string) => {
+    const lines = frame.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (!line || line.startsWith(":")) continue;
+      if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+      if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
+    }
+    if (!dataLines.length) return;
+    const data = JSON.parse(dataLines.join("\n"));
+    options.onEvent({ event: eventName, data } as ProjectConversationStreamEvent);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) flushFrame(frame);
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) flushFrame(buffer);
+}
 
 export async function uploadProjectReferenceFile(
   projectId: string,

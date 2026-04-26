@@ -20,6 +20,7 @@ import {
   ProjectTokenUsage,
   RunPipelineResponse,
   api,
+  streamProjectConversation,
   uploadProjectReferenceFile,
 } from "@/lib/api";
 
@@ -336,9 +337,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const latestConversation = conversationSummaries[0] ?? null;
         const restoredConversation = latestConversation
           ? await api<ProjectConversation>(
-              `/projects/${project.id}/conversations/${latestConversation.id}`,
-              { token: authedRef.current },
-            )
+            `/projects/${project.id}/conversations/${latestConversation.id}`,
+            { token: authedRef.current },
+          )
           : null;
 
         const fallbackSelectedPaperIds = normalizeSelectedPaperIds(
@@ -517,15 +518,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setComposerNotice(
             matchedUploadedPaper
               ? {
-                  tone: "success",
-                  message: `Uploaded "${file.name}" and added "${matchedUploadedPaper.title}" to this project.`,
-                }
+                tone: "success",
+                message: `Uploaded "${file.name}" and added "${matchedUploadedPaper.title}" to this project.`,
+              }
               : {
-                  tone: "warning",
-                  message: referenceFile.error_message
-                    ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
-                    : `Uploaded "${file.name}", but no linked paper was added to the project.`,
-                },
+                tone: "warning",
+                message: referenceFile.error_message
+                  ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
+                  : `Uploaded "${file.name}", but no linked paper was added to the project.`,
+              },
           );
           return;
         }
@@ -553,15 +554,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setComposerNotice(
           linkedPaper
             ? {
-                tone: "success",
-                message: `Uploaded "${file.name}" and added "${linkedPaper.title}" to this project's papers.`,
-              }
+              tone: "success",
+              message: `Uploaded "${file.name}" and added "${linkedPaper.title}" to this project's papers.`,
+            }
             : {
-                tone: "warning",
-                message: referenceFile.error_message
-                  ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
-                  : `Uploaded "${file.name}", but no linked paper was added to the project.`,
-              },
+              tone: "warning",
+              message: referenceFile.error_message
+                ? `Uploaded "${file.name}", but no linked paper was added: ${referenceFile.error_message}`
+                : `Uploaded "${file.name}", but no linked paper was added to the project.`,
+            },
         );
       } catch (err: any) {
         const detail = err?.message ?? "Failed to upload the reference PDF.";
@@ -583,6 +584,112 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       selectedPaperIds,
       uploadingReferenceFile,
     ],
+  );
+
+  const streamProjectChatTurn = useCallback(
+    async ({
+      projectId,
+      conversationId,
+      paperIds,
+      question,
+      assistantKind = "text",
+    }: {
+      projectId: string;
+      conversationId?: string;
+      paperIds: string[];
+      question: string;
+      assistantKind?: ChatMessage["kind"];
+    }) => {
+      if (!authedRef.current) throw new Error("You must be logged in to chat.");
+
+      const assistantMessageId = uid();
+      let completedConversation: ProjectConversation | null = null;
+      let streamedError: string | null = null;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          kind: assistantKind,
+          content: "",
+          createdAt: now(),
+        },
+      ]);
+
+      const path = conversationId
+        ? `/projects/${projectId}/conversations/${conversationId}/messages/stream`
+        : `/projects/${projectId}/conversations/stream`;
+
+      await streamProjectConversation(path, {
+        token: authedRef.current,
+        json: { paper_ids: paperIds, question },
+        onEvent: (event) => {
+          if (event.event === "conversation") {
+            setConversation(event.data);
+            return;
+          }
+
+          if (event.event === "token") {
+            const delta = event.data.delta;
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? { ...message, content: `${message.content}${delta}` }
+                  : message,
+              ),
+            );
+            return;
+          }
+
+          if (event.event === "done") {
+            completedConversation = event.data;
+            setConversation(event.data);
+            const assistantTurn = [...event.data.messages]
+              .reverse()
+              .find((message) => message.role === "assistant");
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                    ...message,
+                    id: assistantTurn?.id ?? message.id,
+                    content: assistantTurn?.content ?? message.content,
+                    createdAt: assistantTurn?.created_at ?? message.createdAt,
+                  }
+                  : message,
+              ),
+            );
+            return;
+          }
+
+          if (event.event === "error") {
+            streamedError = event.data.detail;
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                    ...message,
+                    kind: "status",
+                    content: `Error: ${event.data.detail}`,
+                  }
+                  : message,
+              ),
+            );
+          }
+        },
+      });
+
+      if (streamedError) {
+        throw new Error(streamedError);
+      }
+      if (!completedConversation) {
+        throw new Error("The streaming chat response ended before it was persisted.");
+      }
+      setTokenUsage(await fetchProjectTokenUsage(projectId));
+      return completedConversation;
+    },
+    [fetchProjectTokenUsage],
   );
 
   const submitMessage = useCallback(
@@ -657,23 +764,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          const createdConversation = await api<ProjectConversation>(
-            `/projects/${project.id}/conversations`,
-            {
-              method: "POST",
-              token: authedRef.current,
-              json: {
-                paper_ids: nextSelectedPaperIds,
-                question: trimmed,
-              },
-            },
-          );
-          setConversation(createdConversation);
-          setTokenUsage(await fetchProjectTokenUsage(project.id));
-
-          const lastAssistant = [...createdConversation.messages]
-            .reverse()
-            .find((message) => message.role === "assistant");
           setMessages((prev) => [
             ...prev,
             {
@@ -683,14 +773,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. No papers are selected yet.`,
               createdAt: now(),
             },
-            {
-              id: uid(),
-              role: "assistant",
-              kind: "text",
-              content: lastAssistant?.content ?? "(No grounded answer returned.)",
-              createdAt: lastAssistant?.created_at ?? now(),
-            },
           ]);
+          await streamProjectChatTurn({
+            projectId: project.id,
+            paperIds: nextSelectedPaperIds,
+            question: trimmed,
+          });
           return;
         }
 
@@ -700,55 +788,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (!conversation) {
-          const createdConversation = await api<ProjectConversation>(
-            `/projects/${activeProject.id}/conversations`,
-            {
-              method: "POST",
-              token: authedRef.current,
-              json: { paper_ids: nextSelectedPaperIds, question: trimmed },
-            },
-          );
-          setConversation(createdConversation);
-          setTokenUsage(await fetchProjectTokenUsage(activeProject.id));
-          const assistantTurn = [...createdConversation.messages]
-            .reverse()
-            .find((message) => message.role === "assistant");
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: uid(),
-              role: "assistant",
-              kind: "text",
-              content: assistantTurn?.content ?? "(No grounded answer returned.)",
-              createdAt: assistantTurn?.created_at ?? now(),
-            },
-          ]);
+          await streamProjectChatTurn({
+            projectId: activeProject.id,
+            paperIds: nextSelectedPaperIds,
+            question: trimmed,
+          });
           return;
         }
 
-        const updatedConversation = await api<ProjectConversation>(
-          `/projects/${activeProject.id}/conversations/${conversation.id}/messages`,
-          {
-            method: "POST",
-            token: authedRef.current,
-            json: { paper_ids: nextSelectedPaperIds, question: trimmed },
-          },
-        );
-        setConversation(updatedConversation);
-        setTokenUsage(await fetchProjectTokenUsage(activeProject.id));
-        const lastAssistant = [...updatedConversation.messages]
-          .reverse()
-          .find((message) => message.role === "assistant");
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: uid(),
-            role: "assistant",
-            kind: "text",
-            content: lastAssistant?.content ?? "(No grounded answer returned.)",
-            createdAt: lastAssistant?.created_at ?? now(),
-          },
-        ]);
+        await streamProjectChatTurn({
+          projectId: activeProject.id,
+          conversationId: conversation.id,
+          paperIds: nextSelectedPaperIds,
+          question: trimmed,
+        });
       } catch (err: any) {
         const detail = err?.message ?? "Something went wrong.";
         setError(detail);
@@ -774,6 +827,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       papers,
       refreshProjects,
       selectedPaperIds,
+      streamProjectChatTurn,
     ],
   );
 
