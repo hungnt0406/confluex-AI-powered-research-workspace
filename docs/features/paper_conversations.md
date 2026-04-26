@@ -31,7 +31,7 @@ Router ownership: `backend/api/routers/projects.py`
 1. The route verifies project ownership and loads the target paper.
 2. `PaperConversationService` normalizes the question and creates or loads the conversation context.
 3. The service loads persisted `paper_chunks` for the paper.
-4. If chunks do not exist and the paper has a `pdf_url`, `PaperDocumentExtractionService` extracts the PDF, persists `paper_documents` and `paper_chunks`, and stores embeddings for retrieval.
+4. If chunks do not exist and the paper has a `pdf_url`, `PaperDocumentExtractionService` extracts the PDF, persists `paper_documents` and `paper_chunks`, and stores embeddings for retrieval. Public `http(s)` PDFs use the remote download/OpenRouter path; uploaded reference PDFs stored as local paths are read from the configured upload directory and routed through the uploaded-PDF extraction path.
 5. The service embeds the user question, ranks the most relevant chunks by cosine similarity, and uses the top-k chunks for answer generation.
 6. If chunk grounding is unavailable, the service falls back to paper metadata and summary fields.
 7. The user and assistant messages are persisted in `paper_messages`, and the conversation is returned.
@@ -47,6 +47,7 @@ Router ownership: `backend/api/routers/projects.py`
 
 - Preferred path: answer from retrieved PDF chunks.
 - Fallback path: answer from abstract and summary metadata if extraction fails or no chunks exist.
+- Raw provider/download errors are stored internally on extraction failure but are not included in user-visible chat answers. Users see a short grounding limitation instead.
 - Follow-up turns use recent persisted conversation history plus newly retrieved chunks for the new question.
 - Project-scoped workspace chat accepts 0 to 5 selected papers. With no selected papers it answers as general, ungrounded chat; with selected papers it retrieves evidence across the selected set, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
 
