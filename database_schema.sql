@@ -24,6 +24,29 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects (user_id);
 
+CREATE TABLE IF NOT EXISTS ai_usage_events (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    provider VARCHAR(64) NOT NULL,
+    endpoint VARCHAR(128) NOT NULL,
+    feature VARCHAR(128) NOT NULL,
+    model VARCHAR(255),
+    status VARCHAR(32) NOT NULL DEFAULT 'success',
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    cached_tokens INTEGER,
+    cost_credits DOUBLE PRECISION,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_ai_usage_events_user_id ON ai_usage_events (user_id);
+CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_id ON ai_usage_events (project_id);
+CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_created_at ON ai_usage_events (project_id, created_at);
+
 CREATE TABLE IF NOT EXISTS reference_files (
     id VARCHAR(36) PRIMARY KEY,
     project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

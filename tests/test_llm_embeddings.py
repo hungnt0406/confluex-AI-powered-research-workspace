@@ -3,7 +3,14 @@ import json
 import httpx
 import pytest
 import respx
+from sqlalchemy import select
 
+from backend.db.models import AIUsageEvent
+from backend.services.ai_usage import (
+    collect_openrouter_usage,
+    flush_usage_events,
+    start_usage_collection,
+)
 from backend.services.embeddings import EmbeddingService
 from backend.services.llm import OpenRouterStructuredOutputService
 
@@ -94,3 +101,63 @@ async def test_embedding_service_posts_openrouter_embeddings_request() -> None:
     assert request_body["model"] == "openai/text-embedding-3-small"
     assert request_body["dimensions"] == 3
     assert request_body["provider"]["sort"] == "price"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_usage_extraction_handles_partial_usage(
+    session_factory,
+    sample_user,
+    sample_project,
+) -> None:
+    start_usage_collection()
+    collect_openrouter_usage(
+        endpoint="chat/completions",
+        feature="query_expansion",
+        model="test/chat",
+        response_payload={
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens_details": {"reasoning_tokens": 3},
+                "cost": 0,
+            }
+        },
+    )
+    collect_openrouter_usage(
+        endpoint="embeddings",
+        feature="ranking_embedding",
+        model="openai/text-embedding-3-small",
+        response_payload={
+            "usage": {
+                "prompt_tokens": 5,
+                "total_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": 2},
+            }
+        },
+    )
+
+    async with session_factory() as session:
+        await flush_usage_events(
+            session=session,
+            user_id=sample_user["id"],
+            project_id=sample_project["id"],
+        )
+        events = (
+            await session.execute(
+                select(AIUsageEvent).order_by(AIUsageEvent.endpoint.asc())
+            )
+        ).scalars().all()
+
+    assert len(events) == 2
+    chat_event = next(event for event in events if event.endpoint == "chat/completions")
+    assert chat_event.feature == "query_expansion"
+    assert chat_event.prompt_tokens == 7
+    assert chat_event.completion_tokens is None
+    assert chat_event.total_tokens is None
+    assert chat_event.reasoning_tokens == 3
+    assert chat_event.cost_credits == 0
+
+    embedding_event = next(event for event in events if event.endpoint == "embeddings")
+    assert embedding_event.feature == "ranking_embedding"
+    assert embedding_event.prompt_tokens == 5
+    assert embedding_event.total_tokens == 5
+    assert embedding_event.cached_tokens == 2
