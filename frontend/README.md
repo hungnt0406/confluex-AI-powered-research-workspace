@@ -2,7 +2,7 @@
 
 Next.js 14 App Router chat UI for the Automated Literature Review FastAPI backend.
 
-This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, and asks grounded questions across the current selected paper set.
+This frontend currently ships a login screen plus a chat-style workspace that creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, shows compact project token usage, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, and asks grounded questions across the current selected paper set.
 
 ## Setup
 
@@ -23,11 +23,13 @@ Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http:/
   1. With an active project: `POST /projects/{id}/reference-files` uploads a PDF reference into the current project.
   2. With no active project: the workspace first creates a project from the provided topic, then uploads the PDF without running discovery or creating a conversation.
   3. After upload: `GET /projects/{id}/papers` refreshes the right panel; uploaded papers are marked with an `Uploaded PDF` badge and are not auto-selected.
+  4. `GET /projects/{id}/token-usage` refreshes the right-panel usage card after provider-backed parsing.
 - First user message without an active project:
   1. `POST /projects` (title = first 120 chars, topic = full message, citation_format = APA).
   2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
   3. `GET /projects/{id}/papers` — ranked papers populate the right panel with no paper selected by default.
   4. `POST /projects/{id}/conversations` — starts a project-scoped chat with `paper_ids: []` for a general answer until papers are selected.
+- Usage summary: `GET /projects/{id}/token-usage` refreshes when selecting a project and after pipeline/conversation actions that may call OpenRouter.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages` appended to the same thread, carrying the current selected `paper_ids`.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.

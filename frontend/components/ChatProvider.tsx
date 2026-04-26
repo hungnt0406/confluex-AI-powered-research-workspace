@@ -17,6 +17,7 @@ import {
   ProjectConversationSummary,
   ProjectPaper,
   ProjectTitleUpdate,
+  ProjectTokenUsage,
   RunPipelineResponse,
   api,
   uploadProjectReferenceFile,
@@ -55,6 +56,7 @@ type ChatState = {
   queries: string[];
   conversation: ProjectConversation | null;
   runSummary: RunPipelineResponse | null;
+  tokenUsage: ProjectTokenUsage | null;
   busy: boolean;
   uploadingReferenceFile: boolean;
   error: string | null;
@@ -226,6 +228,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [queries, setQueries] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ProjectConversation | null>(null);
   const [runSummary, setRunSummary] = useState<RunPipelineResponse | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<ProjectTokenUsage | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingReferenceFile, setUploadingReferenceFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +254,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       { token: authedRef.current },
     );
     return papersResponse.data;
+  }, []);
+
+  const fetchProjectTokenUsage = useCallback(async (projectId: string) => {
+    return api<ProjectTokenUsage>(`/projects/${projectId}/token-usage`, {
+      token: authedRef.current,
+    });
   }, []);
 
   const clearComposerNotice = useCallback(() => {
@@ -284,6 +293,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setQueries([]);
     setConversation(null);
     setRunSummary(null);
+    setTokenUsage(null);
     setComposerNotice(null);
     setLastUploadedPaperId(null);
     setError(null);
@@ -303,12 +313,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setMessages([]);
         setConversation(null);
         setRunSummary(null);
+        setTokenUsage(null);
         const project = await api<Project>(`/projects/${projectId}`, {
           token: authedRef.current,
         });
 
         const nextPapers = await fetchProjectPapers(project.id);
+        const nextTokenUsage = await fetchProjectTokenUsage(project.id);
         setPapers(nextPapers);
+        setTokenUsage(nextTokenUsage);
         setQueries([]);
 
         const savedSelectedPaperIds = loadSavedSelectedPaperIds(user?.id, project.id);
@@ -356,7 +369,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [fetchProjectPapers, user?.id],
+    [fetchProjectPapers, fetchProjectTokenUsage, user?.id],
   );
 
   useEffect(() => {
@@ -489,9 +502,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setConversation(null);
           setQueries([]);
           setRunSummary(null);
+          setTokenUsage(null);
 
           const nextPapers = await fetchProjectPapers(project.id);
+          const nextTokenUsage = await fetchProjectTokenUsage(project.id);
           setPapers(nextPapers);
+          setTokenUsage(nextTokenUsage);
           setSelectedPaperIds([]);
 
           const matchedUploadedPaper = referenceFile.linked_paper_id
@@ -516,6 +532,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         const referenceFile = await uploadProjectReferenceFile(project.id, file, authedRef.current);
         const nextPapers = await fetchProjectPapers(project.id);
+        const nextTokenUsage = await fetchProjectTokenUsage(project.id);
         const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, nextPapers);
 
         if (activeProjectIdRef.current !== project.id) {
@@ -523,6 +540,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
 
         setPapers(nextPapers);
+        setTokenUsage(nextTokenUsage);
         if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
           setSelectedPaperIds(nextSelectedPaperIds);
         }
@@ -557,7 +575,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setUploadingReferenceFile(false);
       }
     },
-    [activeProject, fetchProjectPapers, refreshProjects, selectedPaperIds, uploadingReferenceFile],
+    [
+      activeProject,
+      fetchProjectPapers,
+      fetchProjectTokenUsage,
+      refreshProjects,
+      selectedPaperIds,
+      uploadingReferenceFile,
+    ],
   );
 
   const submitMessage = useCallback(
@@ -608,7 +633,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setQueries(runResponse.queries);
 
           const nextPapers = await fetchProjectPapers(project.id);
+          const nextTokenUsage = await fetchProjectTokenUsage(project.id);
           setPapers(nextPapers);
+          setTokenUsage(nextTokenUsage);
 
           const nextSelectedPaperIds: string[] = [];
           setSelectedPaperIds(nextSelectedPaperIds);
@@ -642,6 +669,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             },
           );
           setConversation(createdConversation);
+          setTokenUsage(await fetchProjectTokenUsage(project.id));
 
           const lastAssistant = [...createdConversation.messages]
             .reverse()
@@ -681,6 +709,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             },
           );
           setConversation(createdConversation);
+          setTokenUsage(await fetchProjectTokenUsage(activeProject.id));
           const assistantTurn = [...createdConversation.messages]
             .reverse()
             .find((message) => message.role === "assistant");
@@ -706,6 +735,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           },
         );
         setConversation(updatedConversation);
+        setTokenUsage(await fetchProjectTokenUsage(activeProject.id));
         const lastAssistant = [...updatedConversation.messages]
           .reverse()
           .find((message) => message.role === "assistant");
@@ -736,7 +766,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [activeProject, conversation, fetchProjectPapers, papers, refreshProjects, selectedPaperIds],
+    [
+      activeProject,
+      conversation,
+      fetchProjectPapers,
+      fetchProjectTokenUsage,
+      papers,
+      refreshProjects,
+      selectedPaperIds,
+    ],
   );
 
   const value = useMemo<ChatState>(
@@ -750,6 +788,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       queries,
       conversation,
       runSummary,
+      tokenUsage,
       busy,
       uploadingReferenceFile,
       error,
@@ -775,6 +814,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       queries,
       conversation,
       runSummary,
+      tokenUsage,
       busy,
       uploadingReferenceFile,
       error,
