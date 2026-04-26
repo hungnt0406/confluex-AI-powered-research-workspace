@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 import httpx
 from sqlalchemy import select
@@ -71,6 +75,28 @@ class ProjectConversationCreationResult:
     used_metadata_fallback: bool
 
 
+@dataclass(frozen=True)
+class ProjectConversationStreamEvent:
+    """Internal event emitted while streaming a project conversation turn."""
+
+    event: Literal["status", "conversation", "token", "done", "error"]
+    data: dict[str, object] | ProjectConversation
+
+
+@dataclass(frozen=True)
+class ProjectConversationTurnContext:
+    """Prepared state shared by synchronous and streaming project chat turns."""
+
+    conversation: ProjectConversation
+    selected_papers: list[Paper]
+    question: str
+    recent_messages: list[ProjectMessage]
+    retrieved_chunks: list[RetrievedProjectChunk]
+    extraction_errors: list[str]
+    used_metadata_fallback: bool
+    touch_updated_at: bool
+
+
 class ProjectConversationService:
     """Create and continue project-scoped grounded conversations across selected papers."""
 
@@ -125,13 +151,25 @@ class ProjectConversationService:
         session.add(conversation)
         await session.flush()
 
-        return await self._persist_turn(
+        turn_context = await self._prepare_turn(
             session=session,
             conversation=conversation,
             selected_papers=selected_papers,
             question=normalized_question,
             recent_messages=[],
             touch_updated_at=False,
+        )
+        answer = await self._generate_answer(
+            selected_papers=turn_context.selected_papers,
+            question=turn_context.question,
+            recent_messages=turn_context.recent_messages,
+            retrieved_chunks=turn_context.retrieved_chunks,
+            extraction_errors=turn_context.extraction_errors,
+        )
+        return await self._persist_prepared_turn(
+            session=session,
+            turn_context=turn_context,
+            answer=answer,
         )
 
     async def continue_conversation(
@@ -151,7 +189,7 @@ class ProjectConversationService:
             conversation_id=conversation.id,
             limit=RECENT_HISTORY_MESSAGE_LIMIT,
         )
-        return await self._persist_turn(
+        turn_context = await self._prepare_turn(
             session=session,
             conversation=conversation,
             selected_papers=selected_papers,
@@ -159,8 +197,79 @@ class ProjectConversationService:
             recent_messages=recent_messages,
             touch_updated_at=True,
         )
+        answer = await self._generate_answer(
+            selected_papers=turn_context.selected_papers,
+            question=turn_context.question,
+            recent_messages=turn_context.recent_messages,
+            retrieved_chunks=turn_context.retrieved_chunks,
+            extraction_errors=turn_context.extraction_errors,
+        )
+        return await self._persist_prepared_turn(
+            session=session,
+            turn_context=turn_context,
+            answer=answer,
+        )
 
-    async def _persist_turn(
+    async def stream_create_conversation(
+        self,
+        *,
+        session: AsyncSession,
+        project_id: str,
+        selected_papers: list[Paper],
+        question: str,
+    ) -> AsyncIterator[ProjectConversationStreamEvent]:
+        normalized_question = question.strip()
+        if not normalized_question:
+            raise ValueError("question must not be empty.")
+
+        conversation = ProjectConversation(
+            project_id=project_id,
+            selected_paper_ids_json=[paper.id for paper in selected_papers],
+        )
+        session.add(conversation)
+        await session.flush()
+        yield ProjectConversationStreamEvent("conversation", conversation)
+
+        async for event in self._stream_turn(
+            session=session,
+            conversation=conversation,
+            selected_papers=selected_papers,
+            question=normalized_question,
+            recent_messages=[],
+            touch_updated_at=False,
+        ):
+            yield event
+
+    async def stream_continue_conversation(
+        self,
+        *,
+        session: AsyncSession,
+        conversation: ProjectConversation,
+        selected_papers: list[Paper],
+        question: str,
+    ) -> AsyncIterator[ProjectConversationStreamEvent]:
+        normalized_question = question.strip()
+        if not normalized_question:
+            raise ValueError("question must not be empty.")
+
+        recent_messages = await self._load_recent_messages(
+            session=session,
+            conversation_id=conversation.id,
+            limit=RECENT_HISTORY_MESSAGE_LIMIT,
+        )
+        yield ProjectConversationStreamEvent("conversation", conversation)
+
+        async for event in self._stream_turn(
+            session=session,
+            conversation=conversation,
+            selected_papers=selected_papers,
+            question=normalized_question,
+            recent_messages=recent_messages,
+            touch_updated_at=True,
+        ):
+            yield event
+
+    async def _stream_turn(
         self,
         *,
         session: AsyncSession,
@@ -169,7 +278,47 @@ class ProjectConversationService:
         question: str,
         recent_messages: list[ProjectMessage],
         touch_updated_at: bool,
-    ) -> ProjectConversationCreationResult:
+    ) -> AsyncIterator[ProjectConversationStreamEvent]:
+        yield ProjectConversationStreamEvent("status", {"phase": "retrieving"})
+        turn_context = await self._prepare_turn(
+            session=session,
+            conversation=conversation,
+            selected_papers=selected_papers,
+            question=question,
+            recent_messages=recent_messages,
+            touch_updated_at=touch_updated_at,
+        )
+
+        yield ProjectConversationStreamEvent("status", {"phase": "generating"})
+        answer_parts: list[str] = []
+        try:
+            async for token in self._stream_answer(turn_context):
+                answer_parts.append(token)
+                yield ProjectConversationStreamEvent("token", {"delta": token})
+        except RuntimeError as error:
+            await session.rollback()
+            yield ProjectConversationStreamEvent("error", {"detail": str(error)})
+            return
+
+        answer = "".join(answer_parts)
+        yield ProjectConversationStreamEvent("status", {"phase": "persisting"})
+        result = await self._persist_prepared_turn(
+            session=session,
+            turn_context=turn_context,
+            answer=answer,
+        )
+        yield ProjectConversationStreamEvent("done", result.conversation)
+
+    async def _prepare_turn(
+        self,
+        *,
+        session: AsyncSession,
+        conversation: ProjectConversation,
+        selected_papers: list[Paper],
+        question: str,
+        recent_messages: list[ProjectMessage],
+        touch_updated_at: bool,
+    ) -> ProjectConversationTurnContext:
         selection_changed = list(conversation.selected_paper_ids_json) != [paper.id for paper in selected_papers]
         if selection_changed:
             conversation.selected_paper_ids_json = [paper.id for paper in selected_papers]
@@ -186,40 +335,55 @@ class ProjectConversationService:
             selected_papers=selected_papers,
             question=question,
         )
-        used_metadata_fallback = not retrieved_chunks
-        answer = await self._generate_answer(
+
+        return ProjectConversationTurnContext(
+            conversation=conversation,
             selected_papers=selected_papers,
             question=question,
             recent_messages=recent_messages,
             retrieved_chunks=retrieved_chunks,
             extraction_errors=extraction_errors,
+            used_metadata_fallback=not retrieved_chunks,
+            touch_updated_at=touch_updated_at,
         )
 
+    async def _persist_prepared_turn(
+        self,
+        *,
+        session: AsyncSession,
+        turn_context: ProjectConversationTurnContext,
+        answer: str,
+    ) -> ProjectConversationCreationResult:
+        final_answer = self._append_grounding_recovery_note(
+            answer=self._sanitize_user_visible_text(answer),
+            selected_papers=turn_context.selected_papers,
+            retrieved_chunks=turn_context.retrieved_chunks,
+        )
         session.add(
             ProjectMessage(
-                conversation_id=conversation.id,
+                conversation_id=turn_context.conversation.id,
                 role="user",
-                content=question,
+                content=turn_context.question,
             )
         )
         session.add(
             ProjectMessage(
-                conversation_id=conversation.id,
+                conversation_id=turn_context.conversation.id,
                 role="assistant",
-                content=answer,
+                content=final_answer,
             )
         )
-        if touch_updated_at:
-            conversation.updated_at = datetime.now(UTC)
+        if turn_context.touch_updated_at:
+            turn_context.conversation.updated_at = datetime.now(UTC)
         await session.commit()
 
         loaded_conversation = await self._load_conversation(
             session=session,
-            conversation_id=conversation.id,
+            conversation_id=turn_context.conversation.id,
         )
         return ProjectConversationCreationResult(
             conversation=loaded_conversation,
-            used_metadata_fallback=used_metadata_fallback,
+            used_metadata_fallback=turn_context.used_metadata_fallback,
         )
 
     async def _retrieve_relevant_chunks(
@@ -404,11 +568,177 @@ class ProjectConversationService:
                 extraction_errors=extraction_errors,
             )
 
-        return self._append_grounding_recovery_note(
-            answer=answer,
-            selected_papers=selected_papers,
-            retrieved_chunks=retrieved_chunks,
+        return self._sanitize_user_visible_text(answer)
+
+    async def _stream_answer(
+        self,
+        turn_context: ProjectConversationTurnContext,
+    ) -> AsyncGenerator[str, None]:
+        if self.is_configured():
+            live_stream = self._stream_live_answer(
+                selected_papers=turn_context.selected_papers,
+                question=turn_context.question,
+                recent_messages=turn_context.recent_messages,
+                retrieved_chunks=turn_context.retrieved_chunks,
+                extraction_errors=turn_context.extraction_errors,
+            )
+            try:
+                first_token = await asyncio.wait_for(
+                    anext(live_stream),
+                    timeout=self.timeout_seconds,
+                )
+                yield first_token
+                async for token in live_stream:
+                    yield token
+                return
+            except (StopAsyncIteration, TimeoutError):
+                await live_stream.aclose()
+            except RuntimeError as error:
+                await live_stream.aclose()
+                if str(error) == "OpenRouter project-answer stream failed before content.":
+                    pass
+                else:
+                    raise
+
+        fallback_answer = self._generate_local_answer(
+            selected_papers=turn_context.selected_papers,
+            question=turn_context.question,
+            recent_messages=turn_context.recent_messages,
+            retrieved_chunks=turn_context.retrieved_chunks,
+            extraction_errors=turn_context.extraction_errors,
         )
+        yield fallback_answer
+
+    async def _stream_live_answer(
+        self,
+        *,
+        selected_papers: list[Paper],
+        question: str,
+        recent_messages: list[ProjectMessage],
+        retrieved_chunks: list[RetrievedProjectChunk],
+        extraction_errors: list[str],
+    ) -> AsyncGenerator[str, None]:
+        if not self.is_configured():
+            raise RuntimeError("OpenRouter project-answer stream failed before content.")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key or ''}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": LIVE_ANSWER_SYSTEM_PROMPT.replace(
+                        "one academic paper", "a selected set of academic papers"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": self._build_prompt(
+                        selected_papers=selected_papers,
+                        question=question,
+                        recent_messages=recent_messages,
+                        retrieved_chunks=retrieved_chunks,
+                        extraction_errors=extraction_errors,
+                    ),
+                },
+            ],
+            "max_tokens": DEFAULT_MAX_ANSWER_TOKENS,
+            "temperature": 0.2,
+            "provider": {"sort": "price"},
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        owns_client = self.http_client is None
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
+        tokens_started = False
+        usage_payload: dict[str, object] | None = None
+        try:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for frame in self._iter_openrouter_sse_data(response):
+                    if frame == "[DONE]":
+                        break
+                    try:
+                        event_payload = json.loads(frame)
+                    except json.JSONDecodeError as error:
+                        raise RuntimeError("OpenRouter project-answer stream returned invalid JSON.") from error
+                    if not isinstance(event_payload, dict):
+                        continue
+                    if "error" in event_payload:
+                        detail = self._format_openrouter_stream_error(event_payload["error"])
+                        raise RuntimeError(detail)
+                    usage = event_payload.get("usage")
+                    if isinstance(usage, dict):
+                        usage_payload = {"usage": usage}
+                    choices = event_payload.get("choices", [])
+                    if not isinstance(choices, list) or not choices:
+                        continue
+                    choice = choices[0]
+                    if not isinstance(choice, dict):
+                        continue
+                    delta = choice.get("delta")
+                    if not isinstance(delta, dict):
+                        continue
+                    content = delta.get("content")
+                    if isinstance(content, list):
+                        content = "".join(
+                            block.get("text", "")
+                            for block in content
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        )
+                    if isinstance(content, str) and content:
+                        tokens_started = True
+                        yield content
+        except httpx.HTTPError as error:
+            if tokens_started:
+                raise RuntimeError("OpenRouter project-answer stream failed.") from error
+            raise RuntimeError("OpenRouter project-answer stream failed before content.") from error
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        if usage_payload is not None:
+            collect_openrouter_usage(
+                endpoint="chat/completions",
+                feature="project_chat_answer",
+                model=self.model,
+                response_payload=usage_payload,
+                metadata={"selected_paper_count": len(selected_papers), "stream": True},
+            )
+
+    async def _iter_openrouter_sse_data(
+        self,
+        response: httpx.Response,
+    ) -> AsyncIterator[str]:
+        data_lines: list[str] = []
+        async for line in response.aiter_lines():
+            if line == "":
+                if data_lines:
+                    yield "\n".join(data_lines)
+                    data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line.removeprefix("data:").strip())
+        if data_lines:
+            yield "\n".join(data_lines)
+
+    def _format_openrouter_stream_error(self, error_payload: object) -> str:
+        if isinstance(error_payload, dict):
+            message = error_payload.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        return "OpenRouter project-answer stream failed."
 
     async def _generate_live_answer(
         self,
@@ -605,8 +935,6 @@ class ProjectConversationService:
         retrieved_chunks: list[RetrievedProjectChunk],
         extraction_errors: list[str],
     ) -> str:
-        conversation_context = self._format_recent_history(recent_messages)
-
         if not selected_papers:
             response_sections = [
                 "## Answer",
@@ -614,61 +942,30 @@ class ProjectConversationService:
                     "No papers are selected yet, so this is a general answer rather than a "
                     "paper-grounded one."
                 ),
-                f"Question: {question}",
+                "",
+                "## Next Steps",
+                (
+                    "Select one or more papers when you want the answer grounded in retrieved "
+                    "PDF chunks, abstracts, or stored summaries."
+                ),
             ]
-            if conversation_context is not None:
-                response_sections.extend(
-                    [
-                        "",
-                        "## Conversation Context",
-                        f"Recent conversation context: {conversation_context}",
-                    ]
-                )
-            response_sections.extend(
-                [
-                    "",
-                    "## Limits",
-                    (
-                        "Select one or more papers when you want the answer grounded in retrieved "
-                        "PDF chunks, abstracts, or stored summaries."
-                    ),
-                ]
-            )
             return self._sanitize_user_visible_text("\n\n".join(response_sections))
 
         if retrieved_chunks:
             evidence_lines = [
-                f"- {retrieved_chunk.paper.title} {self._format_chunk_snippet(retrieved_chunk)}"
+                f"- **{retrieved_chunk.paper.title}** {self._format_chunk_snippet(retrieved_chunk)}"
                 for retrieved_chunk in retrieved_chunks
             ]
             response_sections = [
                 "## Answer",
                 (
-                    f"Based on the selected paper set, the question '{question}' can be answered "
+                    f"Based on the selected paper set, the question *\"{question}\"* can be answered "
                     "using the retrieved excerpts below."
                 ),
+                "",
+                "## Evidence",
+                "\n".join(evidence_lines),
             ]
-            if conversation_context is not None:
-                response_sections.extend(
-                    [
-                        "",
-                        "## Conversation Context",
-                        f"Recent conversation context: {conversation_context}",
-                    ]
-                )
-            response_sections.extend(
-                [
-                    "",
-                    "## Evidence",
-                    "\n".join(evidence_lines),
-                    "",
-                    "## Limits",
-                    (
-                        "This response was produced by the deterministic fallback path because live "
-                        "answer synthesis is unavailable in the current environment."
-                    ),
-                ]
-            )
             if extraction_errors:
                 response_sections.extend(["", "## Grounding Note", PROJECT_GROUNDING_UNAVAILABLE_MESSAGE])
             return self._sanitize_user_visible_text("\n\n".join(response_sections))
@@ -684,23 +981,15 @@ class ProjectConversationService:
         ]
         for paper in selected_papers:
             metadata_sections.append(
-                f"- {paper.title} ({paper.year if paper.year is not None else 'Unknown'})"
-            )
-        if conversation_context is not None:
-            metadata_sections.extend(
-                [
-                    "",
-                    "## Conversation Context",
-                    f"Recent conversation context: {conversation_context}",
-                ]
+                f"- **{paper.title}** ({paper.year if paper.year is not None else 'Unknown'})"
             )
         if extraction_errors:
             metadata_sections.extend(["", "## Grounding Note", PROJECT_GROUNDING_UNAVAILABLE_MESSAGE])
         metadata_sections.extend(
             [
                 "",
-                "## Limits",
-                "If you need a deeper answer, make sure the selected papers have usable public pdf_url values so chunk grounding can succeed.",
+                "## Next Steps",
+                "Make sure the selected papers have accessible PDFs so chunk grounding can succeed, or try uploading PDFs directly.",
             ]
         )
         return self._sanitize_user_visible_text("\n\n".join(metadata_sections))
