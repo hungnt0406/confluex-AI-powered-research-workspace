@@ -47,6 +47,24 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-26 12:23
+- **done:**
+  - Added project-scoped OpenRouter token usage telemetry with `AIUsageEvent`, Alembic migration, collector service, aggregate API, frontend usage card, tests, and docs.
+  - Changed files: `backend/db/models.py`, `backend/db/migrations/versions/20260426_01_ai_usage_events.py`, `backend/services/ai_usage.py`, OpenRouter client/service call sites, project router/schemas, frontend chat/context files, tests, and docs/schema files.
+- **doing:**
+  - Running focused backend/frontend checks for the telemetry implementation.
+- **blocked:**
+  - None.
+
+### 2026-04-26 12:51
+- **done:**
+  - Added optional PostgreSQL-backed pytest execution through `TEST_DATABASE_URL`, including a safety guard for dedicated test database names and CI wiring to run tests against Postgres.
+  - Changed files: `.github/workflows/ci.yml`, `.env.example`, `tests/conftest.py`, `README.md`, and `docs/feature-map.md`.
+- **doing:**
+  - Verification completed with default test DB path; Postgres path is ready for a local/CI database named with `test` or `pytest`.
+- **blocked:**
+  - No local Postgres server is available in this sandbox, so the actual Postgres test path is wired and documented but not locally exercised here.
+
 ## Tuần 3 — 18/04/2026
 
 ### Đã làm
