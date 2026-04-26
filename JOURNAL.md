@@ -47,6 +47,37 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-27 00:20
+- **done:**
+  - Fixed model output formatting: the local fallback answer in `_generate_local_answer` was embedding raw conversation history (with `| user:` / `| assistant:` pipe-separated turns) into the user-visible response via `_format_recent_history`. Removed all `## Conversation Context` sections from the three fallback branches since conversation history is already visible in the chat UI. Renamed `## Limits` to `## Next Steps` with cleaner user-facing copy. Added bold formatting to paper titles in fallback output.
+  - Changed files: `backend/services/project_conversations.py`, `JOURNAL.md`.
+- **doing:**
+  - Verified fix in browser — fallback answers now show clean headings and no raw context leakage.
+- **blocked:**
+  - None.
+
+### 2026-04-26 17:18
+- **done:**
+  - Hardened main chat streaming after user reported the model output was not streaming reliably.
+  - Added OpenRouter `stream_options.include_usage`, no-buffer SSE response headers, and a first-token timeout fallback so a provider stream that stalls before content does not leave the UI stuck on an empty assistant turn.
+  - Expanded project conversation tests for no-buffer headers, stream options, and pre-token provider stall fallback.
+  - Changed files: `backend/services/project_conversations.py`, `backend/api/routers/projects.py`, `tests/test_project_conversations.py`, `JOURNAL.md`.
+- **doing:**
+  - Verification completed with `.venv/bin/pytest tests/test_project_conversations.py tests/test_llm_embeddings.py -x`, `ruff check .`, `mypy backend/`, and `npm run build`.
+- **blocked:**
+  - Live browser/provider streaming could not be fully reproduced inside the sandbox because local uvicorn binding and direct provider streaming probes were unreliable here.
+
+### 2026-04-26 16:28
+- **done:**
+  - Implemented project-scoped main chat streaming over backend-proxied SSE while keeping the existing synchronous conversation endpoints intact.
+  - Added shared project conversation turn preparation/persistence, OpenRouter streaming chunk parsing, usage flushing from final streaming usage, local fallback streaming, and frontend token-by-token rendering.
+  - Updated docs for the new streaming API surface and frontend wiring.
+  - Changed files: `backend/services/project_conversations.py`, `backend/api/routers/projects.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `tests/test_project_conversations.py`, `tests/test_frontend_config.py`, `README.md`, `docs/feature-map.md`, `docs/features/paper_conversations.md`, `docs/user-journey.md`, `frontend/README.md`, `JOURNAL.md`.
+- **doing:**
+  - Verification completed with `.venv/bin/pytest tests/test_project_conversations.py tests/test_llm_embeddings.py -x`, `ruff check .`, `mypy backend/`, and `npm run build`.
+- **blocked:**
+  - `AI_WORKLOG.md` was not present in this checkout, so this journal entry is the local detail record for the repository changes.
+
 ### 2026-04-26 16:00
 - **done:**
   - Docked the frontend token usage card at the bottom of the right context panel while allowing the related-paper list to scroll independently.
