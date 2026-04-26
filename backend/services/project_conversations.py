@@ -15,9 +15,11 @@ from backend.db.models import (
     ProjectConversation,
     ProjectMessage,
 )
+from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.document_extraction import (
     DocumentExtractionError,
     PaperDocumentExtractionService,
+    embed_texts_with_feature,
 )
 from backend.services.embeddings import EmbeddingService
 from backend.services.paper_conversations import (
@@ -353,7 +355,11 @@ class ProjectConversationService:
 
     async def _embed_question(self, question: str) -> list[float]:
         try:
-            embeddings = await self.embedding_service.embed_texts([question])
+            embeddings = await embed_texts_with_feature(
+                self.embedding_service,
+                [question],
+                feature="project_chat_answer",
+            )
         except Exception as error:
             if isinstance(self.embedding_service, EmbeddingService):
                 return self.embedding_service.embed_texts_locally([question])[0]
@@ -461,6 +467,13 @@ class ProjectConversationService:
                 await client.aclose()
 
         response_payload = response.json()
+        collect_openrouter_usage(
+            endpoint="chat/completions",
+            feature="project_chat_answer",
+            model=self.model,
+            response_payload=response_payload,
+            metadata={"selected_paper_count": len(selected_papers)},
+        )
         choices = response_payload.get("choices", [])
         if not isinstance(choices, list) or not choices:
             raise RuntimeError("OpenRouter project-answer response choices were missing.")

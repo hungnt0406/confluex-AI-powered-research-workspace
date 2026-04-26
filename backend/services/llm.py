@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 
 from backend.config import get_settings
+from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.research_utils import has_live_api_key
 
 
@@ -43,6 +44,7 @@ class OpenRouterStructuredOutputService:
         user_prompt: str,
         schema: dict[str, Any],
         max_tokens: int = 1_024,
+        feature: str = "structured_output",
     ) -> dict[str, Any]:
         """Generate a schema-constrained JSON payload with OpenRouter."""
 
@@ -92,6 +94,13 @@ class OpenRouterStructuredOutputService:
                 await client.aclose()
 
         response_payload = response.json()
+        collect_openrouter_usage(
+            endpoint="chat/completions",
+            feature=feature,
+            model=self.model,
+            response_payload=response_payload,
+            metadata={"response_format": "json_schema"},
+        )
         choices = response_payload.get("choices", [])
         if not isinstance(choices, list) or not choices:
             raise StructuredOutputError("OpenRouter response choices were missing.")
