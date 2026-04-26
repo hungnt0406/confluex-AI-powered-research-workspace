@@ -47,6 +47,34 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-26 15:07
+- **done:**
+  - Added frontend guardrails for the Turbopack dev-memory issue: `npm run dev:bounded` for a 10 GB user-systemd scope, `npm run dev:reset` for stale dev cache cleanup, README usage notes, and a pytest check that keeps `turbopack.root` pinned to `frontend/`.
+  - Changed files: `frontend/package.json`, `frontend/README.md`, `tests/test_frontend_config.py`, `JOURNAL.md`.
+- **doing:**
+  - Verification completed with `.venv/bin/pytest tests/test_frontend_config.py` and `npm run build`.
+- **blocked:**
+  - None.
+
+### 2026-04-26 15:03
+- **done:**
+  - Reset the stale Turbopack dev cache at `frontend/.next/dev` before the bounded manual dev-memory test.
+  - Rechecked that `frontend/next.config.mjs` keeps `turbopack.root` fixed to `frontend/` and that `frontend/package.json` dev scripts were left unchanged.
+  - Changed files: `JOURNAL.md`; ignored cache files under `frontend/.next/dev` were removed.
+- **doing:**
+  - Frontend config verification completed with `npm run build`; the bounded `systemd-run --user` `/login` compile remains a manual terminal test.
+- **blocked:**
+  - Codex cannot reliably run the requested user-systemd scoped dev server from this sandbox.
+
+### 2026-04-26 14:53
+- **done:**
+  - Set the Next.js Turbopack workspace root explicitly to `frontend/` to avoid dev-server root inference from `/home/tungnguyen/package-lock.json`.
+  - Changed files: `frontend/next.config.mjs`, `JOURNAL.md`.
+- **doing:**
+  - Frontend config verification completed with `npm run build`; dev/browser compile should be checked manually outside Codex because it is the OOM trigger path.
+- **blocked:**
+  - Automated `next dev` login-page verification was intentionally avoided after the OOM risk was confirmed by the user.
+
 ### 2026-04-26 12:23
 - **done:**
   - Added project-scoped OpenRouter token usage telemetry with `AIUsageEvent`, Alembic migration, collector service, aggregate API, frontend usage card, tests, and docs.
