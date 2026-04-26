@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -295,6 +296,47 @@ class PaperDocumentExtractionService:
             error_message = "No usable PDF content was extracted."
 
         raise DocumentExtractionError(error_message)
+
+    async def extract_uploaded_pdf(self, *, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
+        """Extract an uploaded local PDF through the same OpenRouter parser pipeline."""
+
+        if not pdf_bytes:
+            raise DocumentExtractionError("Uploaded PDF was empty.")
+
+        extraction_errors: list[str] = []
+        if self.is_configured():
+            try:
+                openrouter_result = await self._extract_with_openrouter(
+                    pdf_url=self._build_pdf_data_url(pdf_bytes),
+                    filename=filename,
+                )
+                normalized_text = self._normalize_text(openrouter_result.parsed_text)
+                if normalized_text:
+                    return ExtractedDocument(
+                        blocks=[
+                            DocumentTextBlock(
+                                page_number=1,
+                                text=normalized_text,
+                            )
+                        ],
+                        page_count=1,
+                        file_hash=openrouter_result.file_hash,
+                    )
+                extraction_errors.append(
+                    "OpenRouter returned PDF content, but it could not be normalized."
+                )
+            except DocumentExtractionError as error:
+                extraction_errors.append(str(error))
+
+        try:
+            blocks, page_count = self._extract_blocks_from_pdf_bytes(pdf_bytes)
+            if blocks:
+                return ExtractedDocument(blocks=blocks, page_count=page_count, file_hash=None)
+            extraction_errors.append("Uploaded PDF did not contain extractable text.")
+        except DocumentExtractionError as error:
+            extraction_errors.append(str(error))
+
+        raise DocumentExtractionError("; ".join(extraction_errors))
 
     async def _extract_with_openrouter(
         self,
@@ -716,6 +758,10 @@ class PaperDocumentExtractionService:
                 return file_hash.strip()
 
         return None
+
+    def _build_pdf_data_url(self, pdf_bytes: bytes) -> str:
+        encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
+        return f"data:application/pdf;base64,{encoded_pdf}"
 
     def _normalize_text(self, text: str | None) -> str:
         if text is None:
