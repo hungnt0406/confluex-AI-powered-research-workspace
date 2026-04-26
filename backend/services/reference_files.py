@@ -4,12 +4,18 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.db.models import Paper, Project, ReferenceFile, generate_identifier
+from backend.services.document_extraction import (
+    DocumentExtractionError,
+    ExtractedDocument,
+    PaperDocumentExtractionService,
+)
 
 PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf", "application/octet-stream"}
 REFERENCE_SOURCE = "user_upload"
@@ -34,6 +40,13 @@ class ReferenceFileDuplicateError(ReferenceFileError):
     """Raised when a project already has the same reference file."""
 
 
+class ReferenceExtractionClient(Protocol):
+    """Minimal document extraction interface for uploaded reference PDFs."""
+
+    async def extract_uploaded_pdf(self, *, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
+        """Extract a local uploaded PDF into normalized text blocks."""
+
+
 @dataclass(frozen=True)
 class ParsedReferenceMetadata:
     """Metadata extracted from a PDF reference file."""
@@ -56,26 +69,13 @@ def compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def format_file_size_limit(byte_count: int) -> str:
-    """Return a compact human-readable upload limit."""
-
-    mib = 1024 * 1024
-    kib = 1024
-    if byte_count > 0 and byte_count % mib == 0:
-        return f"{byte_count // mib} MiB"
-    if byte_count > 0 and byte_count % kib == 0:
-        return f"{byte_count // kib} KiB"
-    return f"{byte_count} bytes"
-
-
 def validate_pdf_upload(
     *,
     filename: str,
     content_type: str | None,
     content: bytes,
-    max_file_bytes: int,
 ) -> None:
-    """Validate file type and size before storage."""
+    """Validate that an upload is a non-empty PDF before storage."""
 
     if not filename.lower().endswith(".pdf"):
         raise ReferenceFileValidationError("Only PDF reference files are supported.")
@@ -85,12 +85,6 @@ def validate_pdf_upload(
 
     if not content:
         raise ReferenceFileValidationError("Uploaded reference file is empty.")
-
-    if len(content) > max_file_bytes:
-        raise ReferenceFileValidationError(
-            "Uploaded reference file exceeds the size limit. "
-            f"Maximum allowed size is {format_file_size_limit(max_file_bytes)}."
-        )
 
     if not content.lstrip().startswith(b"%PDF"):
         raise ReferenceFileValidationError("Uploaded reference file is not a valid PDF.")
@@ -104,27 +98,6 @@ def normalize_pdf_text(text: str, *, max_chars: int) -> str:
     normalized = "\n".join(line for line in normalized_lines if line)
     normalized = LINE_BREAK_PATTERN.sub("\n\n", normalized)
     return normalized[:max_chars].strip()
-
-
-def split_authors(raw_author: str | None) -> list[str]:
-    """Extract a conservative author list from PDF metadata."""
-
-    if raw_author is None:
-        return []
-
-    candidates = re.split(r"\s*(?:;|\band\b)\s*", raw_author)
-    authors = [candidate.strip() for candidate in candidates if candidate.strip()]
-    return authors[:20]
-
-
-def clean_metadata_value(value: object) -> str | None:
-    """Return a non-empty metadata string."""
-
-    if value is None:
-        return None
-
-    normalized = WHITESPACE_PATTERN.sub(" ", str(value)).strip()
-    return normalized or None
 
 
 def first_plausible_title_line(text: str) -> str | None:
@@ -180,67 +153,32 @@ def extract_abstract(text: str, *, max_chars: int = 2_000) -> str | None:
     return None
 
 
-def parse_pdf_metadata(path: Path, *, max_extracted_chars: int) -> ParsedReferenceMetadata:
-    """Extract metadata and usable text from a PDF file."""
+def metadata_from_extracted_document(
+    document: ExtractedDocument,
+    *,
+    fallback_title: str,
+    max_extracted_chars: int,
+) -> ParsedReferenceMetadata:
+    """Derive reference metadata from the shared document extraction output."""
 
-    try:
-        import fitz
-    except ImportError as error:
-        raise ReferenceFileValidationError("PyMuPDF is required to parse PDF files.") from error
-
-    try:
-        with fitz.open(path) as document:
-            metadata = document.metadata or {}
-            raw_text_parts: list[str] = []
-            extracted_chars = 0
-
-            for page in document:
-                page_text = page.get_text("text")
-                if not page_text:
-                    continue
-
-                remaining_chars = max_extracted_chars - extracted_chars
-                if remaining_chars <= 0:
-                    break
-                raw_text_parts.append(page_text[:remaining_chars])
-                extracted_chars += min(len(page_text), remaining_chars)
-
-            text = normalize_pdf_text("".join(raw_text_parts), max_chars=max_extracted_chars)
-            if not text:
-                return ParsedReferenceMetadata(
-                    title=clean_metadata_value(metadata.get("title")) or path.stem,
-                    authors=split_authors(clean_metadata_value(metadata.get("author"))),
-                    year=extract_year(
-                        clean_metadata_value(metadata.get("creationDate")),
-                        clean_metadata_value(metadata.get("modDate")),
-                    ),
-                    error_message="No extractable text was found in the uploaded PDF.",
-                )
-
-            title = clean_metadata_value(metadata.get("title")) or first_plausible_title_line(text)
-            if title is None:
-                title = path.stem
-
-            metadata_year = extract_year(
-                clean_metadata_value(metadata.get("creationDate")),
-                clean_metadata_value(metadata.get("modDate")),
-            )
-            year = metadata_year or extract_year(text)
-
-            return ParsedReferenceMetadata(
-                title=title[:500],
-                authors=split_authors(clean_metadata_value(metadata.get("author"))),
-                year=year,
-                abstract=extract_abstract(text),
-                text=text,
-            )
-    except ReferenceFileValidationError:
-        raise
-    except Exception as error:
+    text = normalize_pdf_text(
+        "\n\n".join(block.text for block in document.blocks),
+        max_chars=max_extracted_chars,
+    )
+    if not text:
         return ParsedReferenceMetadata(
-            title=path.stem,
-            error_message=f"PDF parsing failed: {error}",
+            title=fallback_title,
+            error_message="No extractable text was found in the uploaded PDF.",
         )
+
+    title = first_plausible_title_line(text) or fallback_title
+    return ParsedReferenceMetadata(
+        title=title[:500],
+        authors=[],
+        year=extract_year(text),
+        abstract=extract_abstract(text),
+        text=text,
+    )
 
 
 class ReferenceFileService:
@@ -250,19 +188,17 @@ class ReferenceFileService:
         self,
         *,
         upload_dir: str | Path | None = None,
-        max_file_bytes: int | None = None,
         max_extracted_chars: int | None = None,
+        extraction_service: ReferenceExtractionClient | None = None,
     ) -> None:
         settings = get_settings()
         self.upload_dir = Path(upload_dir if upload_dir is not None else settings.reference_upload_dir)
-        self.max_file_bytes = (
-            max_file_bytes if max_file_bytes is not None else settings.reference_max_file_bytes
-        )
         self.max_extracted_chars = (
             max_extracted_chars
             if max_extracted_chars is not None
             else settings.reference_max_extracted_chars
         )
+        self.extraction_service = extraction_service or PaperDocumentExtractionService()
 
     async def create_reference_file(
         self,
@@ -280,7 +216,6 @@ class ReferenceFileService:
             filename=safe_filename,
             content_type=content_type,
             content=content,
-            max_file_bytes=self.max_file_bytes,
         )
         digest = compute_sha256(content)
 
@@ -299,7 +234,23 @@ class ReferenceFileService:
         storage_path = project_upload_dir / f"{reference_id}.pdf"
         storage_path.write_bytes(content)
 
-        parsed = parse_pdf_metadata(storage_path, max_extracted_chars=self.max_extracted_chars)
+        fallback_title = Path(safe_filename).stem or "reference"
+        try:
+            extracted_document = await self.extraction_service.extract_uploaded_pdf(
+                pdf_bytes=content,
+                filename=safe_filename,
+            )
+            parsed = metadata_from_extracted_document(
+                extracted_document,
+                fallback_title=fallback_title,
+                max_extracted_chars=self.max_extracted_chars,
+            )
+        except DocumentExtractionError as error:
+            parsed = ParsedReferenceMetadata(
+                title=fallback_title,
+                error_message=f"PDF extraction failed: {error}",
+            )
+
         reference = ReferenceFile(
             id=reference_id,
             project_id=project.id,
