@@ -57,7 +57,8 @@ flowchart TB
     ReaderAgent --> SummaryLLM["OpenRouter structured output<br/>summaries"]
     ReaderAgent --> ResearchUtils
 
-    ReferenceFileService --> PdfParser["PyMuPDF parser"]
+    ReferenceFileService --> DocumentExtraction["PaperDocumentExtractionService<br/>uploaded PDF extraction"]
+    DocumentExtraction --> OpenRouterPdf["OpenRouter file parser<br/>base64 PDF data URL"]
     ReferenceFileService --> UploadStorage[(Reference PDF storage<br/>REFERENCE_UPLOAD_DIR)]
 
     AuthRouter --> Models["SQLAlchemy models"]
@@ -91,7 +92,7 @@ flowchart TB
     class Client,App,Health,Lifespan,Settings entry;
     class AuthRouter,ProjectsRouter,PipelineRouter,AuthSchemas,ProjectSchemas,PipelineHealthSchema,PipelineNodeNames api;
     class DbSessionDep,CurrentUserDep,PipelineServiceDep,ReferenceServiceDep,Bearer,DecodeToken,LoadUser,GetDbSession,PipelineFactory,ReferenceFactory dependency;
-    class Security,LiteraturePipelineService,ProjectPipelineRunner,SearcherAgent,ReaderAgent,ReferenceFileService,QueryLLM,SummaryLLM,Embeddings,ResearchUtils,PdfParser,SemanticScholarClient,ArxivClient service;
+    class Security,LiteraturePipelineService,ProjectPipelineRunner,SearcherAgent,ReaderAgent,ReferenceFileService,QueryLLM,SummaryLLM,Embeddings,ResearchUtils,DocumentExtraction,SemanticScholarClient,ArxivClient service;
     class SessionManager,AsyncEngine,Database,Models,Migrations,UploadStorage persistence;
     class OpenRouterChat,OpenRouterEmbeddings,SemanticScholarApi,ArxivApi external;
 ```
@@ -399,7 +400,7 @@ sequenceDiagram
     participant DB as AsyncSession
     participant Service as ReferenceFileService
     participant Storage as REFERENCE_UPLOAD_DIR
-    participant Parser as parse_pdf_metadata
+    participant Extractor as PaperDocumentExtractionService
     participant RefTable as reference_files table
     participant PaperTable as papers table
 
@@ -408,7 +409,7 @@ sequenceDiagram
     Auth-->>Route: User
     Route->>DB: get_owned_project_or_404(project_id, user_id)
     DB-->>Route: Project
-    Route->>Route: Read max_file_bytes + 1 bytes
+    Route->>Route: Read multipart file bytes
     Route->>Service: create_reference_file(session, project, filename, content_type, content)
     Service->>Service: Sanitize filename with Path(...).name
     Service->>Service: validate_pdf_upload
@@ -424,8 +425,9 @@ sequenceDiagram
         else New file
             Service->>Storage: mkdir data/reference_uploads/{project_id}
             Service->>Storage: write {reference_file_id}.pdf
-            Service->>Parser: Extract metadata and text with PyMuPDF
-            Parser-->>Service: ParsedReferenceMetadata
+            Service->>Extractor: extract_uploaded_pdf(pdf_bytes, filename)
+            Extractor-->>Service: ExtractedDocument from OpenRouter or local fallback
+            Service->>Service: Build ParsedReferenceMetadata from extracted text
             Service->>RefTable: Insert ReferenceFile row
             alt parse_status == parsed
                 Service->>PaperTable: Insert linked Paper row with source user_upload
@@ -575,7 +577,7 @@ flowchart LR
     Settings --> DeclaredProjectDefaults["Declared project defaults<br/>DEFAULT_YEAR_START<br/>DEFAULT_CANDIDATE_LIMIT<br/>DEFAULT_SUMMARY_LIMIT"]
     Settings --> SearchTuning["Searcher defaults<br/>SEARCH_RESULTS_PER_QUERY<br/>MINIMUM_ABSTRACT_LENGTH"]
     Settings --> RuntimeTuning["SUMMARY_CONCURRENCY<br/>EMBEDDING_DIMENSIONS<br/>EXTERNAL_API_TIMEOUT_SECONDS"]
-    Settings --> UploadTuning["REFERENCE_UPLOAD_DIR<br/>REFERENCE_MAX_FILE_BYTES<br/>REFERENCE_MAX_EXTRACTED_CHARS"]
+    Settings --> UploadTuning["REFERENCE_UPLOAD_DIR<br/>REFERENCE_MAX_EXTRACTED_CHARS"]
     Settings --> SemanticScholarKey["SEMANTIC_SCHOLAR_API_KEY"]
 
     DatabaseUrl --> SessionManager["DatabaseSessionManager"]
