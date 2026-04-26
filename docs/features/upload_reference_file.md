@@ -50,8 +50,8 @@ The request is handled by `upload_project_reference_file` in `backend/api/router
    - It returns `404 Not Found` if the project does not exist or does not belong to the user.
 
 4. `upload_project_reference_file` reads the uploaded file:
-   - It reads at most `reference_file_service.max_file_bytes + 1` bytes.
-   - Reading one byte over the limit allows the validation layer to detect oversized files.
+   - It reads the multipart file bytes from FastAPI's `UploadFile`.
+   - There is no application-level upload byte cap.
 
 5. `upload_project_reference_file` calls `ReferenceFileService.create_reference_file` in `backend/services/reference_files.py`.
 
@@ -81,7 +81,6 @@ This keeps only the final path component and prevents client-provided directory 
   - `application/x-pdf`
   - `application/octet-stream`
 - The uploaded bytes are not empty.
-- The uploaded bytes do not exceed `REFERENCE_MAX_FILE_BYTES`.
 - The file starts with the PDF magic header `%PDF` after leading whitespace is stripped.
 
 Validation failures raise `ReferenceFileValidationError`. The route catches that exception and returns:
@@ -124,7 +123,6 @@ The default upload root is configured in `backend/config.py`:
 
 ```text
 REFERENCE_UPLOAD_DIR=data/reference_uploads
-REFERENCE_MAX_FILE_BYTES=20971520
 REFERENCE_MAX_EXTRACTED_CHARS=120000
 ```
 
@@ -139,30 +137,27 @@ The database keeps both:
 - `original_filename`: the user-visible filename from the upload.
 - `storage_path`: the server-side path where the PDF was stored.
 
-## PDF Parsing
+## PDF Extraction
 
-After writing the file, `create_reference_file` calls `parse_pdf_metadata` in `backend/services/reference_files.py`.
+After writing the file, `create_reference_file` calls `PaperDocumentExtractionService.extract_uploaded_pdf` through the `ReferenceExtractionClient` interface in `backend/services/reference_files.py`.
 
-`parse_pdf_metadata` uses PyMuPDF:
+The uploaded bytes are sent through the same document extraction service used by grounded paper conversations:
 
-```python
-import fitz
-```
+- If `OPENROUTER_API_KEY` is configured, the service sends the local PDF as a base64 `data:application/pdf` URL to OpenRouter's file parser using `OPENROUTER_DOCUMENT_MODEL` and `OPENROUTER_PDF_ENGINE`.
+- If live OpenRouter extraction is unavailable or fails, the service falls back to local PDF text extraction through the existing document extraction fallback.
 
-It opens the stored PDF, reads document metadata, and extracts page text up to `REFERENCE_MAX_EXTRACTED_CHARS`.
+The extracted text is then normalized and truncated to `REFERENCE_MAX_EXTRACTED_CHARS` for storage.
 
-The parser then invokes these helper functions in `backend/services/reference_files.py`:
+The upload service invokes these helper functions in `backend/services/reference_files.py`:
 
 | Helper | Purpose |
 | --- | --- |
 | `normalize_pdf_text` | Normalizes line endings, whitespace, and excessive blank lines. |
-| `clean_metadata_value` | Converts PDF metadata values into non-empty strings. |
-| `split_authors` | Splits PDF metadata authors into a conservative author list. |
 | `first_plausible_title_line` | Uses the first plausible extracted text line as a fallback title. |
-| `extract_year` | Finds a plausible publication year from metadata or text. |
+| `extract_year` | Finds a plausible publication year from extracted text. |
 | `extract_abstract` | Extracts the abstract section or falls back to an opening excerpt. |
 
-The parser returns a `ParsedReferenceMetadata` object with:
+The metadata builder returns a `ParsedReferenceMetadata` object with:
 
 - `title`
 - `authors`
@@ -180,7 +175,7 @@ If the PDF has no extractable text, the upload still succeeds, but the metadata 
 
 ```text
 parse_status=parse_error
-error_message=No extractable text was found in the uploaded PDF.
+error_message=PDF extraction failed: <extraction error>
 ```
 
 ## Database Records
@@ -200,8 +195,8 @@ Important columns:
 | `storage_path` | Server path to the stored PDF. |
 | `parse_status` | `parsed` or `parse_error`. |
 | `extracted_title` | Parsed title or fallback title. |
-| `extracted_authors` | Parsed authors. |
-| `extracted_year` | Parsed year. |
+| `extracted_authors` | Extracted author list. The current uploaded-PDF path does not infer authors from free text. |
+| `extracted_year` | Year inferred from extracted text. |
 | `extracted_abstract` | Parsed abstract or opening excerpt. |
 | `extracted_text` | Normalized extracted text. |
 | `error_message` | Parse error details, if any. |
