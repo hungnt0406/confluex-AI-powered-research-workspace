@@ -49,10 +49,6 @@ class Settings(BaseSettings):
     paper_chunk_size_chars: int = Field(default=3_000, alias="PAPER_CHUNK_SIZE_CHARS")
     paper_retrieval_top_k: int = Field(default=5, alias="PAPER_RETRIEVAL_TOP_K")
     reference_upload_dir: str = Field(default="data/reference_uploads", alias="REFERENCE_UPLOAD_DIR")
-    reference_max_file_bytes: int = Field(
-        default=20_971_520,
-        alias="REFERENCE_MAX_FILE_BYTES",
-    )
     reference_max_extracted_chars: int = Field(
         default=120_000,
         alias="REFERENCE_MAX_EXTRACTED_CHARS",

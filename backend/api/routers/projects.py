@@ -377,7 +377,7 @@ async def upload_project_reference_file(
     """Upload a PDF reference file for a project."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
-    content = await file.read(reference_file_service.max_file_bytes + 1)
+    content = await file.read()
 
     try:
         reference_file = await reference_file_service.create_reference_file(
