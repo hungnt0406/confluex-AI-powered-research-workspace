@@ -151,7 +151,6 @@ function isUploadedProjectPaper(paper: ProjectPaper) {
 }
 
 function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): ChatMessage[] {
-  const topPaper = papers[0] ?? null;
   const uploadedPaperCount = papers.filter(isUploadedProjectPaper).length;
   const hasOnlyUploadedPapers = uploadedPaperCount > 0 && uploadedPaperCount === papers.length;
   const initial: ChatMessage[] = [
@@ -171,7 +170,7 @@ function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): Ch
       kind: "summary",
       content: hasOnlyUploadedPapers
         ? `This project currently contains ${uploadedPaperCount} uploaded paper${uploadedPaperCount === 1 ? "" : "s"}. Choose which ones to use for grounded questions, or run discovery to find related work.`
-        : `I found ${papers.length} ranked papers for "${project.title}". Top pick: "${topPaper?.title}". You can now choose up to ${MAX_SELECTED_PAPERS} papers for grounded questions.`,
+        : `I found ${papers.length} ranked papers for "${project.title}". No papers are selected yet. You can choose up to ${MAX_SELECTED_PAPERS} papers for grounded questions.`,
       createdAt: now(),
     });
     return initial;
@@ -200,7 +199,7 @@ function buildRestoredConversationMessages(
         !(
           index === 0 &&
           message.role === "user" &&
-          message.content === generatedOverviewPrompt
+          (message.content === generatedOverviewPrompt || message.content === project.topic_description)
         ),
     )
     .map((message) => ({
@@ -333,15 +332,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           restoredConversation?.selected_paper_ids ?? [],
           nextPapers,
         );
-        const topPaperId = nextPapers[0]?.id;
         const nextSelectedPaperIds =
           normalizedSavedSelectedPaperIds !== null
             ? normalizedSavedSelectedPaperIds
-            : fallbackSelectedPaperIds.length > 0
-              ? fallbackSelectedPaperIds
-              : topPaperId
-                ? [topPaperId]
-                : [];
+            : fallbackSelectedPaperIds;
 
         setActiveProject(project);
         setSelectedPaperIds(nextSelectedPaperIds);
@@ -616,11 +610,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           const nextPapers = await fetchProjectPapers(project.id);
           setPapers(nextPapers);
 
-          const topPaper = nextPapers[0] ?? null;
-          const nextSelectedPaperIds = topPaper ? [topPaper.id] : [];
+          const nextSelectedPaperIds: string[] = [];
           setSelectedPaperIds(nextSelectedPaperIds);
 
-          if (!topPaper) {
+          if (nextPapers.length === 0) {
             setMessages((prev) => [
               ...prev,
               {
@@ -644,7 +637,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               token: authedRef.current,
               json: {
                 paper_ids: nextSelectedPaperIds,
-                question: `${GENERATED_OVERVIEW_PROMPT_PREFIX}${trimmed}`,
+                question: trimmed,
               },
             },
           );
@@ -659,7 +652,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               id: uid(),
               role: "assistant",
               kind: "summary",
-              content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. Currently selected: "${topPaper.title}".`,
+              content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. No papers are selected yet.`,
               createdAt: now(),
             },
             {
@@ -676,19 +669,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
         if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
           setSelectedPaperIds(nextSelectedPaperIds);
-        }
-        if (nextSelectedPaperIds.length === 0) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: uid(),
-              role: "assistant",
-              kind: "status",
-              content: "No ranked papers are selected for this project yet.",
-              createdAt: now(),
-            },
-          ]);
-          return;
         }
 
         if (!conversation) {

@@ -48,7 +48,7 @@ Router ownership: `backend/api/routers/projects.py`
 - Preferred path: answer from retrieved PDF chunks.
 - Fallback path: answer from abstract and summary metadata if extraction fails or no chunks exist.
 - Follow-up turns use recent persisted conversation history plus newly retrieved chunks for the new question.
-- Project-scoped workspace chat can retrieve evidence across 1 to 5 selected papers, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
+- Project-scoped workspace chat accepts 0 to 5 selected papers. With no selected papers it answers as general, ungrounded chat; with selected papers it retrieves evidence across the selected set, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
 
 ## Related Tests
 

@@ -6,7 +6,7 @@ Use this as a shared reference when designing UI, prioritizing backlog items, or
 
 Status note:
 
-- Shipped frontend today: login plus a chat-style workspace in `frontend/` that can create projects, run discovery, list ranked papers in context, select up to 5 papers, and ask grounded questions across the selected set.
+- Shipped frontend today: login plus a chat-style workspace in `frontend/` that can create projects, run discovery, list ranked papers in context, ask general questions with no selected papers, select up to 5 papers, and ask grounded questions across the selected set.
 - Planned frontend still missing: the full stage-based UI for reference-file management, paper drill-down workflows, writer workspace, downloads, and richer iteration tools.
 
 > **Paradigm note (post phase 3 refactor):** The product is no longer "push one button and get a full literature review." Paper discovery is automatic (`searcher → reader`), but **Writer + QA are user-invoked after paper selection**. The user picks papers, writes an instruction, picks an output format (LaTeX, docs, markdown, plain text), and receives a grounded, QA-validated artifact (prose, references, BibTeX, etc.).
@@ -105,12 +105,12 @@ flowchart LR
 ### Stage 7 — Deep-dive into a paper (grounded Q&A)
 
 - **User goal:** Understand one paper or a small selected set without reading every PDF end-to-end.
-- **User actions:** Pick 1 to 5 papers → ask a question → ask follow-ups in a persisted conversation.
+- **User actions:** Ask a general question with no papers selected, or pick 1 to 5 papers → ask a grounded question → ask follow-ups in a persisted conversation.
 - **System (implemented):**
   - `POST /projects/{id}/papers/{paper_id}/conversations` — first turn. If PDF chunks are missing, extraction runs on demand via OpenRouter (`native` PDF engine, retries with `cloudflare-ai`), persists `paper_documents` + `paper_chunks` with embeddings, retrieves top-k chunks, answers grounded to the paper. Falls back to abstract + summary if extraction fails.
   - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` — follow-up turns, using the newest 10 messages plus top-k retrieved chunks for the new question.
   - `GET /projects/{id}/papers/{paper_id}/conversations` and `/conversations/{conversation_id}` — list and detail.
-  - `POST /projects/{id}/conversations` — first turn for the main workspace chat. Validates 1 to 5 selected papers, retrieves evidence across the selected set, and persists the selected paper ids with the conversation.
+  - `POST /projects/{id}/conversations` — first turn for the main workspace chat. Validates 0 to 5 selected papers, answers generally when the selected set is empty, retrieves evidence across the selected set when papers are selected, and persists the selected paper ids with the conversation.
   - `POST /projects/{id}/conversations/{conversation_id}/messages` — follow-up turns for the main workspace chat. If the selected paper set changes, the system stores a selection-change system message before the user turn.
   - `GET /projects/{id}/conversations` and `/conversations/{conversation_id}` — list and detail for the project-scoped chat thread.
 - **Touchpoint:** The current frontend uses the project-scoped chat flow in the main workspace, with selected papers shown near the composer and in the right-side context panel. A dedicated per-paper conversation UI still remains planned.
