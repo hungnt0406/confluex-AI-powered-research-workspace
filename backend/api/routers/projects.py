@@ -1,8 +1,11 @@
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import anyio
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
 
@@ -59,6 +62,7 @@ from backend.services.paper_citations import (
     CitationProviderError,
     CitationResolutionError,
 )
+from backend.services.project_conversations import ProjectConversationStreamEvent
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
@@ -76,6 +80,43 @@ async def flush_project_usage_events(
     """Persist usage events captured during a successful project request."""
 
     await flush_usage_events(session=session, user_id=current_user.id, project_id=project.id)
+
+
+def encode_sse_event(event: str, data: Any) -> str:
+    """Encode one server-sent event frame."""
+
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def project_conversation_stream_payload(
+    event: ProjectConversationStreamEvent,
+) -> Any:
+    """Serialize a project conversation stream event payload."""
+
+    if event.event == "conversation":
+        conversation = cast(ProjectConversation, event.data)
+        return {
+            "id": conversation.id,
+            "project_id": conversation.project_id,
+            "selected_paper_ids": list(conversation.selected_paper_ids_json),
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+            "messages": [],
+        }
+    if event.event == "done":
+        conversation = cast(ProjectConversation, event.data)
+        return ProjectConversationRead.from_conversation(conversation).model_dump(mode="json")
+    return event.data
+
+
+def sse_headers() -> dict[str, str]:
+    """Headers that keep proxy and browser SSE handling unbuffered."""
+
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
 
 
 def unlink_stored_file(storage_path: Path) -> None:
@@ -800,6 +841,54 @@ async def create_project_conversation(
 
 
 @router.post(
+    "/{project_id}/conversations/stream",
+    status_code=status.HTTP_201_CREATED,
+)
+async def stream_project_conversation(
+    project_id: str,
+    payload: ProjectConversationCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+) -> StreamingResponse:
+    """Stream a first project-scoped multi-paper conversation turn as SSE."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in conversation_service.stream_create_conversation(
+                session=session,
+                project_id=project.id,
+                selected_papers=selected_papers,
+                question=payload.question,
+            ):
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                yield encode_sse_event(event.event, project_conversation_stream_payload(event))
+        except Exception as error:
+            await session.rollback()
+            yield encode_sse_event("error", {"detail": str(error)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        status_code=status.HTTP_201_CREATED,
+        headers=sse_headers(),
+    )
+
+
+@router.post(
     "/{project_id}/conversations/{conversation_id}/messages",
     response_model=ProjectConversationRead,
 )
@@ -833,6 +922,58 @@ async def create_project_conversation_message(
     )
     await flush_project_usage_events(session=session, current_user=current_user, project=project)
     return ProjectConversationRead.from_conversation(result.conversation)
+
+
+@router.post(
+    "/{project_id}/conversations/{conversation_id}/messages/stream",
+)
+async def stream_project_conversation_message(
+    project_id: str,
+    conversation_id: str,
+    payload: ProjectConversationMessageCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+) -> StreamingResponse:
+    """Stream a follow-up project-scoped multi-paper conversation turn as SSE."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    conversation = await get_project_conversation_or_404(
+        session,
+        project_id=project.id,
+        conversation_id=conversation_id,
+    )
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in conversation_service.stream_continue_conversation(
+                session=session,
+                conversation=conversation,
+                selected_papers=selected_papers,
+                question=payload.question,
+            ):
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                yield encode_sse_event(event.event, project_conversation_stream_payload(event))
+        except Exception as error:
+            await session.rollback()
+            yield encode_sse_event("error", {"detail": str(error)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers=sse_headers(),
+    )
 
 
 @router.get(
