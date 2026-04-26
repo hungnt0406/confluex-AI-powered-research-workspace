@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from math import ceil
 from typing import TYPE_CHECKING, Literal
 
@@ -71,6 +71,44 @@ class RunPipelineResponse(BaseModel):
     summary_count: int
     qa_flags: list[str]
     errors: list[str]
+
+
+class TokenUsageBreakdownRow(BaseModel):
+    """Aggregated token usage for a feature or model."""
+
+    key: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost_credits: float | None
+    request_count: int
+
+
+class TokenUsageDailyRow(BaseModel):
+    """Aggregated token usage for one calendar day."""
+
+    day: date
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost_credits: float | None
+    request_count: int
+
+
+class ProjectTokenUsageRead(BaseModel):
+    """Project-scoped provider-reported AI token usage summary."""
+
+    project_id: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int
+    cached_tokens: int
+    cost_credits: float | None
+    request_count: int
+    by_feature: list[TokenUsageBreakdownRow]
+    by_model: list[TokenUsageBreakdownRow]
+    by_day: list[TokenUsageDailyRow]
 
 
 class PaperSummaryRead(BaseModel):

@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 
 from backend.config import get_settings
+from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.research_utils import has_live_api_key, tokenize_text
 
 MAX_EMBEDDING_CHARS = 8_000
@@ -37,7 +38,12 @@ class EmbeddingService:
 
         return has_live_api_key(self.api_key)
 
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        feature: str = "embedding",
+    ) -> list[list[float]]:
         """Embed text payloads using OpenRouter when available."""
 
         if not texts:
@@ -81,6 +87,13 @@ class EmbeddingService:
                 await client.aclose()
 
         response_payload = response.json()
+        collect_openrouter_usage(
+            endpoint="embeddings",
+            feature=feature,
+            model=self.model,
+            response_payload=response_payload,
+            metadata={"input_count": len(normalized_inputs)},
+        )
         items = response_payload.get("data", [])
         if not isinstance(items, list):
             raise EmbeddingServiceError("Embedding response data must be a list.")

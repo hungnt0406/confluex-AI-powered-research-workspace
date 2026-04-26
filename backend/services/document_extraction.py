@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.db.models import Paper, PaperChunk, PaperDocument
+from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.embeddings import EmbeddingService
 from backend.services.research_utils import has_live_api_key
 
@@ -42,6 +43,22 @@ class EmbeddingClient(Protocol):
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed text payloads for retrieval."""
+
+
+async def embed_texts_with_feature(
+    embedding_service: EmbeddingClient,
+    texts: list[str],
+    *,
+    feature: str,
+) -> list[list[float]]:
+    """Pass feature names to the concrete OpenRouter embedding client when supported."""
+
+    try:
+        return await embedding_service.embed_texts(texts, feature=feature)  # type: ignore[call-arg]
+    except TypeError as error:
+        if "unexpected keyword" not in str(error):
+            raise
+        return await embedding_service.embed_texts(texts)
 
 
 @dataclass(frozen=True)
@@ -176,8 +193,10 @@ class PaperDocumentExtractionService:
                 if not chunk_drafts:
                     raise DocumentExtractionError("No retrievable chunks were produced from the PDF.")
 
-                embeddings = await self.embedding_service.embed_texts(
-                    [chunk_draft.content for chunk_draft in chunk_drafts]
+                embeddings = await embed_texts_with_feature(
+                    self.embedding_service,
+                    [chunk_draft.content for chunk_draft in chunk_drafts],
+                    feature="document_chunk_embedding",
                 )
                 if len(embeddings) != len(chunk_drafts):
                     raise DocumentExtractionError(
@@ -487,6 +506,13 @@ class PaperDocumentExtractionService:
                 await client.aclose()
 
         response_payload = response.json()
+        collect_openrouter_usage(
+            endpoint="chat/completions",
+            feature="pdf_extraction",
+            model=self.model,
+            response_payload=response_payload,
+            metadata={"pdf_engine": engine},
+        )
         choices = response_payload.get("choices", [])
         if not isinstance(choices, list) or not choices:
             raise DocumentExtractionError(

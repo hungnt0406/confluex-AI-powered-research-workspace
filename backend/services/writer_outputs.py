@@ -20,6 +20,7 @@ from backend.services.citations import CitationArtifactBundle, CitationFormatter
 from backend.services.document_extraction import (
     DocumentExtractionError,
     PaperDocumentExtractionService,
+    embed_texts_with_feature,
 )
 from backend.services.embeddings import EmbeddingService
 from backend.services.research_utils import cosine_similarity
@@ -235,7 +236,11 @@ class WriterOutputService:
 
     async def _embed_instruction(self, instruction: str) -> list[list[float]]:
         try:
-            return await self.embedding_service.embed_texts([instruction.strip()])
+            return await embed_texts_with_feature(
+                self.embedding_service,
+                [instruction.strip()],
+                feature="writer_retrieval_embedding",
+            )
         except Exception as error:
             if isinstance(self.embedding_service, EmbeddingService):
                 return self.embedding_service.embed_texts_locally([instruction.strip()])

@@ -66,6 +66,7 @@ class WriterGenerator(Protocol):
         user_prompt: str,
         schema: dict[str, Any],
         max_tokens: int = 1_024,
+        feature: str = "structured_output",
     ) -> dict[str, Any]:
         """Generate a structured JSON payload."""
 
@@ -173,6 +174,7 @@ class GroundedWriterAgent:
                     ),
                     schema=WRITER_OUTPUT_SCHEMA,
                     max_tokens=self.max_tokens,
+                    feature="writer_generation",
                 )
                 parsed_payload = WriterGenerationPayload.model_validate(payload)
                 return WriterGenerationResult(
