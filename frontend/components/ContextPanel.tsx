@@ -71,11 +71,11 @@ export default function ContextPanel() {
         width: open ? `${width}px` : "0",
         opacity: open ? 1 : 0,
         transition: dragging.current ? "opacity 500ms ease" : "width 500ms ease, opacity 500ms ease",
-        overflowY: open ? "auto" : "hidden",
+        overflow: "hidden",
         pointerEvents: open ? "auto" : "none",
         position: "relative",
       }}
-      className="flex-shrink-0 flex flex-col bg-background border-l border-outline/30 custom-scrollbar font-ui"
+      className="h-full min-h-0 flex-shrink-0 flex flex-col bg-background border-l border-outline/30 font-ui"
     >
       {open && (
         <div
@@ -84,7 +84,7 @@ export default function ContextPanel() {
           style={{ width: "4px" }}
         />
       )}
-      <div className="p-5 space-y-5" style={{ minWidth: "200px" }}>
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-5" style={{ minWidth: "200px" }}>
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
             Related Papers
@@ -107,16 +107,18 @@ export default function ContextPanel() {
             />
           ))}
         </ul>
+      </div>
 
-        {tokenUsage && (
+      {tokenUsage && (
+        <div className="flex-shrink-0 border-t border-outline/20 bg-background p-5" style={{ minWidth: "200px" }}>
           <TokenUsageCard
             totalTokens={tokenUsage.total_tokens}
             costCredits={tokenUsage.cost_credits}
             topFeature={tokenUsage.by_feature[0]?.key ?? null}
             topFeatureTokens={tokenUsage.by_feature[0]?.total_tokens ?? 0}
           />
-        )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -133,7 +135,7 @@ function TokenUsageCard({
   topFeatureTokens: number;
 }) {
   return (
-    <section className="border-t border-outline/20 pt-4">
+    <section>
       <div className="flex items-center justify-between gap-3">
         <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
           Token Usage
