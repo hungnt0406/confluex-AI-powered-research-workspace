@@ -216,6 +216,8 @@ relevance_score=null
 
 This linked paper is what the research pipeline later uses as search context.
 
+It is also eligible for grounded chat. Because `pdf_url` points to the stored local PDF path, `PaperDocumentExtractionService` treats it as a local upload source, reads it from the configured upload directory, persists `paper_documents` and `paper_chunks`, and retrieves chunks for later questions.
+
 If parsing fails, the `ReferenceFile` row is still saved, but no linked `Paper` row is created. That means the file appears in the reference-file list, but it is not used for query expansion.
 
 Finally, `create_reference_file` commits the transaction and returns the `ReferenceFile`.
