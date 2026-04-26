@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 from sqlalchemy import delete, select
@@ -80,7 +82,7 @@ class ExtractedDocument:
 
 
 class PaperDocumentExtractionService:
-    """Extract public paper PDFs into persistent retrieval chunks."""
+    """Extract paper PDFs into persistent retrieval chunks."""
 
     def __init__(
         self,
@@ -91,6 +93,7 @@ class PaperDocumentExtractionService:
         pdf_engine: str | None = None,
         pdf_download_timeout_seconds: float | None = None,
         paper_chunk_size_chars: int | None = None,
+        local_pdf_roots: Sequence[str | Path] | None = None,
         http_client: httpx.AsyncClient | None = None,
         embedding_service: EmbeddingClient | None = None,
     ) -> None:
@@ -110,6 +113,14 @@ class PaperDocumentExtractionService:
             paper_chunk_size_chars
             if paper_chunk_size_chars is not None
             else settings.paper_chunk_size_chars
+        )
+        configured_local_pdf_roots = (
+            tuple(local_pdf_roots)
+            if local_pdf_roots is not None
+            else (settings.reference_upload_dir,)
+        )
+        self.local_pdf_roots = tuple(
+            Path(root).expanduser().resolve() for root in configured_local_pdf_roots
         )
         self.http_client = http_client
         self.embedding_service = embedding_service or EmbeddingService()
@@ -131,7 +142,7 @@ class PaperDocumentExtractionService:
         paper_id = paper.id
         pdf_url = (paper.pdf_url or "").strip()
         if not pdf_url:
-            raise DocumentExtractionError("Paper does not have a public PDF URL.")
+            raise DocumentExtractionError("Paper does not have a PDF source.")
 
         filename = self._guess_filename(paper=paper)
         document = await self._get_or_create_document(
@@ -154,8 +165,8 @@ class PaperDocumentExtractionService:
 
         try:
             async with session.begin_nested():
-                extracted_document = await self._extract_document(
-                    pdf_url=pdf_url,
+                extracted_document = await self._extract_pdf_source(
+                    pdf_source=pdf_url,
                     filename=filename,
                 )
                 chunk_drafts = self._chunk_blocks(
@@ -212,6 +223,25 @@ class PaperDocumentExtractionService:
             if isinstance(error, DocumentExtractionError):
                 raise
             raise DocumentExtractionError("Paper document extraction failed.") from error
+
+    async def _extract_pdf_source(
+        self,
+        *,
+        pdf_source: str,
+        filename: str,
+    ) -> ExtractedDocument:
+        local_pdf_path = self._resolve_local_pdf_path(pdf_source)
+        if local_pdf_path is not None:
+            try:
+                pdf_bytes = local_pdf_path.read_bytes()
+            except OSError as error:
+                raise DocumentExtractionError(
+                    f"Local PDF file could not be read: {local_pdf_path}"
+                ) from error
+
+            return await self.extract_uploaded_pdf(pdf_bytes=pdf_bytes, filename=filename)
+
+        return await self._extract_document(pdf_url=pdf_source, filename=filename)
 
     async def _has_ready_chunks(
         self,
@@ -296,6 +326,31 @@ class PaperDocumentExtractionService:
             error_message = "No usable PDF content was extracted."
 
         raise DocumentExtractionError(error_message)
+
+    def _resolve_local_pdf_path(self, pdf_url: str) -> Path | None:
+        parsed_url = urlparse(pdf_url)
+        if parsed_url.scheme in {"http", "https", "data"}:
+            return None
+
+        if parsed_url.scheme == "file":
+            path_text = unquote(parsed_url.path)
+            if parsed_url.netloc and parsed_url.netloc != "localhost":
+                path_text = f"//{parsed_url.netloc}{path_text}"
+            return self._ensure_allowed_local_pdf_path(Path(path_text).expanduser())
+
+        if not parsed_url.scheme or len(parsed_url.scheme) == 1:
+            return self._ensure_allowed_local_pdf_path(Path(pdf_url).expanduser())
+
+        return None
+
+    def _ensure_allowed_local_pdf_path(self, path: Path) -> Path:
+        resolved_path = path.resolve()
+        if any(
+            resolved_path == local_root or local_root in resolved_path.parents
+            for local_root in self.local_pdf_roots
+        ):
+            return resolved_path
+        raise DocumentExtractionError("Local PDF source is outside the allowed upload directory.")
 
     async def extract_uploaded_pdf(self, *, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
         """Extract an uploaded local PDF through the same OpenRouter parser pipeline."""
