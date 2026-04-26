@@ -25,8 +25,10 @@ from backend.services.paper_conversations import (
     CHUNK_LABEL_PATTERN,
     CHUNK_LABEL_WITH_PAGES_PATTERN,
     DEFAULT_MAX_ANSWER_TOKENS,
+    INTERNAL_GROUNDING_LINE_PREFIXES,
     LIVE_ANSWER_SYSTEM_PROMPT,
     MAX_LOCAL_SNIPPET_CHARS,
+    RAW_PROVIDER_ERROR_MARKERS,
     RECENT_HISTORY_MESSAGE_LIMIT,
     SCORE_SEGMENT_PATTERN,
     DefaultSemanticScholarDetailsClient,
@@ -44,6 +46,10 @@ from backend.services.semantic_scholar import (
 MAX_SELECTED_PAPERS = 5
 MAX_TOTAL_RETRIEVED_SNIPPETS = 5
 MAX_SNIPPETS_PER_PAPER = 2
+PROJECT_GROUNDING_UNAVAILABLE_MESSAGE = (
+    "PDF text extraction was unavailable for one or more selected papers, "
+    "so no page-grounded excerpts could be retrieved."
+)
 
 
 @dataclass(frozen=True)
@@ -566,14 +572,14 @@ class ProjectConversationService:
         else:
             prompt_sections.extend(
                 [
-                    "No retrieved chunk grounding is available.",
-                    "Answer only from metadata and explicitly say the answer is limited.",
+                    "Retrieved paper excerpts are unavailable for this turn.",
+                    "Use metadata only and include a concise limitation that PDF grounding is unavailable.",
                     "",
                 ]
             )
 
         if extraction_errors:
-            prompt_sections.extend(["Grounding notes:", *extraction_errors])
+            prompt_sections.extend(["Grounding status:", PROJECT_GROUNDING_UNAVAILABLE_MESSAGE])
 
         return "\n".join(prompt_sections).strip()
 
@@ -651,7 +657,7 @@ class ProjectConversationService:
                 ]
             )
             if extraction_errors:
-                response_sections.extend(["", "## Grounding Notes", *extraction_errors])
+                response_sections.extend(["", "## Grounding Note", PROJECT_GROUNDING_UNAVAILABLE_MESSAGE])
             return self._sanitize_user_visible_text("\n\n".join(response_sections))
 
         metadata_sections = [
@@ -676,7 +682,7 @@ class ProjectConversationService:
                 ]
             )
         if extraction_errors:
-            metadata_sections.extend(["", "## Grounding Notes", *extraction_errors])
+            metadata_sections.extend(["", "## Grounding Note", PROJECT_GROUNDING_UNAVAILABLE_MESSAGE])
         metadata_sections.extend(
             [
                 "",
@@ -738,11 +744,26 @@ class ProjectConversationService:
         sanitized = BRACKETED_CHUNK_PATTERN.sub(r"pages \1", sanitized)
         sanitized = CHUNK_LABEL_PATTERN.sub(r"pages \1", sanitized)
         sanitized = SCORE_SEGMENT_PATTERN.sub("", sanitized)
+        sanitized = self._remove_internal_grounding_lines(sanitized)
         sanitized = sanitized.replace("\r\n", "\n")
         sanitized = sanitized.replace("\r", "\n")
         while "\n\n\n" in sanitized:
             sanitized = sanitized.replace("\n\n\n", "\n\n")
         return sanitized.strip()
+
+    def _remove_internal_grounding_lines(self, text: str) -> str:
+        visible_lines: list[str] = []
+        for line in text.split("\n"):
+            normalized_line = line.strip().lower()
+            if not normalized_line:
+                visible_lines.append(line)
+                continue
+            if normalized_line.startswith(INTERNAL_GROUNDING_LINE_PREFIXES):
+                continue
+            if any(marker in normalized_line for marker in RAW_PROVIDER_ERROR_MARKERS):
+                continue
+            visible_lines.append(line)
+        return "\n".join(visible_lines)
 
     def _build_selection_change_message(self, selected_papers: list[Paper]) -> str:
         titles = [paper.title for paper in selected_papers]
