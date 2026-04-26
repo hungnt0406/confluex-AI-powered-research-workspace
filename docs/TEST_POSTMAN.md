@@ -339,6 +339,7 @@ Notes:
 - Uploading a non-PDF should return `400 Bad Request`.
 - Uploaded PDFs are extracted through the same document extraction service used by grounded paper conversations. With OpenRouter configured, local files are sent as base64 PDF data URLs to the file parser.
 - A scanned or otherwise unextractable PDF may return `parse_status: "parse_error"` and no linked paper.
+- If later grounded chat cannot extract chunks for a selected paper, the response should show a concise grounding limitation, not raw OpenRouter/provider JSON or public-download errors.
 
 ### GET List Reference Files
 

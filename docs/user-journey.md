@@ -107,7 +107,7 @@ flowchart LR
 - **User goal:** Understand one paper or a small selected set without reading every PDF end-to-end.
 - **User actions:** Ask a general question with no papers selected, or pick 1 to 5 papers → ask a grounded question → ask follow-ups in a persisted conversation.
 - **System (implemented):**
-  - `POST /projects/{id}/papers/{paper_id}/conversations` — first turn. If PDF chunks are missing, extraction runs on demand via OpenRouter (`native` PDF engine, retries with `cloudflare-ai`), persists `paper_documents` + `paper_chunks` with embeddings, retrieves top-k chunks, answers grounded to the paper. Falls back to abstract + summary if extraction fails.
+  - `POST /projects/{id}/papers/{paper_id}/conversations` — first turn. If PDF chunks are missing, extraction runs on demand via OpenRouter (`native` PDF engine, retries with `cloudflare-ai`) or from the stored local upload path for uploaded reference PDFs, persists `paper_documents` + `paper_chunks` with embeddings, retrieves top-k chunks, answers grounded to the paper. Falls back to abstract + summary if extraction fails, without exposing raw provider/download errors to the user.
   - `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` — follow-up turns, using the newest 10 messages plus top-k retrieved chunks for the new question.
   - `GET /projects/{id}/papers/{paper_id}/conversations` and `/conversations/{conversation_id}` — list and detail.
   - `POST /projects/{id}/conversations` — first turn for the main workspace chat. Validates 0 to 5 selected papers, answers generally when the selected set is empty, retrieves evidence across the selected set when papers are selected, and persists the selected paper ids with the conversation.
