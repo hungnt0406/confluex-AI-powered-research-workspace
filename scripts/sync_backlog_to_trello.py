@@ -35,10 +35,16 @@ Design notes:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from pathlib import Path
 
 # On Windows cp1252 consoles the backlog's emojis would crash print(); force utf-8.
 try:
@@ -46,13 +52,6 @@ try:
     sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 except Exception:
     pass
-from dataclasses import dataclass, field
-from pathlib import Path
-
-import urllib.parse
-import urllib.request
-import urllib.error
-import json
 
 
 TRELLO_API = "https://api.trello.com/1"
