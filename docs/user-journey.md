@@ -112,6 +112,7 @@ flowchart LR
   - `GET /projects/{id}/papers/{paper_id}/conversations` and `/conversations/{conversation_id}` — list and detail.
   - `POST /projects/{id}/conversations` — first turn for the main workspace chat. Validates 0 to 5 selected papers, answers generally when the selected set is empty, retrieves evidence across the selected set when papers are selected, and persists the selected paper ids with the conversation.
   - `POST /projects/{id}/conversations/{conversation_id}/messages` — follow-up turns for the main workspace chat. If the selected paper set changes, the system stores a selection-change system message before the user turn.
+  - `POST /projects/{id}/conversations/stream` and `/conversations/{conversation_id}/messages/stream` — POST-based SSE variants used by the main frontend chat to stream assistant tokens while preserving the same persisted conversation semantics.
   - `GET /projects/{id}/conversations` and `/conversations/{conversation_id}` — list and detail for the project-scoped chat thread.
 - **Touchpoint:** The current frontend uses the project-scoped chat flow in the main workspace, with selected papers shown near the composer and in the right-side context panel. A dedicated per-paper conversation UI still remains planned.
 - **Touchpoint note:** Selected-paper state is browser-persisted per project, and an intentionally empty selection now remains empty on reopen instead of silently falling back to the top paper.

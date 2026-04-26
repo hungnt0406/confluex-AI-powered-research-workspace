@@ -11,7 +11,9 @@ This document describes the grounded paper Q&A feature for project papers.
 | List conversations for a paper | `GET` | `/projects/{project_id}/papers/{paper_id}/conversations` |
 | Get one conversation | `GET` | `/projects/{project_id}/papers/{paper_id}/conversations/{conversation_id}` |
 | Create project-scoped multi-paper conversation | `POST` | `/projects/{project_id}/conversations` |
+| Stream project-scoped multi-paper conversation | `POST` | `/projects/{project_id}/conversations/stream` |
 | Add project-scoped follow-up message | `POST` | `/projects/{project_id}/conversations/{conversation_id}/messages` |
+| Stream project-scoped follow-up message | `POST` | `/projects/{project_id}/conversations/{conversation_id}/messages/stream` |
 | List project-scoped conversations | `GET` | `/projects/{project_id}/conversations` |
 | Get one project-scoped conversation | `GET` | `/projects/{project_id}/conversations/{conversation_id}` |
 
@@ -50,6 +52,7 @@ Router ownership: `backend/api/routers/projects.py`
 - Raw provider/download errors are stored internally on extraction failure but are not included in user-visible chat answers. Users see a short grounding limitation instead.
 - Follow-up turns use recent persisted conversation history plus newly retrieved chunks for the new question.
 - Project-scoped workspace chat accepts 0 to 5 selected papers. With no selected papers it answers as general, ungrounded chat; with selected papers it retrieves evidence across the selected set, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
+- The main project chat also exposes POST-based SSE endpoints for bearer-authenticated streaming. Stream frames use `status`, `conversation`, `token`, `done`, and `error` events; the final `done` payload is the persisted `ProjectConversationRead`.
 
 ## Related Tests
 
