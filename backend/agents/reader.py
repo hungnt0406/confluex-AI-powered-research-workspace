@@ -70,6 +70,7 @@ class SummaryGenerator(Protocol):
         user_prompt: str,
         schema: dict[str, Any],
         max_tokens: int = 1_024,
+        feature: str = "structured_output",
     ) -> dict[str, Any]:
         """Generate a structured JSON payload."""
 
@@ -175,7 +176,10 @@ class ReaderAgent:
 
         ranking_errors: list[str] = []
         try:
-            embeddings = await self.embedding_service.embed_texts(embedding_inputs)
+            embeddings = await self.embedding_service.embed_texts(
+                embedding_inputs,
+                feature="ranking_embedding",
+            )
         except EmbeddingServiceError as error:
             embeddings = self.embedding_service.embed_texts_locally(embedding_inputs)
             ranking_errors.append(f"Embedding fallback used: {error}")
@@ -229,6 +233,7 @@ class ReaderAgent:
                     user_prompt=self._build_summary_prompt(topic_description, paper),
                     schema=SUMMARY_SCHEMA,
                     max_tokens=900,
+                    feature="paper_summary",
                 )
                 parsed_payload = PaperSummaryPayload.model_validate(payload)
                 return SummaryGenerationResult(paper=paper, payload=parsed_payload)

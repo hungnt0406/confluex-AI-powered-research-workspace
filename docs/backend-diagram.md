@@ -129,6 +129,7 @@ flowchart TB
         Projects --> GetProject["GET /projects/{project_id}"]
         Projects --> DeleteProject["DELETE /projects/{project_id}"]
         Projects --> RunProject["POST /projects/{project_id}/run"]
+        Projects --> TokenUsage["GET /projects/{project_id}/token-usage"]
         Projects --> UploadReference["POST /projects/{project_id}/reference-files"]
         Projects --> ListReferences["GET /projects/{project_id}/reference-files"]
         Projects --> DeleteReference["DELETE /projects/{project_id}/reference-files/{reference_file_id}"]
@@ -140,6 +141,7 @@ flowchart TB
         GetProject --> OwnedProjectA["get_owned_project_or_404"]
         DeleteProject --> OwnedProjectB["get_owned_project_or_404"]
         RunProject --> OwnedProjectC["get_owned_project_or_404"]
+        TokenUsage --> OwnedProjectUsage["get_owned_project_or_404"]
         UploadReference --> OwnedProjectD["get_owned_project_or_404"]
         ListReferences --> OwnedProjectE["get_owned_project_or_404"]
         DeleteReference --> OwnedProjectF["get_owned_project_or_404"]
@@ -624,5 +626,6 @@ flowchart TB
 | Search agent | `backend/agents/searcher.py` | Expands queries, calls search providers, filters and deduplicates candidates, and persists candidate papers. |
 | Reader agent | `backend/agents/reader.py` | Ranks papers with embeddings, generates structured summaries, and persists summary records. |
 | Reference uploads | `backend/services/reference_files.py` | Validates, stores, parses, and persists uploaded reference PDFs and linked paper rows. |
+| AI usage telemetry | `backend/services/ai_usage.py`, `backend/db/models.py` | Collect provider-reported OpenRouter usage per successful project request and aggregate it by feature, model, and day. |
 | External clients | `backend/services/semantic_scholar.py`, `backend/services/arxiv.py`, `backend/services/llm.py`, `backend/services/embeddings.py` | Integrate with external search, chat, and embedding APIs while providing local fallbacks where available. |
 | Shared utilities | `backend/services/paper_types.py`, `backend/services/research_utils.py` | Define normalized paper payloads and shared research text/math utilities. |

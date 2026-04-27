@@ -362,6 +362,7 @@ class SearcherAgent:
                 system_prompt=QUERY_EXPANSION_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 schema=SEARCH_QUERY_SCHEMA,
+                feature="query_expansion",
             )
             queries = self._coerce_query_payload(payload, topic)
             query_batch = SearchQueryBatch(queries=queries)

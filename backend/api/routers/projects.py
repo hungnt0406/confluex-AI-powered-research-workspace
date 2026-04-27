@@ -1,8 +1,11 @@
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import anyio
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
 
@@ -33,8 +36,11 @@ from backend.api.schemas.projects import (
     ProjectPaperRead,
     ProjectRead,
     ProjectTitleUpdate,
+    ProjectTokenUsageRead,
     ReferenceFileRead,
     RunPipelineResponse,
+    TokenUsageBreakdownRow,
+    TokenUsageDailyRow,
     WriterGenerateRequest,
     WriterOutputRead,
 )
@@ -46,17 +52,71 @@ from backend.db.models import (
     ReferenceFile,
     WriterOutput,
 )
+from backend.services.ai_usage import (
+    flush_usage_events,
+    start_usage_collection,
+    summarize_project_usage,
+)
 from backend.services.paper_citations import (
     CitationNotFoundError,
     CitationProviderError,
     CitationResolutionError,
 )
+from backend.services.project_conversations import ProjectConversationStreamEvent
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+async def flush_project_usage_events(
+    *,
+    session: DbSession,
+    current_user: CurrentUser,
+    project: Project,
+) -> None:
+    """Persist usage events captured during a successful project request."""
+
+    await flush_usage_events(session=session, user_id=current_user.id, project_id=project.id)
+
+
+def encode_sse_event(event: str, data: Any) -> str:
+    """Encode one server-sent event frame."""
+
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def project_conversation_stream_payload(
+    event: ProjectConversationStreamEvent,
+) -> Any:
+    """Serialize a project conversation stream event payload."""
+
+    if event.event == "conversation":
+        conversation = cast(ProjectConversation, event.data)
+        return {
+            "id": conversation.id,
+            "project_id": conversation.project_id,
+            "selected_paper_ids": list(conversation.selected_paper_ids_json),
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+            "messages": [],
+        }
+    if event.event == "done":
+        conversation = cast(ProjectConversation, event.data)
+        return ProjectConversationRead.from_conversation(conversation).model_dump(mode="json")
+    return event.data
+
+
+def sse_headers() -> dict[str, str]:
+    """Headers that keep proxy and browser SSE handling unbuffered."""
+
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
 
 
 def unlink_stored_file(storage_path: Path) -> None:
@@ -348,7 +408,9 @@ async def queue_project_pipeline(
     """Run the project pipeline and return the phase-2 result summary."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
+    start_usage_collection()
     state = await pipeline_service.run_project(session=session, project=project)
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     return RunPipelineResponse(
         status="completed",
         project_id=project.id,
@@ -358,6 +420,61 @@ async def queue_project_pipeline(
         summary_count=len(state.summaries),
         qa_flags=state.qa_flags,
         errors=state.errors,
+    )
+
+
+@router.get("/{project_id}/token-usage", response_model=ProjectTokenUsageRead)
+async def get_project_token_usage(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> ProjectTokenUsageRead:
+    """Return project-scoped provider-reported token usage aggregates."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    summary = await summarize_project_usage(session=session, project_id=project.id)
+    return ProjectTokenUsageRead(
+        project_id=project.id,
+        total_tokens=summary.total_tokens,
+        prompt_tokens=summary.prompt_tokens,
+        completion_tokens=summary.completion_tokens,
+        reasoning_tokens=summary.reasoning_tokens,
+        cached_tokens=summary.cached_tokens,
+        cost_credits=summary.cost_credits,
+        request_count=summary.request_count,
+        by_feature=[
+            TokenUsageBreakdownRow(
+                key=row.key,
+                total_tokens=row.total_tokens,
+                prompt_tokens=row.prompt_tokens,
+                completion_tokens=row.completion_tokens,
+                cost_credits=row.cost_credits,
+                request_count=row.request_count,
+            )
+            for row in summary.by_feature
+        ],
+        by_model=[
+            TokenUsageBreakdownRow(
+                key=row.key,
+                total_tokens=row.total_tokens,
+                prompt_tokens=row.prompt_tokens,
+                completion_tokens=row.completion_tokens,
+                cost_credits=row.cost_credits,
+                request_count=row.request_count,
+            )
+            for row in summary.by_model
+        ],
+        by_day=[
+            TokenUsageDailyRow(
+                day=row.day,
+                total_tokens=row.total_tokens,
+                prompt_tokens=row.prompt_tokens,
+                completion_tokens=row.completion_tokens,
+                cost_credits=row.cost_credits,
+                request_count=row.request_count,
+            )
+            for row in summary.by_day
+        ],
     )
 
 
@@ -378,6 +495,7 @@ async def upload_project_reference_file(
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
     content = await file.read()
+    start_usage_collection()
 
     try:
         reference_file = await reference_file_service.create_reference_file(
@@ -397,6 +515,7 @@ async def upload_project_reference_file(
         project_id=project.id,
         reference_file_id=reference_file.id,
     )
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     response.headers["Location"] = f"/projects/{project.id}/reference-files/{reference_file.id}"
     return ReferenceFileRead.from_reference(loaded_reference_file)
 
@@ -579,11 +698,13 @@ async def create_paper_conversation(
         project_id=project.id,
         paper_id=paper_id,
     )
+    start_usage_collection()
     result = await conversation_service.create_conversation(
         session=session,
         paper=paper,
         question=payload.question,
     )
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     response.headers["Location"] = (
         f"/projects/{project.id}/papers/{paper.id}/conversations/{result.conversation.id}"
     )
@@ -617,12 +738,14 @@ async def create_paper_conversation_message(
         paper_id=paper.id,
         conversation_id=conversation_id,
     )
+    start_usage_collection()
     result = await conversation_service.continue_conversation(
         session=session,
         paper=paper,
         conversation=conversation,
         question=payload.question,
     )
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     return PaperConversationRead.model_validate(result.conversation)
 
 
@@ -705,14 +828,64 @@ async def create_project_conversation(
         project_id=project.id,
         paper_ids=payload.paper_ids,
     )
+    start_usage_collection()
     result = await conversation_service.create_conversation(
         session=session,
         project_id=project.id,
         selected_papers=selected_papers,
         question=payload.question,
     )
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     response.headers["Location"] = f"/projects/{project.id}/conversations/{result.conversation.id}"
     return ProjectConversationRead.from_conversation(result.conversation)
+
+
+@router.post(
+    "/{project_id}/conversations/stream",
+    status_code=status.HTTP_201_CREATED,
+)
+async def stream_project_conversation(
+    project_id: str,
+    payload: ProjectConversationCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+) -> StreamingResponse:
+    """Stream a first project-scoped multi-paper conversation turn as SSE."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in conversation_service.stream_create_conversation(
+                session=session,
+                project_id=project.id,
+                selected_papers=selected_papers,
+                question=payload.question,
+            ):
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                yield encode_sse_event(event.event, project_conversation_stream_payload(event))
+        except Exception as error:
+            await session.rollback()
+            yield encode_sse_event("error", {"detail": str(error)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        status_code=status.HTTP_201_CREATED,
+        headers=sse_headers(),
+    )
 
 
 @router.post(
@@ -740,13 +913,67 @@ async def create_project_conversation_message(
         project_id=project.id,
         paper_ids=payload.paper_ids,
     )
+    start_usage_collection()
     result = await conversation_service.continue_conversation(
         session=session,
         conversation=conversation,
         selected_papers=selected_papers,
         question=payload.question,
     )
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     return ProjectConversationRead.from_conversation(result.conversation)
+
+
+@router.post(
+    "/{project_id}/conversations/{conversation_id}/messages/stream",
+)
+async def stream_project_conversation_message(
+    project_id: str,
+    conversation_id: str,
+    payload: ProjectConversationMessageCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    conversation_service: ProjectConversationServiceDependency,
+) -> StreamingResponse:
+    """Stream a follow-up project-scoped multi-paper conversation turn as SSE."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    conversation = await get_project_conversation_or_404(
+        session,
+        project_id=project.id,
+        conversation_id=conversation_id,
+    )
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in conversation_service.stream_continue_conversation(
+                session=session,
+                conversation=conversation,
+                selected_papers=selected_papers,
+                question=payload.question,
+            ):
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                yield encode_sse_event(event.event, project_conversation_stream_payload(event))
+        except Exception as error:
+            await session.rollback()
+            yield encode_sse_event("error", {"detail": str(error)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers=sse_headers(),
+    )
 
 
 @router.get(
@@ -811,6 +1038,7 @@ async def generate_writer_output(
     """Generate, QA, and persist a grounded writer artifact for selected project papers."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
+    start_usage_collection()
     try:
         writer_output = await writer_output_service.generate_output(
             session=session,
@@ -826,6 +1054,7 @@ async def generate_writer_output(
     except LookupError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
+    await flush_project_usage_events(session=session, current_user=current_user, project=project)
     response.headers["Location"] = f"/projects/{project.id}/writer/outputs/{writer_output.id}"
     return WriterOutputRead.from_writer_output(writer_output)
 
