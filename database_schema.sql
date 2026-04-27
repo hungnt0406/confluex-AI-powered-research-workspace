@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS papers (
     source_paper_id VARCHAR(255),
     source_url TEXT,
     pdf_url TEXT,
+    citation_count INTEGER,
+    reference_count INTEGER,
     status VARCHAR(32) NOT NULL DEFAULT 'candidate',
     relevance_score DOUBLE PRECISION
 );
@@ -112,6 +114,26 @@ CREATE TABLE IF NOT EXISTS paper_messages (
 );
 
 CREATE INDEX IF NOT EXISTS ix_paper_messages_conversation_id ON paper_messages (conversation_id);
+
+CREATE TABLE IF NOT EXISTS project_conversations (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    selected_paper_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_project_conversations_project_id ON project_conversations (project_id);
+
+CREATE TABLE IF NOT EXISTS project_messages (
+    id VARCHAR(36) PRIMARY KEY,
+    conversation_id VARCHAR(36) NOT NULL REFERENCES project_conversations(id) ON DELETE CASCADE,
+    role VARCHAR(16) NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_project_messages_conversation_id ON project_messages (conversation_id);
 
 CREATE TABLE IF NOT EXISTS summaries (
     id VARCHAR(36) PRIMARY KEY,
