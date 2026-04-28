@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.agents.pipeline import LiteraturePipelineService
+from backend.config import get_settings
 from backend.db.models import User
 from backend.db.session import get_db_session
 from backend.security import decode_access_token
@@ -55,6 +56,19 @@ async def get_current_user(
     return user
 
 
+async def get_current_admin_user(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """Resolve and authorize an allowlisted admin user."""
+
+    if current_user.email.lower() not in get_settings().admin_email_set:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access is required.",
+        )
+    return current_user
+
+
 def get_pipeline_service() -> LiteraturePipelineService:
     """Return the default literature pipeline service."""
 
@@ -92,6 +106,7 @@ def get_writer_output_service() -> WriterOutputService:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+AdminUser = Annotated[User, Depends(get_current_admin_user)]
 PipelineServiceDependency = Annotated[LiteraturePipelineService, Depends(get_pipeline_service)]
 ReferenceFileServiceDependency = Annotated[
     ReferenceFileService,
