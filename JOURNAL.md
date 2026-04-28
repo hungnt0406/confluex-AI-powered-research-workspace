@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 15:21
+- **done:**
+  - Removed the `useRouter` dependency from `/admin/usage/users` query-string updates to avoid callback identity churn in the selected-user loading effect.
+  - Changed selected-user loading so `loadUsersAndSelectedUsage` fetches the computed user's filtered usage directly instead of calling another state-dependent loader.
+  - Added request sequencing to ignore stale user-list and selected-user usage responses when date ranges or users change quickly.
+  - Changed files: `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the fix with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - The first sandboxed `npm run build` hit a Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
+
 ### 2026-04-28 14:36
 - **done:**
   - Split the admin monitor into `/admin/usage` for the global dashboard and `/admin/usage/users` for selected-user analysis.
