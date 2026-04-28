@@ -47,6 +47,19 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 14:36
+- **done:**
+  - Split the admin monitor into `/admin/usage` for the global dashboard and `/admin/usage/users` for selected-user analysis.
+  - Extracted shared admin access, route navigation, date range controls, loading/error/empty states, KPI cards, trend chart, breakdown panels, project table, and recent events table into reusable admin usage components.
+  - Changed `/admin/usage/users` to load `/admin/token-usage` first without `user_id`, default to the top token user, then load the selected user's filtered usage while preserving `?user_id=...` in the URL.
+  - Updated frontend docs and feature ownership for the new route.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `frontend/app/admin/usage/users/page.tsx`, `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `docs/feature-map.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verification completed with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `python -m pytest tests/test_admin.py -q`.
+- **blocked:**
+  - Manual browser verification with real admin/non-admin sessions was not run in this environment.
+  - The first sandboxed `npm run build` hit a Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
+
 ### 2026-04-28 14:16
 - **done:**
   - Changed the `/admin/usage` daily usage trend from bars to a line graph.
