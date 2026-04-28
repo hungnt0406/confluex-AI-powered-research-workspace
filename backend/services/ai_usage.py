@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime, time
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import AIUsageEvent
+from backend.db.models import AIUsageEvent, Project, User
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,68 @@ class ProjectTokenUsageSummary:
     by_feature: list[UsageBreakdownRow]
     by_model: list[UsageBreakdownRow]
     by_day: list[UsageDailyRow]
+
+
+@dataclass(frozen=True)
+class UsageUserBreakdownRow:
+    user_id: str
+    user_email: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost_credits: float | None
+    request_count: int
+
+
+@dataclass(frozen=True)
+class UsageProjectBreakdownRow:
+    project_id: str
+    project_title: str
+    user_id: str
+    user_email: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    cost_credits: float | None
+    request_count: int
+
+
+@dataclass(frozen=True)
+class UsageRecentEventRow:
+    id: str
+    created_at: datetime
+    user_id: str
+    user_email: str
+    project_id: str
+    project_title: str
+    provider: str
+    endpoint: str
+    feature: str
+    model: str | None
+    status: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    reasoning_tokens: int
+    cached_tokens: int
+    cost_credits: float | None
+
+
+@dataclass(frozen=True)
+class AdminTokenUsageSummary:
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int
+    cached_tokens: int
+    cost_credits: float | None
+    request_count: int
+    by_feature: list[UsageBreakdownRow]
+    by_model: list[UsageBreakdownRow]
+    by_day: list[UsageDailyRow]
+    by_user: list[UsageUserBreakdownRow]
+    by_project: list[UsageProjectBreakdownRow]
+    recent_events: list[UsageRecentEventRow]
 
 
 _request_usage_events: ContextVar[list[CollectedAIUsageEvent] | None] = ContextVar(
@@ -183,6 +245,66 @@ async def summarize_project_usage(
     )
 
 
+async def summarize_admin_usage(
+    *,
+    session: AsyncSession,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    user_id: str | None = None,
+    project_id: str | None = None,
+    recent_limit: int = 25,
+) -> AdminTokenUsageSummary:
+    """Aggregate persisted usage across all users and projects for admins."""
+
+    filters = _admin_usage_filters(
+        date_from=date_from,
+        date_to=date_to,
+        user_id=user_id,
+        project_id=project_id,
+    )
+
+    totals_result = await session.execute(
+        select(
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.completion_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.reasoning_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.cached_tokens), 0),
+            func.sum(AIUsageEvent.cost_credits),
+            func.count(AIUsageEvent.id),
+        ).where(*filters)
+    )
+    totals = totals_result.one()
+
+    return AdminTokenUsageSummary(
+        total_tokens=int(totals[0] or 0),
+        prompt_tokens=int(totals[1] or 0),
+        completion_tokens=int(totals[2] or 0),
+        reasoning_tokens=int(totals[3] or 0),
+        cached_tokens=int(totals[4] or 0),
+        cost_credits=_float_or_none(totals[5]),
+        request_count=int(totals[6] or 0),
+        by_feature=await _admin_breakdown(
+            session=session,
+            filters=filters,
+            column=AIUsageEvent.feature,
+        ),
+        by_model=await _admin_breakdown(
+            session=session,
+            filters=filters,
+            column=AIUsageEvent.model,
+        ),
+        by_day=await _admin_daily_breakdown(session=session, filters=filters),
+        by_user=await _admin_user_breakdown(session=session, filters=filters),
+        by_project=await _admin_project_breakdown(session=session, filters=filters),
+        recent_events=await _admin_recent_events(
+            session=session,
+            filters=filters,
+            recent_limit=recent_limit,
+        ),
+    )
+
+
 async def _breakdown(
     *,
     session: AsyncSession,
@@ -252,6 +374,225 @@ async def _daily_breakdown(
             )
         )
     return rows
+
+
+def _admin_usage_filters(
+    *,
+    date_from: date | None,
+    date_to: date | None,
+    user_id: str | None,
+    project_id: str | None,
+) -> list[Any]:
+    filters: list[Any] = []
+    if date_from is not None:
+        filters.append(AIUsageEvent.created_at >= datetime.combine(date_from, time.min, UTC))
+    if date_to is not None:
+        filters.append(AIUsageEvent.created_at <= datetime.combine(date_to, time.max, UTC))
+    if user_id:
+        filters.append(AIUsageEvent.user_id == user_id)
+    if project_id:
+        filters.append(AIUsageEvent.project_id == project_id)
+    return filters
+
+
+async def _admin_breakdown(
+    *,
+    session: AsyncSession,
+    filters: list[Any],
+    column: Any,
+) -> list[UsageBreakdownRow]:
+    result = await session.execute(
+        select(
+            func.coalesce(column, "unknown"),
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.completion_tokens), 0),
+            func.sum(AIUsageEvent.cost_credits),
+            func.count(AIUsageEvent.id),
+        )
+        .where(*filters)
+        .group_by(column)
+        .order_by(func.coalesce(func.sum(AIUsageEvent.total_tokens), 0).desc())
+    )
+    return [
+        UsageBreakdownRow(
+            key=str(row[0]),
+            total_tokens=int(row[1] or 0),
+            prompt_tokens=int(row[2] or 0),
+            completion_tokens=int(row[3] or 0),
+            cost_credits=_float_or_none(row[4]),
+            request_count=int(row[5] or 0),
+        )
+        for row in result.all()
+    ]
+
+
+async def _admin_daily_breakdown(
+    *,
+    session: AsyncSession,
+    filters: list[Any],
+) -> list[UsageDailyRow]:
+    day_expression = func.date(AIUsageEvent.created_at)
+    result = await session.execute(
+        select(
+            day_expression,
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.completion_tokens), 0),
+            func.sum(AIUsageEvent.cost_credits),
+            func.count(AIUsageEvent.id),
+        )
+        .where(*filters)
+        .group_by(day_expression)
+        .order_by(day_expression.asc())
+    )
+    rows: list[UsageDailyRow] = []
+    for row in result.all():
+        day_value = row[0]
+        if isinstance(day_value, date):
+            parsed_day = day_value
+        else:
+            parsed_day = date.fromisoformat(str(day_value))
+        rows.append(
+            UsageDailyRow(
+                day=parsed_day,
+                total_tokens=int(row[1] or 0),
+                prompt_tokens=int(row[2] or 0),
+                completion_tokens=int(row[3] or 0),
+                cost_credits=_float_or_none(row[4]),
+                request_count=int(row[5] or 0),
+            )
+        )
+    return rows
+
+
+async def _admin_user_breakdown(
+    *,
+    session: AsyncSession,
+    filters: list[Any],
+) -> list[UsageUserBreakdownRow]:
+    result = await session.execute(
+        select(
+            User.id,
+            User.email,
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.completion_tokens), 0),
+            func.sum(AIUsageEvent.cost_credits),
+            func.count(AIUsageEvent.id),
+        )
+        .join(User, User.id == AIUsageEvent.user_id)
+        .where(*filters)
+        .group_by(User.id, User.email)
+        .order_by(func.coalesce(func.sum(AIUsageEvent.total_tokens), 0).desc())
+    )
+    return [
+        UsageUserBreakdownRow(
+            user_id=str(row[0]),
+            user_email=str(row[1]),
+            total_tokens=int(row[2] or 0),
+            prompt_tokens=int(row[3] or 0),
+            completion_tokens=int(row[4] or 0),
+            cost_credits=_float_or_none(row[5]),
+            request_count=int(row[6] or 0),
+        )
+        for row in result.all()
+    ]
+
+
+async def _admin_project_breakdown(
+    *,
+    session: AsyncSession,
+    filters: list[Any],
+) -> list[UsageProjectBreakdownRow]:
+    result = await session.execute(
+        select(
+            Project.id,
+            Project.title,
+            User.id,
+            User.email,
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsageEvent.completion_tokens), 0),
+            func.sum(AIUsageEvent.cost_credits),
+            func.count(AIUsageEvent.id),
+        )
+        .join(Project, Project.id == AIUsageEvent.project_id)
+        .join(User, User.id == AIUsageEvent.user_id)
+        .where(*filters)
+        .group_by(Project.id, Project.title, User.id, User.email)
+        .order_by(func.coalesce(func.sum(AIUsageEvent.total_tokens), 0).desc())
+    )
+    return [
+        UsageProjectBreakdownRow(
+            project_id=str(row[0]),
+            project_title=str(row[1]),
+            user_id=str(row[2]),
+            user_email=str(row[3]),
+            total_tokens=int(row[4] or 0),
+            prompt_tokens=int(row[5] or 0),
+            completion_tokens=int(row[6] or 0),
+            cost_credits=_float_or_none(row[7]),
+            request_count=int(row[8] or 0),
+        )
+        for row in result.all()
+    ]
+
+
+async def _admin_recent_events(
+    *,
+    session: AsyncSession,
+    filters: list[Any],
+    recent_limit: int,
+) -> list[UsageRecentEventRow]:
+    result = await session.execute(
+        select(
+            AIUsageEvent.id,
+            AIUsageEvent.created_at,
+            AIUsageEvent.user_id,
+            User.email,
+            AIUsageEvent.project_id,
+            Project.title,
+            AIUsageEvent.provider,
+            AIUsageEvent.endpoint,
+            AIUsageEvent.feature,
+            AIUsageEvent.model,
+            AIUsageEvent.status,
+            func.coalesce(AIUsageEvent.prompt_tokens, 0),
+            func.coalesce(AIUsageEvent.completion_tokens, 0),
+            func.coalesce(AIUsageEvent.total_tokens, 0),
+            func.coalesce(AIUsageEvent.reasoning_tokens, 0),
+            func.coalesce(AIUsageEvent.cached_tokens, 0),
+            AIUsageEvent.cost_credits,
+        )
+        .join(Project, Project.id == AIUsageEvent.project_id)
+        .join(User, User.id == AIUsageEvent.user_id)
+        .where(*filters)
+        .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id.desc())
+        .limit(recent_limit)
+    )
+    return [
+        UsageRecentEventRow(
+            id=str(row[0]),
+            created_at=row[1],
+            user_id=str(row[2]),
+            user_email=str(row[3]),
+            project_id=str(row[4]),
+            project_title=str(row[5]),
+            provider=str(row[6]),
+            endpoint=str(row[7]),
+            feature=str(row[8]),
+            model=str(row[9]) if row[9] is not None else None,
+            status=str(row[10]),
+            prompt_tokens=int(row[11] or 0),
+            completion_tokens=int(row[12] or 0),
+            total_tokens=int(row[13] or 0),
+            reasoning_tokens=int(row[14] or 0),
+            cached_tokens=int(row[15] or 0),
+            cost_credits=_float_or_none(row[16]),
+        )
+        for row in result.all()
+    ]
 
 
 def _append_event(event: CollectedAIUsageEvent) -> None:
