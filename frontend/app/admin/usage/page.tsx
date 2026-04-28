@@ -36,7 +36,7 @@ export default function AdminUsagePage() {
   const [usage, setUsage] = useState<AdminTokenUsage | null>(null);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>("30");
+  const [range, setRange] = useState<RangeKey>("7");
   const [userFilter, setUserFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [knownUsers, setKnownUsers] = useState<AdminUsageUserRow[]>([]);
@@ -418,40 +418,103 @@ function KpiCard({ label, value }: { label: string; value: string }) {
 }
 
 function DailyTrend({ rows }: { rows: TokenUsageDailyRow[] }) {
-  const maxTokens = Math.max(...rows.map((row) => row.total_tokens), 1);
-  const hasUsage = rows.some((row) => row.total_tokens > 0);
+  const displayRows = buildLastSevenDailyRows(rows);
+  const maxTokens = Math.max(...displayRows.map((row) => row.total_tokens), 1);
+  const hasUsage = displayRows.some((row) => row.total_tokens > 0);
+  const chartWidth = 640;
+  const chartHeight = 180;
+  const chartTop = 22;
+  const chartBottom = 142;
+  const chartLeft = 18;
+  const chartRight = chartWidth - 18;
+  const xStep = (chartRight - chartLeft) / Math.max(displayRows.length - 1, 1);
+  const points = displayRows.map((row, index) => {
+    const x = chartLeft + index * xStep;
+    const y = chartBottom - (row.total_tokens / maxTokens) * (chartBottom - chartTop);
+    return { ...row, x, y };
+  });
+  const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPoints = points.length
+    ? `${chartLeft},${chartBottom} ${linePoints} ${chartRight},${chartBottom}`
+    : "";
 
   return (
     <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
       <PanelTitle title="Daily usage trend" />
-      <div className="mt-4 flex h-44 items-end gap-2 border-b border-outline/20 pb-2">
-        {rows.length === 0 ? (
-          <p className="m-auto text-xs text-hint">No daily usage in this range.</p>
-        ) : !hasUsage ? (
-          <p className="m-auto text-xs text-hint">No token usage recorded for these days.</p>
+      <div className="mt-4 h-52 border-b border-outline/20 pb-2">
+        {!hasUsage ? (
+          <div className="flex h-full items-center justify-center text-xs text-hint">
+            No token usage recorded in the last 7 days.
+          </div>
         ) : (
-          rows.map((row) => (
-            <div
-              key={row.day}
-              className="flex h-full min-w-8 flex-1 flex-col justify-end gap-1"
-            >
-              <span className="text-center text-[10px] tabular-nums text-hint">
-                {row.total_tokens > 0 ? formatCompactInteger(row.total_tokens) : ""}
-              </span>
-              <div
-                className="mx-auto w-full max-w-12 rounded-t bg-primary/80"
-                style={{
-                  height: `${Math.max((row.total_tokens / maxTokens) * 100, 8)}%`,
-                }}
-                title={`${formatDate(row.day)}: ${formatInteger(row.total_tokens)} tokens`}
-              />
-            </div>
-          ))
+          <svg
+            className="h-full w-full overflow-visible"
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            role="img"
+            aria-label="Line chart of token usage for the last 7 days"
+          >
+            {[0, 1, 2].map((index) => {
+              const y = chartTop + index * ((chartBottom - chartTop) / 2);
+              return (
+                <line
+                  key={index}
+                  x1={chartLeft}
+                  x2={chartRight}
+                  y1={y}
+                  y2={y}
+                  stroke="#747870"
+                  strokeOpacity="0.14"
+                  strokeWidth="1"
+                />
+              );
+            })}
+            <polyline
+              points={areaPoints}
+              fill="#1d2d18"
+              fillOpacity="0.08"
+              stroke="none"
+            />
+            <polyline
+              points={linePoints}
+              fill="none"
+              stroke="#1d2d18"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {points.map((point) => (
+              <g key={point.day}>
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r="4.5"
+                  fill="#faf9f7"
+                  stroke="#1d2d18"
+                  strokeWidth="2.5"
+                >
+                  <title>
+                    {formatDate(point.day)}: {formatInteger(point.total_tokens)} tokens
+                  </title>
+                </circle>
+                {point.total_tokens > 0 && (
+                  <text
+                    x={point.x}
+                    y={Math.max(point.y - 10, 10)}
+                    textAnchor="middle"
+                    className="fill-hint text-[10px] font-medium tabular-nums"
+                  >
+                    {formatCompactInteger(point.total_tokens)}
+                  </text>
+                )}
+              </g>
+            ))}
+          </svg>
         )}
       </div>
-      <div className="mt-2 flex justify-between text-[10px] text-hint">
-        <span>{rows[0] ? formatDate(rows[0].day) : "-"}</span>
-        <span>{rows[rows.length - 1] ? formatDate(rows[rows.length - 1].day) : "-"}</span>
+      <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[10px] text-hint">
+        {displayRows.map((row) => (
+          <span key={row.day}>{formatShortDate(row.day)}</span>
+        ))}
       </div>
     </section>
   );
@@ -691,6 +754,34 @@ function getRangeDates(range: RangeKey) {
   };
 }
 
+function buildLastSevenDailyRows(rows: TokenUsageDailyRow[]) {
+  const rowByDay = new Map(rows.map((row) => [row.day, row]));
+  const today = startOfLocalDay(new Date());
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(today, index - 6);
+    const dayKey = toIsoDate(day);
+    const row = rowByDay.get(dayKey);
+    return {
+      day: dayKey,
+      total_tokens: row?.total_tokens ?? 0,
+      prompt_tokens: row?.prompt_tokens ?? 0,
+      completion_tokens: row?.completion_tokens ?? 0,
+      cost_credits: row?.cost_credits ?? null,
+      request_count: row?.request_count ?? 0,
+    };
+  });
+}
+
+function startOfLocalDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(value.getDate() + days);
+  return next;
+}
+
 function mergeUsers(current: AdminUsageUserRow[], incoming: AdminUsageUserRow[]) {
   const byId = new Map(current.map((user) => [user.user_id, user]));
   for (const user of incoming) byId.set(user.user_id, user);
@@ -708,7 +799,10 @@ function mergeProjects(current: AdminUsageProjectRow[], incoming: AdminUsageProj
 }
 
 function toIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatInteger(value: number) {
@@ -729,6 +823,13 @@ function formatCredits(value: number | null) {
 
 function formatDate(value: string) {
   if (!value) return "-";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatShortDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
