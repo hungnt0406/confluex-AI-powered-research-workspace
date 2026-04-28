@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminTokenUsage, ApiError, api } from "@/lib/api";
 import {
@@ -29,13 +28,13 @@ import {
 } from "../components";
 
 export default function AdminUsageUsersPage() {
-  const router = useRouter();
   const { ready, token, accessLoading, isAdmin, accessError, setIsAdmin } = useAdminAccess();
   const [range, setRange] = useState<RangeKey>("7");
   const [queryReady, setQueryReady] = useState(false);
   const [users, setUsers] = useState<AdminTokenUsage["by_user"]>([]);
   const [selectedUserId, setSelectedUserId] = useState("");
   const selectedUserRef = useRef("");
+  const requestIdRef = useRef(0);
   const [userUsage, setUserUsage] = useState<AdminTokenUsage | null>(null);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingUsage, setLoadingUsage] = useState(false);
@@ -49,20 +48,9 @@ export default function AdminUsageUsersPage() {
     setQueryReady(true);
   }, []);
 
-  const syncSelectedUserToUrl = useCallback(
-    (userId: string) => {
-      if (typeof window === "undefined") return;
-      const params = new URLSearchParams(window.location.search);
-      if (userId) params.set("user_id", userId);
-      else params.delete("user_id");
-      const query = params.toString();
-      router.replace(`${ADMIN_USAGE_USERS_PATH}${query ? `?${query}` : ""}`, { scroll: false });
-    },
-    [router],
-  );
-
-  const loadUsageForUser = useCallback(
+  const loadSelectedUserUsage = useCallback(
     async (userId: string) => {
+      const requestId = ++requestIdRef.current;
       if (!token || !userId) {
         setUserUsage(null);
         setLoadingUsage(false);
@@ -76,15 +64,17 @@ export default function AdminUsageUsersPage() {
           buildAdminTokenUsagePath(range, { userId }),
           { token },
         );
+        if (requestId !== requestIdRef.current) return;
         setUserUsage(nextUsage);
       } catch (err: unknown) {
+        if (requestId !== requestIdRef.current) return;
         if (err instanceof ApiError && err.status === 403) {
           setIsAdmin(false);
           return;
         }
         setUsageError(err instanceof Error ? err.message : "Failed to load selected user usage.");
       } finally {
-        setLoadingUsage(false);
+        if (requestId === requestIdRef.current) setLoadingUsage(false);
       }
     },
     [range, setIsAdmin, token],
@@ -93,12 +83,15 @@ export default function AdminUsageUsersPage() {
   const loadUsersAndSelectedUsage = useCallback(async () => {
     if (!token || !queryReady) return;
 
+    const requestId = ++requestIdRef.current;
     setLoadingUsers(true);
     setLoadingUsage(true);
     setUsageError(null);
     setUserUsage(null);
     try {
       const summary = await api<AdminTokenUsage>(buildAdminTokenUsagePath(range), { token });
+      if (requestId !== requestIdRef.current) return;
+
       const nextUsers = sortUsersByUsage(summary.by_user);
       const requestedUserId = selectedUserRef.current;
       const nextSelectedUserId = nextUsers.some((user) => user.user_id === requestedUserId)
@@ -108,27 +101,35 @@ export default function AdminUsageUsersPage() {
       setUsers(nextUsers);
       selectedUserRef.current = nextSelectedUserId;
       setSelectedUserId(nextSelectedUserId);
-      syncSelectedUserToUrl(nextSelectedUserId);
+      replaceSelectedUserQuery(nextSelectedUserId);
 
-      if (nextSelectedUserId) await loadUsageForUser(nextSelectedUserId);
-      else {
+      if (!nextSelectedUserId) {
         setUserUsage(null);
-        setLoadingUsage(false);
+        return;
       }
+
+      const nextUsage = await api<AdminTokenUsage>(
+        buildAdminTokenUsagePath(range, { userId: nextSelectedUserId }),
+        { token },
+      );
+      if (requestId !== requestIdRef.current) return;
+      setUserUsage(nextUsage);
     } catch (err: unknown) {
+      if (requestId !== requestIdRef.current) return;
       if (err instanceof ApiError && err.status === 403) {
-        setLoadingUsage(false);
         setIsAdmin(false);
         return;
       }
       setUsers([]);
       setUserUsage(null);
-      setLoadingUsage(false);
       setUsageError(err instanceof Error ? err.message : "Failed to load user list.");
     } finally {
-      setLoadingUsers(false);
+      if (requestId === requestIdRef.current) {
+        setLoadingUsers(false);
+        setLoadingUsage(false);
+      }
     }
-  }, [loadUsageForUser, queryReady, range, setIsAdmin, syncSelectedUserToUrl, token]);
+  }, [queryReady, range, setIsAdmin, token]);
 
   useEffect(() => {
     if (!token || accessLoading || !isAdmin || !queryReady) return;
@@ -139,10 +140,10 @@ export default function AdminUsageUsersPage() {
     (userId: string) => {
       selectedUserRef.current = userId;
       setSelectedUserId(userId);
-      syncSelectedUserToUrl(userId);
-      void loadUsageForUser(userId);
+      replaceSelectedUserQuery(userId);
+      void loadSelectedUserUsage(userId);
     },
-    [loadUsageForUser, syncSelectedUserToUrl],
+    [loadSelectedUserUsage],
   );
 
   const selectedUser = useMemo(
@@ -215,4 +216,16 @@ export default function AdminUsageUsersPage() {
       ) : null}
     </AdminUsageLayout>
   );
+}
+
+function replaceSelectedUserQuery(userId: string) {
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  if (userId) params.set("user_id", userId);
+  else params.delete("user_id");
+
+  const query = params.toString();
+  const nextUrl = `${ADMIN_USAGE_USERS_PATH}${query ? `?${query}` : ""}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
