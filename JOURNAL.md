@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 15:39
+- **done:**
+  - Changed the `/admin/usage` daily trend to render the API-provided daily rows for the selected date range instead of defaulting to a hardcoded seven-day window.
+  - Hardened `DailyTrend` SVG math for empty and single-point datasets by avoiding unnecessary division and closing the area fill from the actual first and last plotted points.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 15:30
 - **done:**
   - Removed the `Admin` badge from the shared admin usage page header, which updates both `/admin/usage` and `/admin/usage/users`.

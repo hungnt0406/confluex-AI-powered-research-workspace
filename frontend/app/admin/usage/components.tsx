@@ -299,7 +299,7 @@ export function KpiGrid({ usage }: { usage: AdminTokenUsage }) {
 export function DailyTrend({
   rows,
   title = "Daily usage trend",
-  mode = "last7",
+  mode = "rows",
 }: {
   rows: TokenUsageDailyRow[];
   title?: string;
@@ -317,15 +317,17 @@ export function DailyTrend({
   const chartBottom = 142;
   const chartLeft = 18;
   const chartRight = chartWidth - 18;
-  const xStep = (chartRight - chartLeft) / Math.max(displayRows.length - 1, 1);
+  const xStep = displayRows.length > 1 ? (chartRight - chartLeft) / (displayRows.length - 1) : 0;
   const points = displayRows.map((row, index) => {
     const x = chartLeft + index * xStep;
     const y = chartBottom - (row.total_tokens / maxTokens) * (chartBottom - chartTop);
     return { ...row, x, y };
   });
   const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const areaPoints = points.length
-    ? `${chartLeft},${chartBottom} ${linePoints} ${chartRight},${chartBottom}`
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  const areaPoints = firstPoint && lastPoint
+    ? `${firstPoint.x},${chartBottom} ${linePoints} ${lastPoint.x},${chartBottom}`
     : "";
 
   return (
