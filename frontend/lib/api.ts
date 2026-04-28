@@ -132,6 +132,72 @@ export type ProjectTokenUsage = {
   by_day: TokenUsageDailyRow[];
 };
 
+export type AdminAccess = {
+  is_admin: boolean;
+};
+
+export type AdminUsageUserRow = {
+  user_id: string;
+  user_email: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+};
+
+export type AdminUsageProjectRow = {
+  project_id: string;
+  project_title: string;
+  user_id: string;
+  user_email: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+};
+
+export type AdminUsageEventRow = {
+  id: string;
+  created_at: string;
+  user_id: string;
+  user_email: string;
+  project_id: string;
+  project_title: string;
+  provider: string;
+  endpoint: string;
+  feature: string;
+  model: string | null;
+  status: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cost_credits: number | null;
+};
+
+export type AdminTokenUsage = {
+  date_from: string | null;
+  date_to: string | null;
+  user_id: string | null;
+  project_id: string | null;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  cost_credits: number | null;
+  request_count: number;
+  by_feature: TokenUsageBreakdownRow[];
+  by_model: TokenUsageBreakdownRow[];
+  by_day: TokenUsageDailyRow[];
+  by_user: AdminUsageUserRow[];
+  by_project: AdminUsageProjectRow[];
+  recent_events: AdminUsageEventRow[];
+};
+
 export type PaperSummary = {
   problem: string | null;
   method: string | null;
