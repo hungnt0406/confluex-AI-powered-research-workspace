@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routers import auth, pipeline, projects
+from backend.api.routers import admin, auth, pipeline, projects
 from backend.config import get_settings
 from backend.db.session import close_default_session_manager
 
@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(auth.router)
+    app.include_router(admin.router)
     app.include_router(projects.router)
     app.include_router(pipeline.router)
     return app
