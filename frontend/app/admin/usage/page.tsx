@@ -93,7 +93,7 @@ export default function AdminUsagePage() {
         <>
           <KpiGrid usage={usage} />
           <section className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <DailyTrend rows={usage.by_day} />
+            <DailyTrend rows={usage.by_day} mode="rows" />
             <BreakdownPanel title="Usage by feature" rows={usage.by_feature} />
             <BreakdownPanel title="Usage by model" rows={usage.by_model} />
           </section>
