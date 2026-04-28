@@ -156,7 +156,6 @@ export default function AdminUsagePage() {
             className="scroll-mt-4 flex flex-col gap-4 border-b border-outline/20 pb-4 lg:flex-row lg:items-center lg:justify-between"
           >
             <div className="flex items-center gap-3">
-              <ConfluexMark />
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="font-headline text-3xl leading-tight text-primary">
