@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 11:20
+- **done:**
+  - Added a dedicated sidebar to `/admin/usage` with navigation for `Usage Dashboard` and `User Analysis`.
+  - Added a user analysis section with top-user bars, user count/request stats, token share, and credit spend by account.
+  - Added a compact mobile admin navigation bar so the admin sections remain reachable on small screens.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Admin monitoring remains read-only and uses the existing `/admin/token-usage` response.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 09:48
 - **done:**
   - Implemented the admin token usage monitoring plan from `plans/in-progress/admin-token-usage-monitoring.md` using coordinated agent review.
