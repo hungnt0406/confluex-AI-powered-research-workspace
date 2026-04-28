@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     app_name: str = Field(default="Literature Review API", alias="APP_NAME")
+    admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
     openrouter_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"),
@@ -55,6 +56,16 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def admin_email_set(self) -> frozenset[str]:
+        """Return normalized allowlisted admin emails."""
+
+        return frozenset(
+            email.strip().lower()
+            for email in self.admin_emails.split(",")
+            if email.strip()
+        )
 
 
 @lru_cache(maxsize=1)
