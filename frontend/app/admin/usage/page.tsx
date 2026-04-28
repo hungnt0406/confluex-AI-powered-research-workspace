@@ -23,6 +23,11 @@ const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All time" },
 ];
 
+const ADMIN_SECTIONS = [
+  { id: "usage-dashboard", label: "Usage Dashboard", icon: "dashboard" },
+  { id: "user-analysis", label: "User Analysis", icon: "group" },
+];
+
 export default function AdminUsagePage() {
   const { ready, token } = useAuth();
   const router = useRouter();
@@ -141,47 +146,44 @@ export default function AdminUsagePage() {
   }
 
   return (
-    <main className="h-screen overflow-y-auto bg-background font-ui text-on-surface custom-scrollbar">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6">
-        <header className="flex flex-col gap-4 border-b border-outline/20 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <ConfluexMark />
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-headline text-3xl leading-tight text-primary">
-                  Token Usage Monitor
-                </h1>
-                <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
-                  Admin
-                </span>
+    <main className="flex h-screen bg-background font-ui text-on-surface">
+      <AdminSidebar />
+      <div className="min-w-0 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6">
+          <MobileAdminNav />
+          <header
+            id="usage-dashboard"
+            className="scroll-mt-4 flex flex-col gap-4 border-b border-outline/20 pb-4 lg:flex-row lg:items-center lg:justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <ConfluexMark />
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="font-headline text-3xl leading-tight text-primary">
+                    Token Usage Monitor
+                  </h1>
+                  <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
+                    Admin
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-hint">{rangeLabel}</p>
               </div>
-              <p className="mt-1 text-xs text-hint">{rangeLabel}</p>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void loadUsage()}
-              disabled={loadingUsage}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-outline/25 bg-surface-container-lowest text-on-surface-variant transition-colors hover:border-primary/35 hover:bg-primary/5 disabled:opacity-50"
-              aria-label="Refresh usage"
-              title="Refresh usage"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
-                refresh
-              </span>
-            </button>
-            <Link
-              href="/chat"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-outline/25 bg-surface-container-lowest px-3 text-xs font-medium text-on-surface transition-colors hover:border-primary/35 hover:bg-primary/5"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                arrow_back
-              </span>
-              Back to chat
-            </Link>
-          </div>
-        </header>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void loadUsage()}
+                disabled={loadingUsage}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-outline/25 bg-surface-container-lowest text-on-surface-variant transition-colors hover:border-primary/35 hover:bg-primary/5 disabled:opacity-50"
+                aria-label="Refresh usage"
+                title="Refresh usage"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+                  refresh
+                </span>
+              </button>
+            </div>
+          </header>
 
         <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-3">
           <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
@@ -258,12 +260,18 @@ export default function AdminUsagePage() {
               <BreakdownPanel title="Usage by feature" rows={usage.by_feature} />
               <BreakdownPanel title="Usage by model" rows={usage.by_model} />
             </section>
+            <UserAnalysisSection
+              rows={usage.by_user}
+              totalTokens={usage.total_tokens}
+              totalRequests={usage.request_count}
+            />
             <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
               <ProjectTable rows={usage.by_project} />
               <RecentEventsTable rows={usage.recent_events} />
             </section>
           </>
         ) : null}
+        </div>
       </div>
     </main>
   );
@@ -308,6 +316,79 @@ function ConfluexMark() {
         ))}
       </svg>
       <span className="text-sm font-semibold text-accent">confluex</span>
+    </div>
+  );
+}
+
+function AdminSidebar() {
+  return (
+    <aside className="hidden h-screen w-60 flex-shrink-0 flex-col border-r border-outline/30 bg-surface-container p-3 md:flex">
+      <div className="px-1 py-2">
+        <ConfluexMark />
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-hint">
+          Admin Console
+        </p>
+      </div>
+
+      <nav className="mt-4 space-y-1" aria-label="Admin sections">
+        {ADMIN_SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <span
+              className="material-symbols-outlined text-primary"
+              style={{ fontSize: "17px", marginLeft: "-6px" }}
+            >
+              {section.icon}
+            </span>
+            <span>{section.label}</span>
+          </a>
+        ))}
+      </nav>
+
+      <div className="mt-auto border-t border-outline/30 pt-3">
+        <Link
+          href="/chat"
+          className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-on-surface"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-6px" }}>
+            arrow_back
+          </span>
+          <span>Back to chat</span>
+        </Link>
+      </div>
+    </aside>
+  );
+}
+
+function MobileAdminNav() {
+  return (
+    <div className="rounded-xl border border-outline/20 bg-surface-container-lowest p-2 md:hidden">
+      <div className="flex flex-wrap items-center gap-2">
+        {ADMIN_SECTIONS.map((section) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className="inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <span className="material-symbols-outlined text-primary" style={{ fontSize: "17px" }}>
+              {section.icon}
+            </span>
+            {section.label}
+          </a>
+        ))}
+        <Link
+          href="/chat"
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-on-surface"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+            arrow_back
+          </span>
+          Chat
+        </Link>
+      </div>
     </div>
   );
 }
@@ -388,6 +469,106 @@ function BreakdownPanel({ title, rows }: { title: string; rows: TokenUsageBreakd
         )}
       </div>
     </section>
+  );
+}
+
+function UserAnalysisSection({
+  rows,
+  totalTokens,
+  totalRequests,
+}: {
+  rows: AdminUsageUserRow[];
+  totalTokens: number;
+  totalRequests: number;
+}) {
+  const maxTokens = Math.max(...rows.map((row) => row.total_tokens), 1);
+  const topUser = rows[0] ?? null;
+
+  return (
+    <section
+      id="user-analysis"
+      className="scroll-mt-4 rounded-xl border border-outline/20 bg-surface-container-lowest p-4"
+    >
+      <div className="flex flex-col gap-3 border-b border-outline/20 pb-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <PanelTitle title="User analysis" />
+          <p className="mt-1 text-xs text-hint">
+            Usage concentration, request share, and credit spend by account.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-right text-xs">
+          <MiniStat label="Users" value={formatInteger(rows.length)} />
+          <MiniStat label="Requests" value={formatInteger(totalRequests)} />
+          <MiniStat label="Top user" value={topUser ? formatInteger(topUser.total_tokens) : "-"} />
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="py-6 text-center text-xs text-hint">No user usage in this range.</p>
+      ) : (
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)]">
+          <div className="space-y-3">
+            {rows.slice(0, 6).map((row) => {
+              const tokenShare = totalTokens > 0 ? (row.total_tokens / totalTokens) * 100 : 0;
+              return (
+                <div key={row.user_id} className="rounded-lg border border-outline/15 bg-surface-container-low p-3">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="truncate font-medium text-on-surface">{row.user_email}</span>
+                    <span className="tabular-nums text-hint">{tokenShare.toFixed(1)}%</span>
+                  </div>
+                  <div className="mt-2 h-1.5 rounded-full bg-background">
+                    <div
+                      className="h-1.5 rounded-full bg-primary"
+                      style={{ width: `${Math.max((row.total_tokens / maxTokens) * 100, 4)}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] text-hint">
+                    <span>{formatInteger(row.request_count)} requests</span>
+                    <span>{formatInteger(row.total_tokens)} tokens</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-xs">
+              <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
+                <tr>
+                  <th className="py-2 pr-3 font-semibold">User</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Requests</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Tokens</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Token share</th>
+                  <th className="py-2 text-right font-semibold">Credits</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline/10">
+                {rows.map((row) => (
+                  <tr key={row.user_id}>
+                    <td className="py-2 pr-3 text-secondary">{row.user_email}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.request_count)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.total_tokens)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {totalTokens > 0 ? `${((row.total_tokens / totalTokens) * 100).toFixed(1)}%` : "-"}
+                    </td>
+                    <td className="py-2 text-right tabular-nums">{formatCredits(row.cost_credits)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-outline/15 bg-surface-container-low px-3 py-2">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-hint">{label}</p>
+      <p className="mt-1 font-semibold tabular-nums text-primary">{value}</p>
+    </div>
   );
 }
 
