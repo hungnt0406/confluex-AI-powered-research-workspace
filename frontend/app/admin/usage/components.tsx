@@ -1,0 +1,875 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useAuth } from "@/components/AuthProvider";
+import {
+  AdminAccess,
+  AdminTokenUsage,
+  AdminUsageProjectRow,
+  AdminUsageUserRow,
+  TokenUsageBreakdownRow,
+  TokenUsageDailyRow,
+  api,
+} from "@/lib/api";
+
+export type RangeKey = "7" | "30" | "all";
+
+export const ADMIN_USAGE_DASHBOARD_PATH = "/admin/usage";
+export const ADMIN_USAGE_USERS_PATH = "/admin/usage/users";
+
+export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "7", label: "7 days" },
+  { key: "30", label: "30 days" },
+  { key: "all", label: "All time" },
+];
+
+const ADMIN_SECTIONS = [
+  {
+    href: ADMIN_USAGE_DASHBOARD_PATH,
+    label: "Usage Dashboard",
+    icon: "dashboard",
+  },
+  {
+    href: ADMIN_USAGE_USERS_PATH,
+    label: "User Analysis",
+    icon: "group",
+  },
+];
+
+export function useAdminAccess() {
+  const { ready, token } = useAuth();
+  const router = useRouter();
+  const [accessLoading, setAccessLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (ready && !token) router.replace("/login");
+  }, [ready, token, router]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    setAccessLoading(true);
+    api<AdminAccess>("/admin/access", { token })
+      .then((response) => {
+        if (cancelled) return;
+        setIsAdmin(response.is_admin);
+        setAccessError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setIsAdmin(false);
+        setAccessError(err instanceof Error ? err.message : "Failed to verify admin access.");
+      })
+      .finally(() => {
+        if (!cancelled) setAccessLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  return {
+    ready,
+    token,
+    accessLoading,
+    isAdmin,
+    accessError,
+    setIsAdmin,
+  };
+}
+
+export function AdminUsageLayout({
+  activeHref,
+  children,
+}: {
+  activeHref: string;
+  children: ReactNode;
+}) {
+  return (
+    <main className="flex h-screen bg-background font-ui text-on-surface">
+      <AdminSidebar activeHref={activeHref} />
+      <div className="min-w-0 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6">
+          <MobileAdminNav activeHref={activeHref} />
+          {children}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export function UsagePageHeader({
+  title,
+  rangeLabel,
+  children,
+}: {
+  title: string;
+  rangeLabel: string;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-4 border-b border-outline/20 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="font-headline text-3xl leading-tight text-primary">{title}</h1>
+          <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
+            Admin
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-hint">{rangeLabel}</p>
+      </div>
+      {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
+    </header>
+  );
+}
+
+export function PageState({ label, icon }: { label: string; icon: string }) {
+  return (
+    <main className="flex h-screen items-center justify-center bg-background text-hint">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em]">
+        <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+          {icon}
+        </span>
+        {label}
+      </div>
+    </main>
+  );
+}
+
+export function ForbiddenAdminState() {
+  return (
+    <main className="flex h-screen items-center justify-center bg-background p-6 font-ui">
+      <section className="w-full max-w-md rounded-xl border border-outline/20 bg-surface-container-lowest p-6">
+        <div className="flex items-center gap-2 text-error">
+          <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+            lock
+          </span>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">403</p>
+        </div>
+        <h1 className="mt-3 font-headline text-2xl text-on-surface">Admin access required</h1>
+        <p className="mt-2 text-sm leading-6 text-secondary">
+          Your account is not allowlisted for usage monitoring.
+        </p>
+        <Link
+          href="/chat"
+          className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-outline/25 bg-background px-3 text-xs font-medium text-on-surface transition-colors hover:border-primary/35 hover:bg-primary/5"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+            arrow_back
+          </span>
+          Back to chat
+        </Link>
+      </section>
+    </main>
+  );
+}
+
+export function DateRangeSelect({
+  range,
+  onChange,
+}: {
+  range: RangeKey;
+  onChange: (range: RangeKey) => void;
+}) {
+  return (
+    <label className="min-w-0">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
+        Date range
+      </span>
+      <select
+        value={range}
+        onChange={(event) => onChange(event.target.value as RangeKey)}
+        className="h-9 w-full rounded-lg border border-outline/25 bg-background px-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50"
+      >
+        {RANGE_OPTIONS.map((option) => (
+          <option key={option.key} value={option.key}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function UserSelect({
+  users,
+  value,
+  disabled,
+  onChange,
+}: {
+  users: AdminUsageUserRow[];
+  value: string;
+  disabled?: boolean;
+  onChange: (userId: string) => void;
+}) {
+  return (
+    <label className="min-w-0">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
+        User
+      </span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 w-full rounded-lg border border-outline/25 bg-background px-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
+      >
+        {users.length === 0 ? (
+          <option value="">No users</option>
+        ) : (
+          users.map((user) => (
+            <option key={user.user_id} value={user.user_id}>
+              {user.user_email}
+            </option>
+          ))
+        )}
+      </select>
+    </label>
+  );
+}
+
+export function RefreshButton({
+  loading,
+  onRefresh,
+}: {
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={loading}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-outline/25 bg-surface-container-lowest text-on-surface-variant transition-colors hover:border-primary/35 hover:bg-primary/5 disabled:opacity-50"
+      aria-label="Refresh usage"
+      title="Refresh usage"
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+        refresh
+      </span>
+    </button>
+  );
+}
+
+export function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-error/20 bg-error/5 px-4 py-3 text-sm text-error">
+      {message}
+    </div>
+  );
+}
+
+export function LoadingUsageState({ label = "Loading usage data..." }: { label?: string }) {
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-8 text-center text-sm text-hint">
+      {label}
+    </section>
+  );
+}
+
+export function EmptyUsageState({
+  description = "No provider-reported token events match the current range.",
+}: {
+  description?: string;
+}) {
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-8 text-center">
+      <span className="material-symbols-outlined text-hint" style={{ fontSize: "28px" }}>
+        monitoring
+      </span>
+      <h2 className="mt-3 text-sm font-semibold text-on-surface">No usage data</h2>
+      <p className="mt-1 text-xs text-hint">{description}</p>
+    </section>
+  );
+}
+
+export function KpiGrid({ usage }: { usage: AdminTokenUsage }) {
+  return (
+    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <KpiCard label="Total tokens" value={formatInteger(usage.total_tokens)} />
+      <KpiCard label="Credits used" value={formatCredits(usage.cost_credits)} />
+      <KpiCard label="Requests" value={formatInteger(usage.request_count)} />
+      <KpiCard label="Prompt tokens" value={formatInteger(usage.prompt_tokens)} />
+      <KpiCard label="Completion tokens" value={formatInteger(usage.completion_tokens)} />
+      <KpiCard label="Cached tokens" value={formatInteger(usage.cached_tokens)} />
+    </section>
+  );
+}
+
+export function DailyTrend({
+  rows,
+  title = "Daily usage trend",
+  mode = "last7",
+}: {
+  rows: TokenUsageDailyRow[];
+  title?: string;
+  mode?: "last7" | "rows";
+}) {
+  const displayRows = useMemo(
+    () => (mode === "last7" ? buildLastSevenDailyRows(rows) : rows),
+    [mode, rows],
+  );
+  const maxTokens = Math.max(...displayRows.map((row) => row.total_tokens), 1);
+  const hasUsage = displayRows.some((row) => row.total_tokens > 0);
+  const chartWidth = 640;
+  const chartHeight = 180;
+  const chartTop = 22;
+  const chartBottom = 142;
+  const chartLeft = 18;
+  const chartRight = chartWidth - 18;
+  const xStep = (chartRight - chartLeft) / Math.max(displayRows.length - 1, 1);
+  const points = displayRows.map((row, index) => {
+    const x = chartLeft + index * xStep;
+    const y = chartBottom - (row.total_tokens / maxTokens) * (chartBottom - chartTop);
+    return { ...row, x, y };
+  });
+  const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const areaPoints = points.length
+    ? `${chartLeft},${chartBottom} ${linePoints} ${chartRight},${chartBottom}`
+    : "";
+
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
+      <PanelTitle title={title} />
+      <div className="mt-4 h-52 border-b border-outline/20 pb-2">
+        {!hasUsage ? (
+          <div className="flex h-full items-center justify-center text-xs text-hint">
+            No token usage recorded for this view.
+          </div>
+        ) : (
+          <svg
+            className="h-full w-full overflow-visible"
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            role="img"
+            aria-label={`Line chart for ${title.toLowerCase()}`}
+          >
+            {[0, 1, 2].map((index) => {
+              const y = chartTop + index * ((chartBottom - chartTop) / 2);
+              return (
+                <line
+                  key={index}
+                  x1={chartLeft}
+                  x2={chartRight}
+                  y1={y}
+                  y2={y}
+                  stroke="#747870"
+                  strokeOpacity="0.14"
+                  strokeWidth="1"
+                />
+              );
+            })}
+            <polyline points={areaPoints} fill="#1d2d18" fillOpacity="0.08" stroke="none" />
+            <polyline
+              points={linePoints}
+              fill="none"
+              stroke="#1d2d18"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {points.map((point) => (
+              <g key={point.day}>
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r="4.5"
+                  fill="#faf9f7"
+                  stroke="#1d2d18"
+                  strokeWidth="2.5"
+                >
+                  <title>
+                    {formatDate(point.day)}: {formatInteger(point.total_tokens)} tokens
+                  </title>
+                </circle>
+                {point.total_tokens > 0 && (
+                  <text
+                    x={point.x}
+                    y={Math.max(point.y - 10, 10)}
+                    textAnchor="middle"
+                    className="fill-hint text-[10px] font-medium tabular-nums"
+                  >
+                    {formatCompactInteger(point.total_tokens)}
+                  </text>
+                )}
+              </g>
+            ))}
+          </svg>
+        )}
+      </div>
+      <div
+        className="mt-2 grid gap-1 text-center text-[10px] text-hint"
+        style={{ gridTemplateColumns: `repeat(${Math.max(displayRows.length, 1)}, minmax(0, 1fr))` }}
+      >
+        {displayRows.map((row) => (
+          <span key={row.day}>{formatShortDate(row.day)}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function BreakdownPanel({ title, rows }: { title: string; rows: TokenUsageBreakdownRow[] }) {
+  const maxTokens = Math.max(...rows.map((row) => row.total_tokens), 1);
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
+      <PanelTitle title={title} />
+      <div className="mt-4 space-y-3">
+        {rows.length === 0 ? (
+          <p className="text-xs text-hint">No usage yet.</p>
+        ) : (
+          rows.slice(0, 8).map((row) => (
+            <div key={row.key}>
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="truncate font-medium text-on-surface">{formatLabel(row.key)}</span>
+                <span className="tabular-nums text-hint">{formatInteger(row.total_tokens)}</span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-surface-container">
+                <div
+                  className="h-1.5 rounded-full bg-accent"
+                  style={{ width: `${Math.max((row.total_tokens / maxTokens) * 100, 4)}%` }}
+                />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function TopUsersTable({
+  rows,
+  totalTokens,
+  totalRequests,
+}: {
+  rows: AdminUsageUserRow[];
+  totalTokens: number;
+  totalRequests: number;
+}) {
+  const maxTokens = Math.max(...rows.map((row) => row.total_tokens), 1);
+  const topUser = rows[0] ?? null;
+
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
+      <div className="flex flex-col gap-3 border-b border-outline/20 pb-3 lg:flex-row lg:items-center lg:justify-between">
+        <PanelTitle title="Top users" />
+        <div className="grid grid-cols-3 gap-2 text-right text-xs">
+          <MiniStat label="Users" value={formatInteger(rows.length)} />
+          <MiniStat label="Requests" value={formatInteger(totalRequests)} />
+          <MiniStat label="Top user" value={topUser ? formatInteger(topUser.total_tokens) : "-"} />
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="py-6 text-center text-xs text-hint">No user usage in this range.</p>
+      ) : (
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)]">
+          <div className="space-y-3">
+            {rows.slice(0, 6).map((row) => {
+              const tokenShare = totalTokens > 0 ? (row.total_tokens / totalTokens) * 100 : 0;
+              return (
+                <div key={row.user_id} className="rounded-lg border border-outline/15 bg-surface-container-low p-3">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="truncate font-medium text-on-surface">{row.user_email}</span>
+                    <span className="tabular-nums text-hint">{tokenShare.toFixed(1)}%</span>
+                  </div>
+                  <div className="mt-2 h-1.5 rounded-full bg-background">
+                    <div
+                      className="h-1.5 rounded-full bg-primary"
+                      style={{ width: `${Math.max((row.total_tokens / maxTokens) * 100, 4)}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex justify-between text-[10px] text-hint">
+                    <span>{formatInteger(row.request_count)} requests</span>
+                    <span>{formatInteger(row.total_tokens)} tokens</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-xs">
+              <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
+                <tr>
+                  <th className="py-2 pr-3 font-semibold">User</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Requests</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Tokens</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Token share</th>
+                  <th className="py-2 text-right font-semibold">Credits</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline/10">
+                {rows.map((row) => (
+                  <tr key={row.user_id}>
+                    <td className="py-2 pr-3 text-secondary">{row.user_email}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.request_count)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.total_tokens)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">
+                      {totalTokens > 0 ? `${((row.total_tokens / totalTokens) * 100).toFixed(1)}%` : "-"}
+                    </td>
+                    <td className="py-2 text-right tabular-nums">{formatCredits(row.cost_credits)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function ProjectTable({
+  rows,
+  title = "Top projects",
+}: {
+  rows: AdminUsageProjectRow[];
+  title?: string;
+}) {
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
+      <PanelTitle title={title} />
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[620px] text-left text-xs">
+          <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
+            <tr>
+              <th className="py-2 pr-3 font-semibold">Project</th>
+              <th className="py-2 pr-3 font-semibold">User</th>
+              <th className="py-2 pr-3 text-right font-semibold">Requests</th>
+              <th className="py-2 pr-3 text-right font-semibold">Tokens</th>
+              <th className="py-2 text-right font-semibold">Credits</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-outline/10">
+            {rows.slice(0, 12).map((row) => (
+              <tr key={row.project_id}>
+                <td className="py-2 pr-3">
+                  <p className="max-w-52 truncate font-medium text-on-surface">{row.project_title}</p>
+                </td>
+                <td className="py-2 pr-3 text-secondary">{row.user_email}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.request_count)}</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.total_tokens)}</td>
+                <td className="py-2 text-right tabular-nums">{formatCredits(row.cost_credits)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+export function RecentEventsTable({
+  rows,
+  title = "Recent events",
+}: {
+  rows: AdminTokenUsage["recent_events"];
+  title?: string;
+}) {
+  return (
+    <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
+      <PanelTitle title={title} />
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full min-w-[760px] text-left text-xs">
+          <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
+            <tr>
+              <th className="py-2 pr-3 font-semibold">Time</th>
+              <th className="py-2 pr-3 font-semibold">User</th>
+              <th className="py-2 pr-3 font-semibold">Project</th>
+              <th className="py-2 pr-3 font-semibold">Feature</th>
+              <th className="py-2 pr-3 font-semibold">Model</th>
+              <th className="py-2 pr-3 text-right font-semibold">Tokens</th>
+              <th className="py-2 text-right font-semibold">Credits</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-outline/10">
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="py-2 pr-3 whitespace-nowrap text-hint">{formatDateTime(row.created_at)}</td>
+                <td className="py-2 pr-3 text-secondary">{row.user_email}</td>
+                <td className="py-2 pr-3">
+                  <p className="max-w-40 truncate">{row.project_title}</p>
+                </td>
+                <td className="py-2 pr-3">{formatLabel(row.feature)}</td>
+                <td className="py-2 pr-3 text-hint">
+                  <p className="max-w-36 truncate">{row.model ?? "unknown"}</p>
+                </td>
+                <td className="py-2 pr-3 text-right tabular-nums">{formatInteger(row.total_tokens)}</td>
+                <td className="py-2 text-right tabular-nums">{formatCredits(row.cost_credits)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+export function buildAdminTokenUsagePath(
+  range: RangeKey,
+  filters: { userId?: string; projectId?: string } = {},
+) {
+  const dates = getRangeDates(range);
+  const params = new URLSearchParams();
+  if (dates.dateFrom) params.set("date_from", dates.dateFrom);
+  if (dates.dateTo) params.set("date_to", dates.dateTo);
+  if (filters.userId) params.set("user_id", filters.userId);
+  if (filters.projectId) params.set("project_id", filters.projectId);
+  return `/admin/token-usage${params.size ? `?${params.toString()}` : ""}`;
+}
+
+export function getRangeLabel(range: RangeKey) {
+  return RANGE_OPTIONS.find((option) => option.key === range)?.label ?? "Usage range";
+}
+
+export function formatUsageDateRange(usage: AdminTokenUsage | null, fallback = "Usage range") {
+  if (!usage) return fallback;
+  if (!usage.date_from && !usage.date_to) return "All time";
+  if (usage.date_from && usage.date_to) return `${formatDate(usage.date_from)} - ${formatDate(usage.date_to)}`;
+  return usage.date_from ? `From ${formatDate(usage.date_from)}` : `Until ${formatDate(usage.date_to ?? "")}`;
+}
+
+export function sortUsersByUsage(users: AdminUsageUserRow[]) {
+  return [...users].sort((left, right) => {
+    const tokenDelta = right.total_tokens - left.total_tokens;
+    return tokenDelta === 0 ? left.user_email.localeCompare(right.user_email) : tokenDelta;
+  });
+}
+
+function AdminSidebar({ activeHref }: { activeHref: string }) {
+  return (
+    <aside className="hidden h-screen w-60 flex-shrink-0 flex-col border-r border-outline/30 bg-surface-container p-3 md:flex">
+      <div className="px-1 py-2">
+        <ConfluexMark />
+        <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-hint">
+          Admin Console
+        </p>
+      </div>
+
+      <nav className="mt-4 space-y-1" aria-label="Admin pages">
+        {ADMIN_SECTIONS.map((section) => {
+          const active = section.href === activeHref;
+          return (
+            <Link
+              key={section.href}
+              href={section.href}
+              className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-on-surface-variant hover:bg-primary/10 hover:text-primary"
+              }`}
+            >
+              <span
+                className="material-symbols-outlined text-primary"
+                style={{ fontSize: "17px", marginLeft: "-6px" }}
+              >
+                {section.icon}
+              </span>
+              <span>{section.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="mt-auto border-t border-outline/30 pt-3">
+        <Link
+          href="/chat"
+          className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-on-surface"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-6px" }}>
+            arrow_back
+          </span>
+          <span>Back to chat</span>
+        </Link>
+      </div>
+    </aside>
+  );
+}
+
+function MobileAdminNav({ activeHref }: { activeHref: string }) {
+  return (
+    <div className="rounded-xl border border-outline/20 bg-surface-container-lowest p-2 md:hidden">
+      <div className="flex flex-wrap items-center gap-2">
+        {ADMIN_SECTIONS.map((section) => {
+          const active = section.href === activeHref;
+          return (
+            <Link
+              key={section.href}
+              href={section.href}
+              className={`inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-on-surface-variant hover:bg-primary/10 hover:text-primary"
+              }`}
+            >
+              <span className="material-symbols-outlined text-primary" style={{ fontSize: "17px" }}>
+                {section.icon}
+              </span>
+              {section.label}
+            </Link>
+          );
+        })}
+        <Link
+          href="/chat"
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-on-surface"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+            arrow_back
+          </span>
+          Chat
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function ConfluexMark() {
+  return (
+    <div className="flex items-center gap-2">
+      <svg
+        viewBox="0 0 62 60"
+        width={28}
+        height={28}
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+      >
+        {[
+          "M 4,50 C 8,35 18,15 32,6",
+          "M 9,52 C 13,36 24,16 39,7",
+          "M 14,53 C 19,37 30,17 45,8",
+          "M 19,54 C 25,38 36,18 51,9",
+          "M 24,55 C 30,39 42,19 56,10",
+          "M 29,55 C 36,40 47,21 58,14",
+          "M 33,54 C 40,41 51,24 58,20",
+          "M 37,53 C 43,42 53,27 57,26",
+          "M 40,52 C 45,43 53,31 56,32",
+        ].map((d, i) => (
+          <path key={i} d={d} stroke="#7BAD8A" strokeWidth="1.6" strokeLinecap="round" />
+        ))}
+      </svg>
+      <span className="text-sm font-semibold text-accent">confluex</span>
+    </div>
+  );
+}
+
+function KpiCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-outline/20 bg-surface-container-lowest p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">{label}</p>
+      <p className="mt-2 text-xl font-semibold tabular-nums text-primary">{value}</p>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-outline/15 bg-surface-container-low px-3 py-2">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-hint">{label}</p>
+      <p className="mt-1 font-semibold tabular-nums text-primary">{value}</p>
+    </div>
+  );
+}
+
+function PanelTitle({ title }: { title: string }) {
+  return <h2 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">{title}</h2>;
+}
+
+function getRangeDates(range: RangeKey) {
+  if (range === "all") return { dateFrom: null, dateTo: null };
+  const dateTo = new Date();
+  const dateFrom = new Date(dateTo);
+  dateFrom.setDate(dateTo.getDate() - Number(range) + 1);
+  return {
+    dateFrom: toIsoDate(dateFrom),
+    dateTo: toIsoDate(dateTo),
+  };
+}
+
+function buildLastSevenDailyRows(rows: TokenUsageDailyRow[]) {
+  const rowByDay = new Map(rows.map((row) => [row.day, row]));
+  const today = startOfLocalDay(new Date());
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(today, index - 6);
+    const dayKey = toIsoDate(day);
+    const row = rowByDay.get(dayKey);
+    return {
+      day: dayKey,
+      total_tokens: row?.total_tokens ?? 0,
+      prompt_tokens: row?.prompt_tokens ?? 0,
+      completion_tokens: row?.completion_tokens ?? 0,
+      cost_credits: row?.cost_credits ?? null,
+      request_count: row?.request_count ?? 0,
+    };
+  });
+}
+
+function startOfLocalDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(value.getDate() + days);
+  return next;
+}
+
+function toIsoDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCompactInteger(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatCredits(value: number | null) {
+  if (value === null) return "-";
+  return value.toLocaleString("en-US", { maximumFractionDigits: 5 });
+}
+
+function formatDate(value: string) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
