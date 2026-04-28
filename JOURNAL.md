@@ -47,6 +47,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 15:30
+- **done:**
+  - Removed the `Admin` badge from the shared admin usage page header, which updates both `/admin/usage` and `/admin/usage/users`.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 15:21
 - **done:**
   - Removed the `useRouter` dependency from `/admin/usage/users` query-string updates to avoid callback identity churn in the selected-user loading effect.
