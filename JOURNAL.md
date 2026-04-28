@@ -47,6 +47,29 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 09:48
+- **done:**
+  - Implemented the admin token usage monitoring plan from `plans/in-progress/admin-token-usage-monitoring.md` using coordinated agent review.
+  - Added `ADMIN_EMAILS`, admin access control, `/admin/access`, `/admin/token-usage`, global usage aggregation, admin response schemas, and focused admin tests.
+  - Added the `/admin/usage` frontend dashboard, admin sidebar navigation, and removed token usage fetching/rendering from the chat context panel.
+  - Updated current-state docs and config examples. See `AI_WORKLOG.md` for the detailed file-level record.
+- **doing:**
+  - Admin usage monitoring is implemented as read-only v1 over existing `ai_usage_events`; budgets, alerts, and exports remain out of scope.
+- **blocked:**
+  - `uv` is not installed in this environment, so verification used `python -m ...` equivalents.
+  - Repo-wide `python -m ruff check .` is blocked by pre-existing issues under `.claude/skills/ui-ux-pro-max`.
+  - A full `python -m pytest tests/ -x` run hung near `tests/test_services.py`; focused and broad non-hung checks passed.
+
+### 2026-04-27 22:56
+- **done:**
+  - Saved the admin token usage monitoring design plan under `plans/in-progress/`, including the existing-app visual design constraints and Stitch prompt.
+  - Added the new plan to the `plans/README.md` roadmap.
+  - Changed files: `plans/in-progress/admin-token-usage-monitoring.md`, `plans/README.md`, `JOURNAL.md`.
+- **doing:**
+  - Plan is ready for implementation handoff.
+- **blocked:**
+  - None.
+
 ### 2026-04-27 00:20
 - **done:**
   - Fixed model output formatting: the local fallback answer in `_generate_local_answer` was embedding raw conversation history (with `| user:` / `| assistant:` pipe-separated turns) into the user-visible response via `_format_recent_history`. Removed all `## Conversation Context` sections from the three fallback branches since conversation history is already visible in the chat UI. Renamed `## Limits` to `## Next Steps` with cleaner user-facing copy. Added bold formatting to paper titles in fallback output.

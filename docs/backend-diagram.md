@@ -103,6 +103,7 @@ flowchart TB
 flowchart TB
     App["backend/main.py<br/>create_app"] --> Health["GET /healthz<br/>returns status ok"]
     App --> Auth["/auth router"]
+    App --> Admin["/admin router"]
     App --> Projects["/projects router"]
     App --> Pipeline["/pipeline router"]
 
@@ -121,6 +122,15 @@ flowchart TB
 
         RegisterToken --> AuthResponse["AuthResponse<br/>access_token<br/>token_type<br/>user"]
         LoginToken --> AuthResponse
+    end
+
+    subgraph AdminEndpoints["Admin endpoints"]
+        Admin --> AdminAccess["GET /admin/access"]
+        Admin --> AdminTokenUsage["GET /admin/token-usage"]
+
+        AdminAccess --> AuthRequiredAdminAccess["CurrentUser"]
+        AdminTokenUsage --> AdminRequired["AdminUser"]
+        AdminTokenUsage --> GlobalUsage["summarize_admin_usage"]
     end
 
     subgraph ProjectEndpoints["Project endpoints"]
@@ -618,14 +628,14 @@ flowchart TB
 | App entrypoint | `backend/main.py` | Creates the FastAPI app, registers routers, exposes `/healthz`, and closes the default database engine during shutdown. |
 | Configuration | `backend/config.py` | Loads cached runtime settings from environment variables and `.env`. |
 | Security | `backend/security.py` | Password hashing and verification, JWT creation, and JWT decoding. |
-| API dependencies | `backend/api/dependencies.py` | Provides `DbSession`, authenticated `CurrentUser`, `LiteraturePipelineService`, and `ReferenceFileService`. |
-| Routers | `backend/api/routers/auth.py`, `backend/api/routers/projects.py`, `backend/api/routers/pipeline.py` | Own HTTP endpoint behavior and convert service/domain errors into HTTP responses. |
-| Schemas | `backend/api/schemas/auth.py`, `backend/api/schemas/projects.py` | Define request and response payloads. |
+| API dependencies | `backend/api/dependencies.py` | Provides `DbSession`, authenticated `CurrentUser`, allowlisted `AdminUser`, `LiteraturePipelineService`, and `ReferenceFileService`. |
+| Routers | `backend/api/routers/auth.py`, `backend/api/routers/admin.py`, `backend/api/routers/projects.py`, `backend/api/routers/pipeline.py` | Own HTTP endpoint behavior and convert service/domain errors into HTTP responses. |
+| Schemas | `backend/api/schemas/auth.py`, `backend/api/schemas/admin.py`, `backend/api/schemas/projects.py` | Define request and response payloads. |
 | Database | `backend/db/base.py`, `backend/db/session.py`, `backend/db/models.py`, `backend/db/migrations/` | Define ORM models, async sessions, and Alembic schema changes. |
 | Pipeline orchestration | `backend/agents/pipeline.py`, `backend/agents/graph.py`, `backend/agents/state.py` | Build and run the LangGraph pipeline for a project. |
 | Search agent | `backend/agents/searcher.py` | Expands queries, calls search providers, filters and deduplicates candidates, and persists candidate papers. |
 | Reader agent | `backend/agents/reader.py` | Ranks papers with embeddings, generates structured summaries, and persists summary records. |
 | Reference uploads | `backend/services/reference_files.py` | Validates, stores, parses, and persists uploaded reference PDFs and linked paper rows. |
-| AI usage telemetry | `backend/services/ai_usage.py`, `backend/db/models.py` | Collect provider-reported OpenRouter usage per successful project request and aggregate it by feature, model, and day. |
+| AI usage telemetry | `backend/services/ai_usage.py`, `backend/db/models.py` | Collect provider-reported OpenRouter usage per successful project request and aggregate it by project, day, feature, model, user, and recent event. |
 | External clients | `backend/services/semantic_scholar.py`, `backend/services/arxiv.py`, `backend/services/llm.py`, `backend/services/embeddings.py` | Integrate with external search, chat, and embedding APIs while providing local fallbacks where available. |
 | Shared utilities | `backend/services/paper_types.py`, `backend/services/research_utils.py` | Define normalized paper payloads and shared research text/math utilities. |
