@@ -116,12 +116,7 @@ export function UsagePageHeader({
   return (
     <header className="flex flex-col gap-4 border-b border-outline/20 pb-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <div className="flex items-center gap-2">
-          <h1 className="font-headline text-3xl leading-tight text-primary">{title}</h1>
-          <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
-            Admin
-          </span>
-        </div>
+        <h1 className="font-headline text-3xl leading-tight text-primary">{title}</h1>
         <p className="mt-1 text-xs text-hint">{rangeLabel}</p>
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
