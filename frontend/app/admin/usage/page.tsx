@@ -419,18 +419,30 @@ function KpiCard({ label, value }: { label: string; value: string }) {
 
 function DailyTrend({ rows }: { rows: TokenUsageDailyRow[] }) {
   const maxTokens = Math.max(...rows.map((row) => row.total_tokens), 1);
+  const hasUsage = rows.some((row) => row.total_tokens > 0);
+
   return (
     <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
       <PanelTitle title="Daily usage trend" />
-      <div className="mt-4 flex h-44 items-end gap-1 border-b border-outline/20 pb-2">
+      <div className="mt-4 flex h-44 items-end gap-2 border-b border-outline/20 pb-2">
         {rows.length === 0 ? (
           <p className="m-auto text-xs text-hint">No daily usage in this range.</p>
+        ) : !hasUsage ? (
+          <p className="m-auto text-xs text-hint">No token usage recorded for these days.</p>
         ) : (
           rows.map((row) => (
-            <div key={row.day} className="flex min-w-4 flex-1 flex-col items-center gap-1">
+            <div
+              key={row.day}
+              className="flex h-full min-w-8 flex-1 flex-col justify-end gap-1"
+            >
+              <span className="text-center text-[10px] tabular-nums text-hint">
+                {row.total_tokens > 0 ? formatCompactInteger(row.total_tokens) : ""}
+              </span>
               <div
-                className="w-full rounded-t bg-primary/80"
-                style={{ height: `${Math.max((row.total_tokens / maxTokens) * 100, 5)}%` }}
+                className="mx-auto w-full max-w-12 rounded-t bg-primary/80"
+                style={{
+                  height: `${Math.max((row.total_tokens / maxTokens) * 100, 8)}%`,
+                }}
                 title={`${formatDate(row.day)}: ${formatInteger(row.total_tokens)} tokens`}
               />
             </div>
@@ -701,6 +713,13 @@ function toIsoDate(value: Date) {
 
 function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatCompactInteger(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function formatCredits(value: number | null) {

@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 14:06
+- **done:**
+  - Fixed the `/admin/usage` daily usage trend bars by giving each bar a stable chart height context and visible minimum height.
+  - Added compact token labels and a clearer zero-token state for the daily trend chart.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Daily trend now renders visible bars whenever daily token totals are present.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 13:53
 - **done:**
   - Replaced the `/admin/usage` date segmented control with a dropdown matching the user and project filter controls.
