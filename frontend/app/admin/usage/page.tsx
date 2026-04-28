@@ -185,23 +185,26 @@ export default function AdminUsagePage() {
           </header>
 
         <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-3">
-          <div className="grid gap-3 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="flex rounded-lg border border-outline/20 bg-surface-container-low p-1">
-              {RANGE_OPTIONS.map((option) => (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => setRange(option.key)}
-                  className={`h-8 rounded-md px-3 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                    range === option.key
-                      ? "bg-primary text-on-primary"
-                      : "text-secondary hover:bg-primary/10 hover:text-primary"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
+                Date range
+              </span>
+              <select
+                value={range}
+                onChange={(event) => setRange(event.target.value as RangeKey)}
+                className="h-9 w-full rounded-lg border border-outline/25 bg-background px-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50"
+              >
+                {RANGE_OPTIONS.map((option) => (
+                  <option
+                    key={option.key}
+                    value={option.key}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="min-w-0">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
                 User filter
