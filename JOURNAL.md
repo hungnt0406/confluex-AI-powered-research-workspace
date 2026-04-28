@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 14:16
+- **done:**
+  - Changed the `/admin/usage` daily usage trend from bars to a line graph.
+  - Set the admin dashboard default date range to the last 7 days ending on the current day.
+  - Filled missing daily chart points with zero values so the graph always shows exactly seven days.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Daily usage trend now visualizes the current seven-day window as a line chart.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 14:06
 - **done:**
   - Fixed the `/admin/usage` daily usage trend bars by giving each bar a stable chart height context and visible minimum height.
