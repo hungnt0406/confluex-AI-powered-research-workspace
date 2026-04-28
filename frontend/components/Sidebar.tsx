@@ -1,9 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { useChat } from "@/components/ChatProvider";
-import { Project } from "@/lib/api";
+import { AdminAccess, Project, api } from "@/lib/api";
 
 interface SidebarProps {
   open: boolean;
@@ -11,8 +12,29 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ open, onToggle }: SidebarProps) {
-  const { user, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { projects, activeProject, busy, selectProject, renameProject, deleteProject, startNewResearch } = useChat();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setIsAdmin(false);
+      return;
+    }
+
+    let cancelled = false;
+    api<AdminAccess>("/admin/access", { token })
+      .then((response) => {
+        if (!cancelled) setIsAdmin(response.is_admin);
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdmin(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const handleDeleteProject = async (projectId: string, projectTitle: string) => {
     if (typeof window !== "undefined") {
@@ -134,6 +156,17 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Footer */}
           <div className="mt-auto pt-4 border-t border-outline/30">
+            {isAdmin && (
+              <Link
+                href="/admin/usage"
+                className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
+                  monitoring
+                </span>
+                <span>Usage Monitor</span>
+              </Link>
+            )}
             <button
               onClick={logout}
               className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
@@ -178,6 +211,18 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Footer icons */}
           <div className="mt-auto flex flex-col items-center gap-1 pt-2 border-t border-outline/30 w-full">
+            {isAdmin && (
+              <Link
+                href="/admin/usage"
+                className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
+                aria-label="Usage Monitor"
+                title="Usage Monitor"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                  monitoring
+                </span>
+              </Link>
+            )}
             <button
               onClick={logout}
               className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
