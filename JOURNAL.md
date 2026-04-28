@@ -47,6 +47,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 13:53
+- **done:**
+  - Replaced the `/admin/usage` date segmented control with a dropdown matching the user and project filter controls.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Admin filters now use consistent dropdown interactions.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 11:32
 - **done:**
   - Removed the Confluex logo/wordmark from the `/admin/usage` page header next to `Token Usage Monitor`.
