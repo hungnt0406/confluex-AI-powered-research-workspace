@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-28 11:32
+- **done:**
+  - Removed the Confluex logo/wordmark from the `/admin/usage` page header next to `Token Usage Monitor`.
+  - Left sidebar branding unchanged.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Admin page header is now title-first without duplicate branding.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 11:20
 - **done:**
   - Added a dedicated sidebar to `/admin/usage` with navigation for `Usage Dashboard` and `User Analysis`.
