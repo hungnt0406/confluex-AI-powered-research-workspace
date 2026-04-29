@@ -14,16 +14,19 @@ import {
   api,
 } from "@/lib/api";
 
-export type RangeKey = "7" | "30" | "all";
+export type PresetRangeKey = "7" | "30" | "all";
+export type RangeKey = PresetRangeKey | `custom:${string}:${string}`;
 
 export const ADMIN_USAGE_DASHBOARD_PATH = "/admin/usage";
 export const ADMIN_USAGE_USERS_PATH = "/admin/usage/users";
 
-export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+export const RANGE_OPTIONS: { key: PresetRangeKey; label: string }[] = [
   { key: "7", label: "7 days" },
   { key: "30", label: "30 days" },
   { key: "all", label: "All time" },
 ];
+
+const CALENDAR_WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 const ADMIN_SECTIONS = [
   {
@@ -172,23 +175,171 @@ export function DateRangeSelect({
   range: RangeKey;
   onChange: (range: RangeKey) => void;
 }) {
+  const labelId = useId();
+  const selectedDates = useMemo(() => getRangeDates(range), [range]);
+  const [open, setOpen] = useState(false);
+  const [pendingStart, setPendingStart] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() =>
+    startOfMonth(getCalendarAnchorDate(selectedDates)),
+  );
+  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+
+  useEffect(() => {
+    if (open) return;
+    setPendingStart(null);
+    setCalendarMonth(startOfMonth(getCalendarAnchorDate(selectedDates)));
+  }, [open, selectedDates.dateFrom, selectedDates.dateTo]);
+
+  const applyPreset = useCallback(
+    (preset: PresetRangeKey) => {
+      setPendingStart(null);
+      setOpen(false);
+      onChange(preset);
+    },
+    [onChange],
+  );
+
+  const applySingleDay = useCallback(
+    (day: string) => {
+      setPendingStart(null);
+      setOpen(false);
+      onChange(buildCustomRange(day, day));
+    },
+    [onChange],
+  );
+
+  const handleDayClick = useCallback(
+    (day: string) => {
+      if (!pendingStart) {
+        setPendingStart(day);
+        return;
+      }
+
+      setPendingStart(null);
+      setOpen(false);
+      onChange(buildCustomRange(pendingStart, day));
+    },
+    [onChange, pendingStart],
+  );
+
   return (
-    <label className="min-w-0">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
+    <div
+      className="relative min-w-0"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <span
+        id={labelId}
+        className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint"
+      >
         Date range
       </span>
-      <select
-        value={range}
-        onChange={(event) => onChange(event.target.value as RangeKey)}
-        className="h-9 w-full rounded-lg border border-outline/25 bg-background px-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50"
+      <button
+        type="button"
+        aria-labelledby={labelId}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-outline/25 bg-background px-3 text-left text-xs text-on-surface outline-none transition-colors hover:border-primary/35 focus:border-primary/50"
       >
-        {RANGE_OPTIONS.map((option) => (
-          <option key={option.key} value={option.key}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span className="truncate">{getRangeLabel(range)}</span>
+        <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: "18px" }}>
+          expand_more
+        </span>
+      </button>
+
+      {open ? (
+        <div
+          role="dialog"
+          aria-labelledby={labelId}
+          className="absolute right-0 z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-outline/25 bg-surface-container-lowest p-3 shadow-lg"
+        >
+          <div className="grid grid-cols-3 gap-2">
+            {RANGE_OPTIONS.map((option) => {
+              const active = range === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => applyPreset(option.key)}
+                  className={`h-8 rounded-lg border px-2 text-xs font-medium transition-colors ${
+                    active
+                      ? "border-primary/35 bg-primary/10 text-primary"
+                      : "border-outline/20 text-on-surface-variant hover:border-primary/35 hover:bg-primary/5"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCalendarMonth((month) => addMonths(month, -1))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-primary"
+              aria-label="Previous month"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+                chevron_left
+              </span>
+            </button>
+            <p className="text-xs font-semibold text-on-surface">
+              {formatCalendarMonth(calendarMonth)}
+            </p>
+            <button
+              type="button"
+              onClick={() => setCalendarMonth((month) => addMonths(month, 1))}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-primary/5 hover:text-primary"
+              aria-label="Next month"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+                chevron_right
+              </span>
+            </button>
+          </div>
+
+          <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase text-hint">
+            {CALENDAR_WEEKDAYS.map((weekday, index) => (
+              <span key={`${weekday}-${index}`} className="py-1">
+                {weekday}
+              </span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {calendarDays.map((day) => {
+              const dayKey = toIsoDate(day);
+              const inMonth = isSameMonth(day, calendarMonth);
+              const selected = isDateInRange(dayKey, selectedDates.dateFrom, selectedDates.dateTo);
+              const pending = pendingStart === dayKey;
+              return (
+                <button
+                  key={dayKey}
+                  type="button"
+                  onClick={() => handleDayClick(dayKey)}
+                  onDoubleClick={() => applySingleDay(dayKey)}
+                  aria-label={formatDate(dayKey)}
+                  className={`aspect-square rounded-lg text-xs tabular-nums transition-colors ${
+                    pending
+                      ? "bg-accent text-on-primary"
+                      : selected
+                        ? "bg-primary/10 font-semibold text-primary"
+                      : inMonth
+                        ? "text-on-surface hover:bg-primary/5"
+                        : "text-hint/55 hover:bg-primary/5"
+                  }`}
+                  aria-pressed={selected || pending}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -819,7 +970,18 @@ export function buildAdminTokenUsagePath(
 }
 
 export function getRangeLabel(range: RangeKey) {
-  return RANGE_OPTIONS.find((option) => option.key === range)?.label ?? "Usage range";
+  if (isPresetRange(range)) {
+    return RANGE_OPTIONS.find((option) => option.key === range)?.label ?? "Usage range";
+  }
+
+  const dates = getRangeDates(range);
+  if (dates.dateFrom && dates.dateTo) {
+    return dates.dateFrom === dates.dateTo
+      ? formatDate(dates.dateFrom)
+      : `${formatDate(dates.dateFrom)} - ${formatDate(dates.dateTo)}`;
+  }
+
+  return "Custom range";
 }
 
 export function formatUsageDateRange(usage: AdminTokenUsage | null, fallback = "Usage range") {
@@ -976,6 +1138,13 @@ function PanelTitle({ title }: { title: string }) {
 }
 
 function getRangeDates(range: RangeKey) {
+  if (!isPresetRange(range)) {
+    const [, dateFrom, dateTo] = range.split(":");
+    if (isIsoDate(dateFrom) && isIsoDate(dateTo)) {
+      return normalizeDateRange(dateFrom, dateTo);
+    }
+  }
+
   if (range === "all") return { dateFrom: null, dateTo: null };
   const dateTo = new Date();
   const dateFrom = new Date(dateTo);
@@ -984,6 +1153,57 @@ function getRangeDates(range: RangeKey) {
     dateFrom: toIsoDate(dateFrom),
     dateTo: toIsoDate(dateTo),
   };
+}
+
+function isPresetRange(range: RangeKey): range is PresetRangeKey {
+  return range === "7" || range === "30" || range === "all";
+}
+
+function buildCustomRange(dateFrom: string, dateTo: string): RangeKey {
+  const dates = normalizeDateRange(dateFrom, dateTo);
+  return `custom:${dates.dateFrom}:${dates.dateTo}`;
+}
+
+function normalizeDateRange(dateFrom: string, dateTo: string) {
+  return dateFrom <= dateTo
+    ? { dateFrom, dateTo }
+    : { dateFrom: dateTo, dateTo: dateFrom };
+}
+
+function isIsoDate(value: string | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getCalendarAnchorDate(dates: { dateFrom: string | null; dateTo: string | null }) {
+  return dates.dateTo ? parseIsoDate(dates.dateTo) : new Date();
+}
+
+function buildCalendarDays(month: Date) {
+  const firstDay = startOfMonth(month);
+  const gridStart = addDays(firstDay, -firstDay.getDay());
+  return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+}
+
+function startOfMonth(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), 1);
+}
+
+function addMonths(value: Date, months: number) {
+  return new Date(value.getFullYear(), value.getMonth() + months, 1);
+}
+
+function isSameMonth(left: Date, right: Date) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
+}
+
+function isDateInRange(day: string, dateFrom: string | null, dateTo: string | null) {
+  if (!dateFrom || !dateTo) return false;
+  return day >= dateFrom && day <= dateTo;
+}
+
+function parseIsoDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
 function buildLastSevenDailyRows(rows: TokenUsageDailyRow[]) {
@@ -1043,6 +1263,13 @@ function formatDate(value: string) {
     month: "short",
     day: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatCalendarMonth(value: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+  }).format(value);
 }
 
 function formatShortDate(value: string) {
