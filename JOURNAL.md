@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-29 23:26
+- **done:**
+  - Replaced the admin usage date-range preset dropdown with a shared popover picker that keeps 7-day, 30-day, and all-time presets.
+  - Added custom calendar range selection for `/admin/usage` and `/admin/usage/users`, including one-day ranges by selecting the same date twice or double-clicking the date.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
 ### 2026-04-29 23:14
 - **done:**
   - Fixed the `/admin/usage/users` searchable user picker so outside blur closes the listbox without discarding the typed search query.
