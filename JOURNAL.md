@@ -47,15 +47,25 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-29 23:14
+- **done:**
+  - Fixed the `/admin/usage/users` searchable user picker so outside blur closes the listbox without discarding the typed search query.
+  - Added keyboard navigation for filtered user results with ArrowDown/ArrowUp, active descendant ARIA state, and Enter selection from the highlighted option.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
 ### 2026-04-29 23:00
 - **done:**
   - Replaced the selected-user native dropdown on `/admin/usage/users` with a searchable combobox that filters loaded users by email or user id.
   - Kept the existing selected-user URL behavior and admin token usage API contract unchanged.
   - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **doing:**
-  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
 - **blocked:**
-  - None.
+  - The first sandboxed `npm run build` hit the known Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
 
 ### 2026-04-28 15:39
 - **done:**

@@ -212,26 +212,55 @@ export function UserSelect({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const filteredUsers = useMemo(() => filterUsersBySearch(users, query), [query, users]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const activeUser = activeIndex >= 0 ? filteredUsers[activeIndex] ?? null : null;
+  const activeOptionId =
+    open && activeUser ? getUserOptionId(inputId, activeIndex) : undefined;
 
   useEffect(() => {
     setQuery(selectedUser?.user_email ?? "");
   }, [selectedUser?.user_email]);
 
+  useEffect(() => {
+    if (!open) {
+      setActiveIndex(-1);
+      return;
+    }
+
+    setActiveIndex((currentIndex) => {
+      if (filteredUsers.length === 0) return -1;
+      if (currentIndex >= 0 && currentIndex < filteredUsers.length) return currentIndex;
+      return getInitialActiveUserIndex(filteredUsers, value);
+    });
+  }, [filteredUsers, open, value]);
+
   const selectUser = useCallback(
     (user: AdminUsageUserRow) => {
       setQuery(user.user_email);
       setOpen(false);
+      setActiveIndex(-1);
       if (user.user_id !== value) onChange(user.user_id);
     },
     [onChange, value],
   );
 
-  const resetQuery = useCallback(() => {
+  const restoreSelectedQuery = useCallback(() => {
     setQuery(selectedUser?.user_email ?? "");
     setOpen(false);
+    setActiveIndex(-1);
   }, [selectedUser?.user_email]);
 
+  const closeListbox = useCallback(() => {
+    setOpen(false);
+    setActiveIndex(-1);
+  }, []);
+
   const commitQuery = useCallback(() => {
+    if (open && activeUser) {
+      selectUser(activeUser);
+      return;
+    }
+
     const exactMatch = users.find(
       (user) =>
         user.user_email.toLowerCase() === query.trim().toLowerCase() ||
@@ -242,14 +271,14 @@ export function UserSelect({
       selectUser(nextUser);
       return;
     }
-    resetQuery();
-  }, [filteredUsers, query, resetQuery, selectUser, users]);
+    closeListbox();
+  }, [activeUser, closeListbox, filteredUsers, open, query, selectUser, users]);
 
   return (
     <div
       className="relative min-w-0"
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resetQuery();
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closeListbox();
       }}
     >
       <label
@@ -273,6 +302,8 @@ export function UserSelect({
           aria-controls={listboxId}
           aria-expanded={open && !disabled}
           aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          aria-haspopup="listbox"
           aria-label="Search users"
           autoComplete="off"
           disabled={disabled}
@@ -280,16 +311,32 @@ export function UserSelect({
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
+            setActiveIndex(0);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            setActiveIndex((currentIndex) =>
+              currentIndex >= 0 ? currentIndex : getInitialActiveUserIndex(filteredUsers, value),
+            );
+          }}
           onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((currentIndex) => getNextUserIndex(filteredUsers, currentIndex));
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((currentIndex) => getPreviousUserIndex(filteredUsers, currentIndex));
+            }
             if (event.key === "Enter") {
               event.preventDefault();
               commitQuery();
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              resetQuery();
+              restoreSelectedQuery();
             }
           }}
           className="h-9 w-full rounded-lg border border-outline/25 bg-background pl-9 pr-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
@@ -304,18 +351,25 @@ export function UserSelect({
           {filteredUsers.length === 0 ? (
             <p className="px-3 py-2 text-xs text-hint">No matching users</p>
           ) : (
-            filteredUsers.map((user) => {
+            filteredUsers.map((user, index) => {
               const selected = user.user_id === value;
+              const active = index === activeIndex;
               return (
-                <button
+                <div
                   key={user.user_id}
-                  type="button"
+                  id={getUserOptionId(inputId, index)}
                   role="option"
                   aria-selected={selected}
-                  onClick={() => selectUser(user)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectUser(user);
+                  }}
+                  onMouseEnter={() => setActiveIndex(index)}
                   className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs transition-colors ${
                     selected
                       ? "bg-primary/10 text-primary"
+                      : active
+                        ? "bg-primary/5 text-on-surface"
                       : "text-on-surface hover:bg-primary/5"
                   }`}
                 >
@@ -326,7 +380,7 @@ export function UserSelect({
                   <span className="flex-shrink-0 tabular-nums text-hint">
                     {formatCompactInteger(user.total_tokens)}
                   </span>
-                </button>
+                </div>
               );
             })
           )}
@@ -347,6 +401,28 @@ function filterUsersBySearch(users: AdminUsageUserRow[], query: string) {
       return email.includes(normalizedQuery) || id.includes(normalizedQuery);
     })
     .slice(0, 20);
+}
+
+function getInitialActiveUserIndex(users: AdminUsageUserRow[], selectedUserId: string) {
+  if (users.length === 0) return -1;
+  const selectedIndex = users.findIndex((user) => user.user_id === selectedUserId);
+  return selectedIndex >= 0 ? selectedIndex : 0;
+}
+
+function getNextUserIndex(users: AdminUsageUserRow[], currentIndex: number) {
+  if (users.length === 0) return -1;
+  if (currentIndex < 0) return 0;
+  return currentIndex >= users.length - 1 ? 0 : currentIndex + 1;
+}
+
+function getPreviousUserIndex(users: AdminUsageUserRow[], currentIndex: number) {
+  if (users.length === 0) return -1;
+  if (currentIndex <= 0) return users.length - 1;
+  return currentIndex - 1;
+}
+
+function getUserOptionId(inputId: string, index: number) {
+  return `${inputId}-option-${index}`;
 }
 
 export function RefreshButton({
