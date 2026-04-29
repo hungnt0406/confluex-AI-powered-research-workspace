@@ -920,9 +920,9 @@ export function RecentEventsTable({
   return (
     <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
       <PanelTitle title={title} />
-      <div className="mt-3 overflow-x-auto">
+      <div className="mt-3 max-h-[28rem] overflow-auto">
         <table className="w-full min-w-[980px] text-left text-xs">
-          <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
+          <thead className="sticky top-0 z-10 border-b border-outline/20 bg-surface-container-lowest text-[10px] uppercase tracking-[0.14em] text-hint">
             <tr>
               <th className="py-2 pr-3 font-semibold">Time</th>
               <th className="py-2 pr-3 font-semibold">User</th>
