@@ -912,7 +912,7 @@ export function ProjectTable({
 
 export function RecentEventsTable({
   rows,
-  title = "Recent events",
+  title = "User log",
 }: {
   rows: AdminTokenUsage["recent_events"];
   title?: string;
@@ -921,12 +921,13 @@ export function RecentEventsTable({
     <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
       <PanelTitle title={title} />
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-xs">
+        <table className="w-full min-w-[980px] text-left text-xs">
           <thead className="border-b border-outline/20 text-[10px] uppercase tracking-[0.14em] text-hint">
             <tr>
               <th className="py-2 pr-3 font-semibold">Time</th>
               <th className="py-2 pr-3 font-semibold">User</th>
               <th className="py-2 pr-3 font-semibold">Project</th>
+              <th className="py-2 pr-3 font-semibold">Prompt</th>
               <th className="py-2 pr-3 font-semibold">Feature</th>
               <th className="py-2 pr-3 font-semibold">Model</th>
               <th className="py-2 pr-3 text-right font-semibold">Tokens</th>
@@ -940,6 +941,11 @@ export function RecentEventsTable({
                 <td className="py-2 pr-3 text-secondary">{row.user_email}</td>
                 <td className="py-2 pr-3">
                   <p className="max-w-40 truncate">{row.project_title}</p>
+                </td>
+                <td className="py-2 pr-3">
+                  <p className="max-w-72 truncate text-on-surface" title={row.user_prompt ?? undefined}>
+                    {row.user_prompt ?? "-"}
+                  </p>
                 </td>
                 <td className="py-2 pr-3">{formatLabel(row.feature)}</td>
                 <td className="py-2 pr-3 text-hint">
