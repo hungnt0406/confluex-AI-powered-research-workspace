@@ -25,7 +25,8 @@ a { color: #32432C; }
   font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
 }
 
-.custom-scrollbar::-webkit-scrollbar { width: 3px; }
+.custom-scrollbar { scrollbar-color: #1d2d1840 transparent; scrollbar-width: thin; }
+.custom-scrollbar::-webkit-scrollbar { width: 3px; height: 3px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #1d2d1840; border-radius: 10px; }
 .chat-container { max-width: 48rem; margin-left: auto; margin-right: auto; }

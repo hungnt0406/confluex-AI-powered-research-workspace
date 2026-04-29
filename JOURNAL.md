@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-30 00:04
+- **done:**
+  - Applied the existing thin custom scrollbar styling to the admin usage log scroll container.
+  - Extended the shared scrollbar utility to keep horizontal table scrolling thin and minimal too.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/app/globals.css`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-04-30 00:00
 - **done:**
   - Made the shared admin usage log table render inside a fixed-height scroll area.
