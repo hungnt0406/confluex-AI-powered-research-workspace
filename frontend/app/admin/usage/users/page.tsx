@@ -208,10 +208,8 @@ export default function AdminUsageUsersPage() {
             <BreakdownPanel title="Feature breakdown" rows={userUsage.by_feature} />
             <BreakdownPanel title="Model breakdown" rows={userUsage.by_model} />
           </section>
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-            <ProjectTable rows={userUsage.by_project} title="Projects used" />
-            <RecentEventsTable rows={userUsage.recent_events} title="Recent activity" />
-          </section>
+          <ProjectTable rows={userUsage.by_project} title="Projects used" />
+          <RecentEventsTable rows={userUsage.recent_events} title="Recent activity" />
         </>
       ) : null}
     </AdminUsageLayout>
