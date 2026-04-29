@@ -920,7 +920,7 @@ export function RecentEventsTable({
   return (
     <section className="rounded-xl border border-outline/20 bg-surface-container-lowest p-4">
       <PanelTitle title={title} />
-      <div className="mt-3 max-h-[28rem] overflow-auto">
+      <div className="custom-scrollbar mt-3 max-h-[28rem] overflow-auto">
         <table className="w-full min-w-[980px] text-left text-xs">
           <thead className="sticky top-0 z-10 border-b border-outline/20 bg-surface-container-lowest text-[10px] uppercase tracking-[0.14em] text-hint">
             <tr>
