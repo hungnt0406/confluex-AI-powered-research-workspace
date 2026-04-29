@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import AIUsageEvent, Project, User
+from backend.db.models import AIUsageEvent, Project, ProjectConversation, ProjectMessage, User
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,7 @@ class UsageRecentEventRow:
     reasoning_tokens: int
     cached_tokens: int
     cost_credits: float | None
+    user_prompt: str | None
 
 
 @dataclass(frozen=True)
@@ -545,6 +546,24 @@ async def _admin_recent_events(
     filters: list[Any],
     recent_limit: int,
 ) -> list[UsageRecentEventRow]:
+    user_prompt_subquery = (
+        select(ProjectMessage.content)
+        .join(ProjectConversation, ProjectConversation.id == ProjectMessage.conversation_id)
+        .where(
+            ProjectConversation.project_id == AIUsageEvent.project_id,
+            ProjectMessage.role == "user",
+            ProjectMessage.created_at <= AIUsageEvent.created_at,
+        )
+        .order_by(ProjectMessage.created_at.desc(), ProjectMessage.id.desc())
+        .limit(1)
+        .correlate(AIUsageEvent)
+        .scalar_subquery()
+    )
+    user_prompt_expression = case(
+        (AIUsageEvent.feature == "project_chat_answer", user_prompt_subquery),
+        else_=None,
+    )
+
     result = await session.execute(
         select(
             AIUsageEvent.id,
@@ -564,6 +583,7 @@ async def _admin_recent_events(
             func.coalesce(AIUsageEvent.reasoning_tokens, 0),
             func.coalesce(AIUsageEvent.cached_tokens, 0),
             AIUsageEvent.cost_credits,
+            user_prompt_expression,
         )
         .join(Project, Project.id == AIUsageEvent.project_id)
         .join(User, User.id == AIUsageEvent.user_id)
@@ -590,6 +610,7 @@ async def _admin_recent_events(
             reasoning_tokens=int(row[14] or 0),
             cached_tokens=int(row[15] or 0),
             cost_credits=_float_or_none(row[16]),
+            user_prompt=str(row[17]) if row[17] is not None else None,
         )
         for row in result.all()
     ]
