@@ -135,6 +135,7 @@ async def get_admin_token_usage(
                 reasoning_tokens=row.reasoning_tokens,
                 cached_tokens=row.cached_tokens,
                 cost_credits=row.cost_credits,
+                user_prompt=row.user_prompt,
             )
             for row in summary.recent_events
         ],
