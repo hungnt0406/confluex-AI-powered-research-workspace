@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-29 23:00
+- **done:**
+  - Replaced the selected-user native dropdown on `/admin/usage/users` with a searchable combobox that filters loaded users by email or user id.
+  - Kept the existing selected-user URL behavior and admin token usage API contract unchanged.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 15:39
 - **done:**
   - Changed the `/admin/usage` daily trend to render the API-provided daily rows for the selected date range instead of defaulting to a hardcoded seven-day window.

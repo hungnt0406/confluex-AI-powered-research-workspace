@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   AdminAccess,
@@ -203,29 +203,150 @@ export function UserSelect({
   disabled?: boolean;
   onChange: (userId: string) => void;
 }) {
-  return (
-    <label className="min-w-0">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint">
-        User
-      </span>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-outline/25 bg-background px-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
-      >
-        {users.length === 0 ? (
-          <option value="">No users</option>
-        ) : (
-          users.map((user) => (
-            <option key={user.user_id} value={user.user_id}>
-              {user.user_email}
-            </option>
-          ))
-        )}
-      </select>
-    </label>
+  const inputId = useId();
+  const listboxId = `${inputId}-listbox`;
+  const selectedUser = useMemo(
+    () => users.find((user) => user.user_id === value) ?? null,
+    [users, value],
   );
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const filteredUsers = useMemo(() => filterUsersBySearch(users, query), [query, users]);
+
+  useEffect(() => {
+    setQuery(selectedUser?.user_email ?? "");
+  }, [selectedUser?.user_email]);
+
+  const selectUser = useCallback(
+    (user: AdminUsageUserRow) => {
+      setQuery(user.user_email);
+      setOpen(false);
+      if (user.user_id !== value) onChange(user.user_id);
+    },
+    [onChange, value],
+  );
+
+  const resetQuery = useCallback(() => {
+    setQuery(selectedUser?.user_email ?? "");
+    setOpen(false);
+  }, [selectedUser?.user_email]);
+
+  const commitQuery = useCallback(() => {
+    const exactMatch = users.find(
+      (user) =>
+        user.user_email.toLowerCase() === query.trim().toLowerCase() ||
+        user.user_id.toLowerCase() === query.trim().toLowerCase(),
+    );
+    const nextUser = exactMatch ?? (filteredUsers.length === 1 ? filteredUsers[0] : null);
+    if (nextUser) {
+      selectUser(nextUser);
+      return;
+    }
+    resetQuery();
+  }, [filteredUsers, query, resetQuery, selectUser, users]);
+
+  return (
+    <div
+      className="relative min-w-0"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resetQuery();
+      }}
+    >
+      <label
+        htmlFor={inputId}
+        className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-hint"
+      >
+        User
+      </label>
+      <div className="relative">
+        <span
+          className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-hint"
+          style={{ fontSize: "16px" }}
+        >
+          search
+        </span>
+        <input
+          id={inputId}
+          type="search"
+          value={query}
+          role="combobox"
+          aria-controls={listboxId}
+          aria-expanded={open && !disabled}
+          aria-autocomplete="list"
+          aria-label="Search users"
+          autoComplete="off"
+          disabled={disabled}
+          placeholder={users.length === 0 ? "No users" : "Search by email or user ID"}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitQuery();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              resetQuery();
+            }
+          }}
+          className="h-9 w-full rounded-lg border border-outline/25 bg-background pl-9 pr-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
+        />
+      </div>
+      {open && !disabled ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-outline/25 bg-surface-container-lowest p-1 shadow-lg"
+        >
+          {filteredUsers.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-hint">No matching users</p>
+          ) : (
+            filteredUsers.map((user) => {
+              const selected = user.user_id === value;
+              return (
+                <button
+                  key={user.user_id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => selectUser(user)}
+                  className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs transition-colors ${
+                    selected
+                      ? "bg-primary/10 text-primary"
+                      : "text-on-surface hover:bg-primary/5"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{user.user_email}</span>
+                    <span className="block truncate text-[10px] text-hint">{user.user_id}</span>
+                  </span>
+                  <span className="flex-shrink-0 tabular-nums text-hint">
+                    {formatCompactInteger(user.total_tokens)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function filterUsersBySearch(users: AdminUsageUserRow[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return users.slice(0, 20);
+
+  return users
+    .filter((user) => {
+      const email = user.user_email.toLowerCase();
+      const id = user.user_id.toLowerCase();
+      return email.includes(normalizedQuery) || id.includes(normalizedQuery);
+    })
+    .slice(0, 20);
 }
 
 export function RefreshButton({
