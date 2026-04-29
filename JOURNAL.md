@@ -47,6 +47,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-29 23:32
+- **done:**
+  - Moved `Projects used` above `Recent activity` on `/admin/usage/users` by removing the side-by-side two-column grid for those sections.
+  - Changed files: `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend layout change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
 ### 2026-04-29 23:26
 - **done:**
   - Replaced the admin usage date-range preset dropdown with a shared popover picker that keeps 7-day, 30-day, and all-time presets.
