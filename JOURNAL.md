@@ -47,6 +47,36 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-29 23:54
+- **done:**
+  - Stacked `Top projects` above the global dashboard log instead of rendering the two panels side by side.
+  - Kept the global dashboard log title as `Recent activity` while preserving `User log` on selected-user analysis.
+  - Changed the admin usage summary to return all matching log rows for the selected range instead of capping recent events at 25.
+  - Changed files: `backend/services/ai_usage.py`, `frontend/app/admin/usage/page.tsx`, `README.md`, `frontend/README.md`, `tests/test_admin.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `python -m pytest tests/test_admin.py -q`, `python -m ruff check backend/services/ai_usage.py tests/test_admin.py`, `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:43
+- **done:**
+  - Renamed the admin usage recent-event table to `User log` in the UI.
+  - Added admin-only prompt display for project chat usage rows by reading the matching persisted user message at response time, without storing prompts in `ai_usage_events`.
+  - Changed files: `backend/services/ai_usage.py`, `backend/api/schemas/admin.py`, `backend/api/routers/admin.py`, `frontend/lib/api.ts`, `frontend/app/admin/usage/components.tsx`, `frontend/app/admin/usage/users/page.tsx`, `README.md`, `frontend/README.md`, `tests/test_admin.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `python -m pytest tests/test_admin.py -q`, `python -m ruff check backend/services/ai_usage.py backend/api/schemas/admin.py backend/api/routers/admin.py tests/test_admin.py`, `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:36
+- **done:**
+  - Updated recent `AI_WORKLOG.md` admin UI entries so the `Prompt/Request` field preserves exact user prompt text instead of only paraphrased summaries.
+  - Changed files: `AI_WORKLOG.md`, `JOURNAL.md`.
+- **doing:**
+  - Verified the documentation-only change with `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-04-29 23:32
 - **done:**
   - Moved `Projects used` above `Recent activity` on `/admin/usage/users` by removing the side-by-side two-column grid for those sections.
