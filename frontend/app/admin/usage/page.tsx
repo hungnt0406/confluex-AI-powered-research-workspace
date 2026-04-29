@@ -102,10 +102,8 @@ export default function AdminUsagePage() {
             totalTokens={usage.total_tokens}
             totalRequests={usage.request_count}
           />
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-            <ProjectTable rows={usage.by_project} />
-            <RecentEventsTable rows={usage.recent_events} />
-          </section>
+          <ProjectTable rows={usage.by_project} />
+          <RecentEventsTable rows={usage.recent_events} title="Recent activity" />
         </>
       ) : null}
     </AdminUsageLayout>
