@@ -122,7 +122,7 @@ npm run dev
 `PATCH /projects/{id}` renames an owned project without changing any of its persisted papers, conversations, or writer outputs.
 `DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
 `GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist.
-`GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and recent events with optional `date_from`, `date_to`, `user_id`, and `project_id` filters.
+`GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and all matching user log rows for the selected range with optional `date_from`, `date_to`, `user_id`, and `project_id` filters. Project chat usage rows include the persisted user prompt that produced the chat answer.
 `GET /projects/{id}/token-usage` returns provider-reported token totals plus breakdowns by feature, model, and day for the authenticated user's project.
 `GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
@@ -155,7 +155,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literatu
 
 - Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
 - Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
-- Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry.
+- Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry. The admin user log reads chat prompts from already-persisted project messages for display.
 - `ADMIN_EMAILS` is a comma-separated allowlist for the admin usage monitor.
 - When those API keys are missing in local/dev/test environments, the pipeline falls back to deterministic offline behavior so the app and tests still run.
 - Live API smoke tests for Semantic Scholar and arXiv are opt-in:
