@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-30 00:00
+- **done:**
+  - Made the shared admin usage log table render inside a fixed-height scroll area.
+  - Kept the log table header sticky so column labels remain visible while scrolling long selected-range logs.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-04-29 23:54
 - **done:**
   - Stacked `Top projects` above the global dashboard log instead of rendering the two panels side by side.
