@@ -176,6 +176,7 @@ export type AdminUsageEventRow = {
   reasoning_tokens: number;
   cached_tokens: number;
   cost_credits: number | null;
+  user_prompt: string | null;
 };
 
 export type AdminTokenUsage = {
