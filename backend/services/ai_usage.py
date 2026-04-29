@@ -253,7 +253,7 @@ async def summarize_admin_usage(
     date_to: date | None = None,
     user_id: str | None = None,
     project_id: str | None = None,
-    recent_limit: int = 25,
+    recent_limit: int | None = None,
 ) -> AdminTokenUsageSummary:
     """Aggregate persisted usage across all users and projects for admins."""
 
@@ -544,7 +544,7 @@ async def _admin_recent_events(
     *,
     session: AsyncSession,
     filters: list[Any],
-    recent_limit: int,
+    recent_limit: int | None,
 ) -> list[UsageRecentEventRow]:
     user_prompt_subquery = (
         select(ProjectMessage.content)
@@ -564,7 +564,7 @@ async def _admin_recent_events(
         else_=None,
     )
 
-    result = await session.execute(
+    statement = (
         select(
             AIUsageEvent.id,
             AIUsageEvent.created_at,
@@ -589,8 +589,11 @@ async def _admin_recent_events(
         .join(User, User.id == AIUsageEvent.user_id)
         .where(*filters)
         .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id.desc())
-        .limit(recent_limit)
     )
+    if recent_limit is not None:
+        statement = statement.limit(recent_limit)
+
+    result = await session.execute(statement)
     return [
         UsageRecentEventRow(
             id=str(row[0]),
