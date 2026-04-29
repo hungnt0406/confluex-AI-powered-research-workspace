@@ -40,7 +40,7 @@ npm run dev:reset
   2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
   3. `GET /projects/{id}/papers` — ranked papers populate the right panel with no paper selected by default.
   4. `POST /projects/{id}/conversations/stream` — starts a project-scoped chat with `paper_ids: []` for a streamed general answer until papers are selected.
-- Admin usage monitor: `/admin/usage` checks `GET /admin/access`, then reads `GET /admin/token-usage` as a global dashboard for allowlisted admins. `/admin/usage/users` reuses the same endpoint for selected-user analysis with a `user_id` query string deep link.
+- Admin usage monitor: `/admin/usage` checks `GET /admin/access`, then reads `GET /admin/token-usage` as a global dashboard for allowlisted admins. `/admin/usage/users` reuses the same endpoint for selected-user analysis with a searchable user picker and a `user_id` query string deep link.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
