@@ -209,7 +209,7 @@ export default function AdminUsageUsersPage() {
             <BreakdownPanel title="Model breakdown" rows={userUsage.by_model} />
           </section>
           <ProjectTable rows={userUsage.by_project} title="Projects used" />
-          <RecentEventsTable rows={userUsage.recent_events} title="Recent activity" />
+          <RecentEventsTable rows={userUsage.recent_events} title="User log" />
         </>
       ) : null}
     </AdminUsageLayout>
