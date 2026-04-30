@@ -1,5 +1,8 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from backend.api.dependencies import DbSession
 from backend.api.schemas.auth import AuthRequest, AuthResponse, GoogleAuthRequest, UserRead
@@ -89,13 +92,11 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google credential.",
         ) from None
-    except Exception as exc:
-        import logging
-
+    except Exception:
         logging.getLogger(__name__).exception("Google token verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Google authentication error: {exc}",
+            detail="Google authentication failed. Please try again.",
         ) from None
 
     google_sub: str = idinfo["sub"]
@@ -114,15 +115,31 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
 
     if user is None:
         # Auto-register a new Google user (no password needed).
-        user = User(
-            email=email,
-            hashed_password=None,
-            auth_provider="google",
-            google_sub=google_sub,
-        )
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
+        # Handle race condition: if a concurrent request already inserted
+        # this user, catch the IntegrityError and re-fetch.
+        try:
+            user = User(
+                email=email,
+                hashed_password=None,
+                auth_provider="google",
+                google_sub=google_sub,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        except IntegrityError:
+            await session.rollback()
+            result = await session.execute(
+                select(User).where(
+                    (User.google_sub == google_sub) | (User.email == email)
+                )
+            )
+            user = result.scalar_one_or_none()
+            if user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Account creation failed. Please try again.",
+                ) from None
     elif user.google_sub is None:
         # Link existing email/password user to their Google identity.
         user.google_sub = google_sub
