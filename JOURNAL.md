@@ -47,6 +47,25 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-30 10:22
+- **done:**
+  - Replaced the browser-native user search clear control with a custom neutral clear button.
+  - Increased the clear button hit target and added accessible focus/hover states.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-30 10:18
+- **done:**
+  - Added a subtle hover lift, shadow, color transition, active press state, and disabled cursor state to the primary login button.
+  - Changed files: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-04-30 10:11
 - **done:**
   - Changed the Google Sign-In GIS button from pill-shaped to rectangular so it visually matches the existing `Sign in` button shape.

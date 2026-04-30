@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   AdminAccess,
@@ -356,6 +356,7 @@ export function UserSelect({
 }) {
   const inputId = useId();
   const listboxId = `${inputId}-listbox`;
+  const inputRef = useRef<HTMLInputElement>(null);
   const selectedUser = useMemo(
     () => users.find((user) => user.user_id === value) ?? null,
     [users, value],
@@ -446,8 +447,9 @@ export function UserSelect({
           search
         </span>
         <input
+          ref={inputRef}
           id={inputId}
-          type="search"
+          type="text"
           value={query}
           role="combobox"
           aria-controls={listboxId}
@@ -490,8 +492,27 @@ export function UserSelect({
               restoreSelectedQuery();
             }
           }}
-          className="h-9 w-full rounded-lg border border-outline/25 bg-background pl-9 pr-3 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
+          className="h-9 w-full rounded-lg border border-outline/25 bg-background pl-9 pr-11 text-xs text-on-surface outline-none transition-colors focus:border-primary/50 disabled:opacity-50"
         />
+        {query ? (
+          <button
+            type="button"
+            aria-label="Clear user search"
+            disabled={disabled}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setQuery("");
+              setOpen(true);
+              setActiveIndex(0);
+              inputRef.current?.focus();
+            }}
+            className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-on-surface-variant transition-colors hover:bg-outline/10 hover:text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>
+              close
+            </span>
+          </button>
+        ) : null}
       </div>
       {open && !disabled ? (
         <div
