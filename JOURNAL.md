@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-30 10:11
+- **done:**
+  - Changed the Google Sign-In GIS button from pill-shaped to rectangular so it visually matches the existing `Sign in` button shape.
+  - Rendered the Google button at the login form content width instead of the previous fixed 300px width.
+  - Changed files: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-04-30 00:38
 - **done:**
   - Implemented Google Sign-In (OAuth 2.0) across the full stack.
