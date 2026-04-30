@@ -155,9 +155,9 @@ function GoogleSignInButton({
       window.google.accounts.id.renderButton(el, {
         theme: "outline",
         size: "large",
-        width: 300,
+        width: el.clientWidth || 320,
         text: "signin_with",
-        shape: "pill",
+        shape: "rectangular",
       });
 
       return true;
@@ -175,7 +175,7 @@ function GoogleSignInButton({
   return (
     <div
       ref={containerRef}
-      className={`flex justify-center ${disabled ? "pointer-events-none opacity-50" : ""}`}
+      className={`flex w-full justify-center ${disabled ? "pointer-events-none opacity-50" : ""}`}
     />
   );
 }
