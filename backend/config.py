@@ -54,6 +54,7 @@ class Settings(BaseSettings):
         default=120_000,
         alias="REFERENCE_MAX_EXTRACTED_CHARS",
     )
+    google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
