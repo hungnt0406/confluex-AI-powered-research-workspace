@@ -47,6 +47,21 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-04-30 00:38
+- **done:**
+  - Implemented Google Sign-In (OAuth 2.0) across the full stack.
+  - Backend: new `POST /auth/google` endpoint verifying Google ID tokens via `google-auth` library, auto-registration and account linking logic, guarded email login for password-less users.
+  - Database: Alembic migration adding `auth_provider`, `google_sub` columns to users table, made `hashed_password` nullable for OAuth-only accounts.
+  - Frontend: Google Identity Services button on login page, `loginWithGoogle` in AuthProvider, TypeScript type declarations for GIS.
+  - Fixed login page font consistency (`font-ui text-on-surface` on `<main>`).
+  - Changed files: `backend/config.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260430_01_google_auth.py`, `backend/api/routers/auth.py`, `backend/api/schemas/auth.py`, `frontend/app/layout.tsx`, `frontend/components/AuthProvider.tsx`, `frontend/app/login/page.tsx`, `frontend/types/google-gsi.d.ts`, `.env`, `.env.example`, `pyproject.toml`, `JOURNAL.md`.
+- **doing:**
+  - Verified: `ruff check` passes, `tsc --noEmit` passes, `alembic upgrade head` succeeded.
+- **blocked:**
+  - None.
+
+---
+
 ### 2026-04-30 00:04
 - **done:**
   - Applied the existing thin custom scrollbar styling to the admin usage log scroll container.
