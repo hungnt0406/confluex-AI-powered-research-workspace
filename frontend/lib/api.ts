@@ -310,6 +310,58 @@ export type ProjectConversationStreamEvent =
   | { event: "done"; data: ProjectConversation }
   | { event: "error"; data: { detail: string } };
 
+export type DeepSearchSource = {
+  id: string;
+  run_id: string;
+  source_type: "paper" | "paper_chunk" | "citation_graph" | "web";
+  title: string;
+  url: string | null;
+  paper_id: string | null;
+  snippet: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DeepSearchSourceEventData = {
+  id: string;
+  source_type: "paper" | "paper_chunk" | "citation_graph" | "web";
+  title: string;
+  url: string | null;
+  paper_id: string | null;
+  note: string;
+};
+
+export type DeepSearchRunSummary = {
+  id: string;
+  project_id: string;
+  user_prompt: string;
+  status: "running" | "completed" | "failed";
+  selected_paper_ids: string[];
+  source_count: number;
+  warning_count: number;
+  qa_flag_count: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type DeepSearchRun = DeepSearchRunSummary & {
+  plan: Record<string, unknown>;
+  report_body: string;
+  source_summary: Record<string, unknown>;
+  warnings: string[];
+  qa_flags: Record<string, unknown>[];
+  sources: DeepSearchSource[];
+};
+
+export type DeepSearchStreamEvent =
+  | { event: "run"; data: DeepSearchRunSummary }
+  | { event: "status"; data: { phase: string } }
+  | { event: "source"; data: DeepSearchSourceEventData }
+  | { event: "token"; data: { delta: string } }
+  | { event: "done"; data: DeepSearchRun }
+  | { event: "error"; data: { detail: string; run_id?: string } };
+
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
 
 export async function streamProjectConversation(
@@ -362,6 +414,71 @@ export async function streamProjectConversation(
     if (!dataLines.length) return;
     const data = JSON.parse(dataLines.join("\n"));
     options.onEvent({ event: eventName, data } as ProjectConversationStreamEvent);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) flushFrame(frame);
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) flushFrame(buffer);
+}
+
+export async function streamDeepSearchRun(
+  path: string,
+  options: {
+    token: string;
+    json: { paper_ids: string[]; question: string };
+    onEvent: (event: DeepSearchStreamEvent) => void;
+  },
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${options.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(options.json),
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const data = await response.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: any) => d.msg).join("; ");
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body was not available.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flushFrame = (frame: string) => {
+    const lines = frame.split(/\r?\n/);
+    let eventName = "message";
+    const dataLines: string[] = [];
+    for (const line of lines) {
+      if (!line || line.startsWith(":")) continue;
+      if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+      if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
+    }
+    if (!dataLines.length) return;
+    const data = JSON.parse(dataLines.join("\n"));
+    options.onEvent({ event: eventName, data } as DeepSearchStreamEvent);
   };
 
   while (true) {
