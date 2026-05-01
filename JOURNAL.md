@@ -47,6 +47,28 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-01 23:34
+- **done:**
+  - Added favicon-style source images to Deep Search source cards in the right context panel.
+  - Uses each source URL hostname to load a small favicon image, with a local article icon fallback for missing or failed favicons.
+  - Extended frontend static coverage for favicon rendering in Deep Search source cards.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 23:26
+- **done:**
+  - Moved Deep Search source display from inline answer chips into the right context panel as a `Deep Search Sources` section, matching the existing related-paper sidebar pattern.
+  - Exposed a deduped `deepSearchSources` list from chat state and kept the context panel open when sources exist even if no ranked papers are present.
+  - Removed the inline Deep Search source chip strip under assistant answers.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-05-01 22:29
 - **done:**
   - Hardened restored chat sorting against malformed timestamps by replacing raw `Date.parse(...)` subtraction with a finite sort key and stable index tiebreaker.
