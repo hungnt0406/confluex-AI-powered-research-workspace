@@ -51,3 +51,19 @@ def test_frontend_restored_chat_sort_handles_invalid_timestamps() -> None:
     assert "Number.POSITIVE_INFINITY" in chat_provider
     assert "left.sortKey < right.sortKey" in chat_provider
     assert "left.index - right.index" in chat_provider
+
+
+def test_frontend_deep_search_sources_render_in_context_panel() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+    context_panel = (REPO_ROOT / "frontend/components/ContextPanel.tsx").read_text()
+
+    assert "deepSearchSources" in chat_provider
+    assert "DeepSearchSourceCard" in context_panel
+    assert "SourceFavicon" in context_panel
+    assert "getFaviconUrl" in context_panel
+    assert "https://www.google.com/s2/favicons" in context_panel
+    assert "onError={() => setFailed(true)}" in context_panel
+    assert "Deep Search Sources" in context_panel
+    assert "open = papers.length > 0 || deepSearchSources.length > 0" in context_panel
+    assert "sources={message.sources}" not in chat_workspace
