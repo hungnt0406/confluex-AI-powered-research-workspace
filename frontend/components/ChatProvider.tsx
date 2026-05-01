@@ -68,6 +68,7 @@ type ChatState = {
   papers: ProjectPaper[];
   selectedPaperIds: string[];
   selectedPapers: ProjectPaper[];
+  deepSearchSources: DeepSearchDisplaySource[];
   queries: string[];
   conversation: ProjectConversation | null;
   runSummary: RunPipelineResponse | null;
@@ -278,6 +279,16 @@ function deepSearchSourceToDisplaySource(source: DeepSearchSource): DeepSearchDi
   };
 }
 
+function dedupeDeepSearchSources(sources: DeepSearchDisplaySource[]) {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const key = source.url ?? `${source.id}:${source.title}:${source.sourceType}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function buildRestoredDeepSearchMessages(project: Project, runs: DeepSearchRun[]): ChatMessage[] {
   return [...runs]
     .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
@@ -406,6 +417,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       .map((paperId) => papers.find((paper) => paper.id === paperId) ?? null)
       .filter((paper): paper is ProjectPaper => paper !== null),
     [papers, selectedPaperIds],
+  );
+  const deepSearchSources = useMemo(
+    () => dedupeDeepSearchSources(messages.flatMap((message) => message.sources ?? [])),
+    [messages],
   );
 
   const startNewResearch = useCallback(() => {
@@ -1123,6 +1138,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       papers,
       selectedPaperIds,
       selectedPapers,
+      deepSearchSources,
       queries,
       conversation,
       runSummary,
@@ -1150,6 +1166,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       papers,
       selectedPaperIds,
       selectedPapers,
+      deepSearchSources,
       queries,
       conversation,
       runSummary,
