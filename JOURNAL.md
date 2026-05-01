@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-01 22:22
+- **done:**
+  - Fixed restored chat ordering so Deep Search answers are restored as turn-paired messages anchored to the run start time instead of the completion time.
+  - Merged restored normal conversation messages and restored Deep Search messages chronologically to prevent stacked user questions after refresh.
+  - Extended the frontend static regression to cover restored message ordering.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-05-01 22:09
 - **done:**
   - Fixed project refresh restoration so completed Deep Search runs are fetched from `/deep-search-runs`, converted back into assistant messages, and rendered with saved source chips.
