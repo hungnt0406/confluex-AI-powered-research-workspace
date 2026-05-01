@@ -11,6 +11,9 @@ import {
 } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  DeepSearchRun,
+  DeepSearchSource,
+  DeepSearchSourceEventData,
   Paginated,
   Project,
   ProjectConversation,
@@ -19,6 +22,7 @@ import {
   ProjectTitleUpdate,
   RunPipelineResponse,
   api,
+  streamDeepSearchRun,
   streamProjectConversation,
   uploadProjectReferenceFile,
 } from "@/lib/api";
@@ -34,7 +38,17 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   kind?: "text" | "status" | "summary";
+  sources?: DeepSearchDisplaySource[];
   createdAt: string;
+};
+
+export type ChatMode = "standard" | "deep_search";
+
+export type DeepSearchDisplaySource = {
+  id: string;
+  title: string;
+  url: string | null;
+  sourceType: DeepSearchSource["source_type"];
 };
 
 export type ComposerNotice = {
@@ -61,6 +75,8 @@ type ChatState = {
   error: string | null;
   composerNotice: ComposerNotice | null;
   lastUploadedPaperId: string | null;
+  chatMode: ChatMode;
+  setChatMode: (mode: ChatMode) => void;
   selectProject: (id: string) => Promise<void>;
   renameProject: (id: string, title: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -212,11 +228,43 @@ function buildRestoredConversationMessages(
     }));
 }
 
+function deepSearchSourceEventToDisplaySource(
+  source: DeepSearchSourceEventData,
+): DeepSearchDisplaySource {
+  return {
+    id: source.id,
+    title: source.title,
+    url: source.url,
+    sourceType: source.source_type,
+  };
+}
+
+function deepSearchSourceToDisplaySource(source: DeepSearchSource): DeepSearchDisplaySource {
+  const sourceId = typeof source.metadata?.source_id === "string"
+    ? source.metadata.source_id
+    : source.id;
+  return {
+    id: sourceId,
+    title: source.title,
+    url: source.url,
+    sourceType: source.source_type,
+  };
+}
+
+function formatDeepSearchPhase(phase: string) {
+  return phase
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const authedRef = useRef(token);
   const activeProjectIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
+  const deepSearchStatusMessageIds = useRef<Set<string>>(new Set());
   authedRef.current = token;
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -232,6 +280,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [composerNotice, setComposerNotice] = useState<ComposerNotice | null>(null);
   const [lastUploadedPaperId, setLastUploadedPaperId] = useState<string | null>(null);
+  const [chatMode, setChatMode] = useState<ChatMode>("standard");
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   activeProjectIdRef.current = activeProject?.id ?? null;
 
@@ -256,6 +305,32 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const clearComposerNotice = useCallback(() => {
     setComposerNotice(null);
+  }, []);
+
+  const appendDeepSearchStatusMessage = useCallback(
+    (content: string, role: "assistant" | "system" = "system") => {
+      const messageId = uid();
+      deepSearchStatusMessageIds.current.add(messageId);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: messageId,
+          role,
+          kind: "status",
+          content,
+          createdAt: now(),
+        },
+      ]);
+    },
+    [],
+  );
+
+  const clearDeepSearchStatusMessages = useCallback(() => {
+    const statusIds = deepSearchStatusMessageIds.current;
+    if (statusIds.size === 0) return;
+
+    setMessages((prev) => prev.filter((message) => !statusIds.has(message.id)));
+    statusIds.clear();
   }, []);
 
   useEffect(() => {
@@ -672,6 +747,121 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const streamDeepSearchTurn = useCallback(
+    async ({
+      projectId,
+      paperIds,
+      question,
+    }: {
+      projectId: string;
+      paperIds: string[];
+      question: string;
+    }) => {
+      if (!authedRef.current) throw new Error("You must be logged in to chat.");
+
+      const assistantMessageId = uid();
+      const collectedSources: DeepSearchDisplaySource[] = [];
+      let completedRun: DeepSearchRun | null = null;
+      let streamedError: string | null = null;
+
+      clearDeepSearchStatusMessages();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          kind: "summary",
+          content: "",
+          sources: [],
+          createdAt: now(),
+        },
+      ]);
+
+      await streamDeepSearchRun(`/projects/${projectId}/deep-search/stream`, {
+        token: authedRef.current,
+        json: { paper_ids: paperIds, question },
+        onEvent: (event) => {
+          if (event.event === "run") {
+            appendDeepSearchStatusMessage("Deep Search run started.");
+            return;
+          }
+
+          if (event.event === "status") {
+            appendDeepSearchStatusMessage(`Deep Search: ${formatDeepSearchPhase(event.data.phase)}`);
+            return;
+          }
+
+          if (event.event === "source") {
+            collectedSources.push(deepSearchSourceEventToDisplaySource(event.data));
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? { ...message, sources: [...collectedSources] }
+                  : message,
+              ),
+            );
+            return;
+          }
+
+          if (event.event === "token") {
+            const delta = event.data.delta;
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? { ...message, content: `${message.content}${delta}` }
+                  : message,
+              ),
+            );
+            return;
+          }
+
+          if (event.event === "done") {
+            completedRun = event.data;
+            const finalSources = event.data.sources.map(deepSearchSourceToDisplaySource);
+            clearDeepSearchStatusMessages();
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                    ...message,
+                    content: event.data.report_body,
+                    sources: finalSources,
+                    createdAt: event.data.completed_at ?? message.createdAt,
+                  }
+                  : message,
+              ),
+            );
+            return;
+          }
+
+          if (event.event === "error") {
+            streamedError = event.data.detail;
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                    ...message,
+                    kind: "status",
+                    content: `Error: ${event.data.detail}`,
+                  }
+                  : message,
+              ),
+            );
+          }
+        },
+      });
+
+      if (streamedError) {
+        throw new Error(streamedError);
+      }
+      if (!completedRun) {
+        throw new Error("The deep search stream ended before the run was persisted.");
+      }
+      return completedRun;
+    },
+    [appendDeepSearchStatusMessage, clearDeepSearchStatusMessages],
+  );
+
   const submitMessage = useCallback(
     async (text: string) => {
       if (!authedRef.current) return;
@@ -693,6 +883,32 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (!activeProject) {
+          if (chatMode === "deep_search") {
+            appendDeepSearchStatusMessage("Creating your project for Deep Search…", "assistant");
+
+            const project = await api<Project>("/projects", {
+              method: "POST",
+              token: authedRef.current,
+              json: buildProjectCreatePayload(trimmed),
+            });
+            setActiveProject(project);
+            await refreshProjects();
+
+            const nextPapers = await fetchProjectPapers(project.id);
+            setPapers(nextPapers);
+            setSelectedPaperIds([]);
+            setQueries([]);
+            setRunSummary(null);
+            setConversation(null);
+
+            await streamDeepSearchTurn({
+              projectId: project.id,
+              paperIds: [],
+              question: trimmed,
+            });
+            return;
+          }
+
           setMessages((prev) => [
             ...prev,
             {
@@ -765,6 +981,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setSelectedPaperIds(nextSelectedPaperIds);
         }
 
+        if (chatMode === "deep_search") {
+          await streamDeepSearchTurn({
+            projectId: activeProject.id,
+            paperIds: nextSelectedPaperIds,
+            question: trimmed,
+          });
+          return;
+        }
+
         if (!conversation) {
           await streamProjectChatTurn({
             projectId: activeProject.id,
@@ -799,11 +1024,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     },
     [
       activeProject,
+      chatMode,
       conversation,
       fetchProjectPapers,
+      appendDeepSearchStatusMessage,
       papers,
       refreshProjects,
       selectedPaperIds,
+      streamDeepSearchTurn,
       streamProjectChatTurn,
     ],
   );
@@ -824,6 +1052,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       error,
       composerNotice,
       lastUploadedPaperId,
+      chatMode,
+      setChatMode,
       selectProject,
       renameProject,
       deleteProject,
@@ -849,6 +1079,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       error,
       composerNotice,
       lastUploadedPaperId,
+      chatMode,
       selectProject,
       renameProject,
       deleteProject,
