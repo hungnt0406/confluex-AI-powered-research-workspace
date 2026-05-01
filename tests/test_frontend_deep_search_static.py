@@ -33,7 +33,11 @@ def test_frontend_restores_completed_deep_search_runs_after_refresh() -> None:
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
 
     assert "buildRestoredDeepSearchMessages" in chat_provider
+    assert "sortRestoredChatMessages" in chat_provider
     assert "/deep-search-runs" in chat_provider
     assert "`/projects/${project.id}/deep-search-runs/${summary.id}`" in chat_provider
     assert "summary.status === \"completed\"" in chat_provider
     assert "omitEmptyPaperStatus" in chat_provider
+    assert "createdAt: run.created_at" in chat_provider
+    assert "...restoredConversationMessages" in chat_provider
+    assert "...restoredDeepSearchMessages" in chat_provider
