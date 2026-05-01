@@ -82,6 +82,11 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    deep_search_runs: Mapped[list[DeepSearchRun]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="DeepSearchRun.created_at.desc()",
+    )
 
 
 class AIUsageEvent(Base):
@@ -198,6 +203,9 @@ class Paper(Base):
         back_populates="paper",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    deep_search_sources: Mapped[list[DeepSearchSource]] = relationship(
+        back_populates="paper",
     )
 
 
@@ -325,6 +333,71 @@ class ProjectMessage(Base):
     )
 
     conversation: Mapped[ProjectConversation] = relationship(back_populates="messages")
+
+
+class DeepSearchRun(Base):
+    __tablename__ = "deep_search_runs"
+    __table_args__ = (
+        Index("ix_deep_search_runs_project_created_at", "project_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_prompt: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="running", server_default="running")
+    selected_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    plan_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    report_body: Mapped[str] = mapped_column(Text, default="", server_default="")
+    source_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    warnings_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    qa_flags_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    project: Mapped[Project] = relationship(back_populates="deep_search_runs")
+    sources: Mapped[list[DeepSearchSource]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="DeepSearchSource.created_at.asc()",
+    )
+
+
+class DeepSearchSource(Base):
+    __tablename__ = "deep_search_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("deep_search_runs.id", ondelete="CASCADE"),
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(500))
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    paper_id: Mapped[str | None] = mapped_column(
+        ForeignKey("papers.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    snippet: Mapped[str] = mapped_column(Text, default="", server_default="")
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    run: Mapped[DeepSearchRun] = relationship(back_populates="sources")
+    paper: Mapped[Paper | None] = relationship(back_populates="deep_search_sources")
 
 
 class Summary(Base):
