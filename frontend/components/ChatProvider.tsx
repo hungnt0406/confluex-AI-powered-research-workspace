@@ -235,10 +235,24 @@ function buildRestoredConversationMessages(
     }));
 }
 
+function restoredChatSortKey(message: ChatMessage) {
+  const parsed = Date.parse(message.createdAt);
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
 function sortRestoredChatMessages(messages: ChatMessage[]): ChatMessage[] {
-  return [...messages].sort(
-    (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
-  );
+  return messages
+    .map((message, index) => ({
+      index,
+      message,
+      sortKey: restoredChatSortKey(message),
+    }))
+    .sort((left, right) => {
+      if (left.sortKey < right.sortKey) return -1;
+      if (left.sortKey > right.sortKey) return 1;
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
 }
 
 function deepSearchSourceEventToDisplaySource(
