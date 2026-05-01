@@ -47,6 +47,47 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-01 17:41
+- **done:**
+  - Fixed Deep Search progress rows so `Deep Search run started` and phase messages are tracked as transient status messages and removed when the final report completes.
+  - Added static frontend regression coverage for clearing Deep Search progress after completion.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 17:29
+- **done:**
+  - Fixed Deep Search live structured-output failures so OpenRouter truncation in planning, source summarization, or verification falls back to local deterministic behavior instead of failing the whole run.
+  - Reused the captured run id for final persistence/reload to avoid stale ORM access during streamed completion.
+  - Added regression coverage for truncated structured output completing successfully with fallback warnings.
+  - Changed files: `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with targeted Deep Search tests, Ruff, mypy on the touched service, and `git diff --check`.
+- **blocked:**
+  - None for this fix.
+
+### 2026-05-01 17:02
+- **done:**
+  - Implemented Deep Search mode from `plans/deep-search-mode.md`: persisted runs/sources, Tavily fallback, project/academic evidence collection, SSE run/status/source/token/done/error events, report streaming, source chips, QA flags, and usage telemetry.
+  - Added backend coverage for stream persistence, ownership, Tavily request/failure behavior, failed runs, OpenRouter usage events, source deduplication, and verifier flags.
+  - Updated docs and configuration for the new API surface and `DEEP_SEARCH_*` settings.
+  - Changed files: `.env.example`, `README.md`, `AI_WORKLOG.md`, `JOURNAL.md`, `backend/config.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260501_01_deep_search.py`, `backend/services/tavily.py`, `backend/services/deep_search.py`, `backend/api/dependencies.py`, `backend/api/schemas/projects.py`, `backend/api/routers/projects.py`, `database_schema.sql`, `docs/feature-map.md`, `docs/features/deep_search.md`, `frontend/README.md`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`.
+- **doing:**
+  - Verified targeted checks; see `AI_WORKLOG.md` for command details.
+- **blocked:**
+  - Full `python -m mypy backend/` is still blocked by the pre-existing untyped Google auth call in `backend/api/routers/auth.py:85`.
+
+### 2026-05-01 16:38
+- **done:**
+  - Saved the Deep Search mode implementation plan for the planned Tavily-backed research mode.
+  - Changed files: `plans/deep-search-mode.md`, `JOURNAL.md`.
+- **doing:**
+  - Plan is saved for future implementation; no code changes were made.
+- **blocked:**
+  - None.
+
 ### 2026-04-30 10:22
 - **done:**
   - Replaced the browser-native user search clear control with a custom neutral clear button.

@@ -2,7 +2,7 @@
 
 Next.js 14 App Router chat UI for the Automated Literature Review FastAPI backend.
 
-This frontend currently ships a login screen, a chat-style workspace, and admin-only token usage monitor pages. The workspace creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, and asks grounded questions across the current selected paper set.
+This frontend currently ships a login screen, a chat-style workspace, and admin-only token usage monitor pages. The workspace creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, asks grounded questions across the current selected paper set, and can switch the composer into Deep Search mode for streamed research reports with source chips.
 
 ## Setup
 
@@ -42,6 +42,11 @@ npm run dev:reset
   4. `POST /projects/{id}/conversations/stream` — starts a project-scoped chat with `paper_ids: []` for a streamed general answer until papers are selected.
 - Admin usage monitor: `/admin/usage` checks `GET /admin/access`, then reads `GET /admin/token-usage` as a global dashboard for allowlisted admins with preset or custom date ranges and a full-range recent activity table. `/admin/usage/users` reuses the same endpoint for selected-user analysis with a searchable user picker, a `user_id` query string deep link, and a user log that shows project chat prompts when available.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
+- Composer mode toggle:
+  1. `Standard` keeps the existing project conversation behavior.
+  2. `Deep Search` sends the current prompt and selected `paper_ids` to `POST /projects/{id}/deep-search/stream`.
+  3. With no active project, Deep Search first creates a project from the prompt, then streams the run without triggering the Searcher -> Reader pipeline.
+  4. The stream renders progress status messages, appends report tokens into the assistant turn, and shows source chips from `source` and `done` events.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
@@ -52,9 +57,9 @@ npm run dev:reset
 - `app/chat/page.tsx` — auth-gated workspace.
 - `app/admin/usage/page.tsx`, `app/admin/usage/users/page.tsx`, `app/admin/usage/components.tsx` — admin-only token usage dashboard, selected-user analysis, and shared monitor UI.
 - `components/AuthProvider.tsx` — token/user state.
-- `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, and grounded project conversations.
+- `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, grounded project conversations, and Deep Search streaming.
 - `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, admin monitor navigation, and uploaded-paper markers.
-- `lib/api.ts` — typed `fetch` wrapper, SSE stream parser, and backend DTO types.
+- `lib/api.ts` — typed `fetch` wrapper, SSE stream parsers, and backend DTO types.
 
 ## Current limitations
 
