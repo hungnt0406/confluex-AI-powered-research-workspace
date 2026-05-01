@@ -27,3 +27,13 @@ def test_frontend_deep_search_progress_is_cleared_after_completion() -> None:
     assert "Deep Search run started." in chat_provider
     assert "!statusIds.has(message.id)" in chat_provider
     assert "clearDeepSearchStatusMessages();" in chat_provider
+
+
+def test_frontend_restores_completed_deep_search_runs_after_refresh() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+
+    assert "buildRestoredDeepSearchMessages" in chat_provider
+    assert "/deep-search-runs" in chat_provider
+    assert "`/projects/${project.id}/deep-search-runs/${summary.id}`" in chat_provider
+    assert "summary.status === \"completed\"" in chat_provider
+    assert "omitEmptyPaperStatus" in chat_provider
