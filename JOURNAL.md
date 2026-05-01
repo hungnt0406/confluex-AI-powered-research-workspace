@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-01 22:09
+- **done:**
+  - Fixed project refresh restoration so completed Deep Search runs are fetched from `/deep-search-runs`, converted back into assistant messages, and rendered with saved source chips.
+  - Suppressed the empty-paper placeholder when a project has a restored Deep Search answer but no ranked papers.
+  - Added static frontend regression coverage for restoring completed Deep Search runs after refresh.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-05-01 17:41
 - **done:**
   - Fixed Deep Search progress rows so `Deep Search run started` and phase messages are tracked as transient status messages and removed when the final report completes.
