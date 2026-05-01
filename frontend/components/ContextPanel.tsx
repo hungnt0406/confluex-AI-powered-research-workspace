@@ -1,18 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useChat } from "@/components/ChatProvider";
+import { type DeepSearchDisplaySource, useChat } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 
 export default function ContextPanel() {
   const {
     papers,
+    deepSearchSources,
     runSummary,
     selectedPaperIds,
     togglePaperSelection,
     lastUploadedPaperId = null,
   } = useChat();
-  const open = papers.length > 0;
+  const open = papers.length > 0 || deepSearchSources.length > 0;
 
   const [width, setWidth] = useState<number>(600);
   const dragging = useRef(false);
@@ -84,32 +85,139 @@ export default function ContextPanel() {
         />
       )}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-5" style={{ minWidth: "200px" }}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
-            Related Papers
-          </h3>
-          {runSummary && (
-            <span className="text-[10px] text-hint">
-              {runSummary.ranked_count} ranked
-            </span>
-          )}
-        </div>
+        {papers.length > 0 && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                Related Papers
+              </h3>
+              {runSummary && (
+                <span className="text-[10px] text-hint">
+                  {runSummary.ranked_count} ranked
+                </span>
+              )}
+            </div>
 
-        <ul className="space-y-2">
-          {papers.map((paper) => (
-            <PaperCard
-              key={paper.id}
-              paper={paper}
-              isSelected={selectedPaperIds.includes(paper.id)}
-              isFreshlyUploaded={lastUploadedPaperId === paper.id}
-              onToggle={() => togglePaperSelection(paper.id)}
-            />
-          ))}
-        </ul>
+            <ul className="space-y-2">
+              {papers.map((paper) => (
+                <PaperCard
+                  key={paper.id}
+                  paper={paper}
+                  isSelected={selectedPaperIds.includes(paper.id)}
+                  isFreshlyUploaded={lastUploadedPaperId === paper.id}
+                  onToggle={() => togglePaperSelection(paper.id)}
+                />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {deepSearchSources.length > 0 && (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                Deep Search Sources
+              </h3>
+              <span className="text-[10px] text-hint">
+                {deepSearchSources.length} cited
+              </span>
+            </div>
+
+            <ul className="space-y-2">
+              {deepSearchSources.map((source) => (
+                <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
 
     </aside>
   );
+}
+
+function DeepSearchSourceCard({ source }: { source: DeepSearchDisplaySource }) {
+  const typeLabel = formatDeepSearchSourceType(source.sourceType);
+  const body = (
+    <>
+      <div className="flex items-start gap-2">
+        <SourceFavicon source={source} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium text-on-surface leading-snug line-clamp-2">
+            {source.title}
+          </p>
+          <p className="mt-1 text-[10px] text-hint">
+            {source.id} · {typeLabel}
+          </p>
+        </div>
+      </div>
+    </>
+  );
+
+  const className =
+    "block p-3 rounded-xl border border-outline/20 bg-surface-container-low transition-[background-color,border-color] hover:border-primary/30";
+
+  if (source.url) {
+    return (
+      <li>
+        <a href={source.url} target="_blank" rel="noreferrer" className={className}>
+          {body}
+        </a>
+      </li>
+    );
+  }
+
+  return (
+    <li className={className}>
+      {body}
+    </li>
+  );
+}
+
+function SourceFavicon({ source }: { source: DeepSearchDisplaySource }) {
+  const [failed, setFailed] = useState(false);
+  const faviconUrl = source.url ? getFaviconUrl(source.url) : null;
+
+  if (!faviconUrl || failed) {
+    return (
+      <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
+        <span
+          className="material-symbols-outlined"
+          aria-hidden="true"
+          style={{
+            fontSize: "15px",
+            fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+          }}
+        >
+          article
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high ring-1 ring-outline/20">
+      <img
+        src={faviconUrl}
+        alt=""
+        aria-hidden="true"
+        className="h-4 w-4 object-contain"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
+function getFaviconUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    if (!hostname) return null;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
+  } catch {
+    return null;
+  }
 }
 
 function PaperCard({
@@ -312,6 +420,13 @@ function SummarySection({
       <p className="text-[10px] text-on-surface leading-snug">{value ?? <span className="text-hint">—</span>}</p>
     </div>
   );
+}
+
+function formatDeepSearchSourceType(sourceType: DeepSearchDisplaySource["sourceType"]) {
+  return sourceType
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function isUploadedReferencePaper(paper: ProjectPaper) {
