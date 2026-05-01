@@ -14,6 +14,7 @@ import {
   DeepSearchRun,
   DeepSearchSource,
   DeepSearchSourceEventData,
+  DeepSearchRunSummary,
   Paginated,
   Project,
   ProjectConversation,
@@ -167,7 +168,11 @@ function isUploadedProjectPaper(paper: ProjectPaper) {
   return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
 }
 
-function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): ChatMessage[] {
+function buildProjectShellMessages(
+  project: Project,
+  papers: ProjectPaper[],
+  options: { omitEmptyPaperStatus?: boolean } = {},
+): ChatMessage[] {
   const uploadedPaperCount = papers.filter(isUploadedProjectPaper).length;
   const hasOnlyUploadedPapers = uploadedPaperCount > 0 && uploadedPaperCount === papers.length;
   const initial: ChatMessage[] = [
@@ -193,13 +198,15 @@ function buildProjectShellMessages(project: Project, papers: ProjectPaper[]): Ch
     return initial;
   }
 
-  initial.push({
-    id: uid(),
-    role: "assistant",
-    kind: "status",
-    content: "This project has no ranked papers yet. Send a follow-up message to run the discovery pipeline.",
-    createdAt: now(),
-  });
+  if (!options.omitEmptyPaperStatus) {
+    initial.push({
+      id: uid(),
+      role: "assistant",
+      kind: "status",
+      content: "This project has no ranked papers yet. Send a follow-up message to run the discovery pipeline.",
+      createdAt: now(),
+    });
+  }
   return initial;
 }
 
@@ -249,6 +256,35 @@ function deepSearchSourceToDisplaySource(source: DeepSearchSource): DeepSearchDi
     url: source.url,
     sourceType: source.source_type,
   };
+}
+
+function buildRestoredDeepSearchMessages(project: Project, runs: DeepSearchRun[]): ChatMessage[] {
+  return [...runs]
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+    .flatMap((run) => {
+      const messages: ChatMessage[] = [];
+      if (run.user_prompt.trim() && run.user_prompt !== project.topic_description) {
+        messages.push({
+          id: `deep-search-${run.id}-prompt`,
+          role: "user",
+          content: run.user_prompt,
+          kind: "text",
+          createdAt: run.created_at,
+        });
+      }
+
+      if (run.report_body.trim()) {
+        messages.push({
+          id: `deep-search-${run.id}`,
+          role: "assistant",
+          content: run.report_body,
+          kind: "summary",
+          sources: run.sources.map(deepSearchSourceToDisplaySource),
+          createdAt: run.completed_at ?? run.updated_at,
+        });
+      }
+      return messages;
+    });
 }
 
 function formatDeepSearchPhase(phase: string) {
@@ -403,6 +439,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             { token: authedRef.current },
           )
           : null;
+        const deepSearchRunSummaries = await api<DeepSearchRunSummary[]>(
+          `/projects/${project.id}/deep-search-runs`,
+          { token: authedRef.current },
+        );
+        const restoredDeepSearchRuns = await Promise.all(
+          deepSearchRunSummaries
+            .filter((summary) => summary.status === "completed")
+            .map((summary) =>
+              api<DeepSearchRun>(
+                `/projects/${project.id}/deep-search-runs/${summary.id}`,
+                { token: authedRef.current },
+              ),
+            ),
+        );
+        const restoredDeepSearchMessages = buildRestoredDeepSearchMessages(
+          project,
+          restoredDeepSearchRuns,
+        );
 
         const fallbackSelectedPaperIds = normalizeSelectedPaperIds(
           restoredConversation?.selected_paper_ids ?? [],
@@ -417,11 +471,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setSelectedPaperIds(nextSelectedPaperIds);
         setConversation(restoredConversation);
 
-        const shellMessages = buildProjectShellMessages(project, nextPapers);
+        const shellMessages = buildProjectShellMessages(project, nextPapers, {
+          omitEmptyPaperStatus: restoredDeepSearchMessages.length > 0,
+        });
         setMessages(
           restoredConversation
-            ? [...shellMessages, ...buildRestoredConversationMessages(project, restoredConversation)]
-            : shellMessages,
+            ? [
+              ...shellMessages,
+              ...buildRestoredConversationMessages(project, restoredConversation),
+              ...restoredDeepSearchMessages,
+            ]
+            : [...shellMessages, ...restoredDeepSearchMessages],
         );
       } catch (err: any) {
         if (err?.status === 404) {
