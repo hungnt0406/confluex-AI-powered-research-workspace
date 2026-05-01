@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from backend.api.dependencies import (
     CurrentUser,
     DbSession,
+    DeepSearchServiceDependency,
     PaperCitationServiceDependency,
     PaperConversationServiceDependency,
     PipelineServiceDependency,
@@ -21,6 +22,9 @@ from backend.api.dependencies import (
 )
 from backend.api.schemas.projects import (
     CitationGraphPaperRead,
+    DeepSearchCreate,
+    DeepSearchRunRead,
+    DeepSearchRunSummaryRead,
     PaginationMeta,
     PaperCitationGraphRead,
     PaperConversationCreate,
@@ -45,6 +49,7 @@ from backend.api.schemas.projects import (
     WriterOutputRead,
 )
 from backend.db.models import (
+    DeepSearchRun,
     Paper,
     PaperConversation,
     Project,
@@ -57,6 +62,7 @@ from backend.services.ai_usage import (
     start_usage_collection,
     summarize_project_usage,
 )
+from backend.services.deep_search import DeepSearchStreamEvent, ensure_deep_search_allowed
 from backend.services.paper_citations import (
     CitationNotFoundError,
     CitationProviderError,
@@ -106,6 +112,18 @@ def project_conversation_stream_payload(
     if event.event == "done":
         conversation = cast(ProjectConversation, event.data)
         return ProjectConversationRead.from_conversation(conversation).model_dump(mode="json")
+    return event.data
+
+
+def deep_search_stream_payload(event: DeepSearchStreamEvent) -> Any:
+    """Serialize a deep search stream event payload."""
+
+    if event.event == "run":
+        run = cast(DeepSearchRun, event.data)
+        return DeepSearchRunSummaryRead.from_run(run).model_dump(mode="json")
+    if event.event == "done":
+        run = cast(DeepSearchRun, event.data)
+        return DeepSearchRunRead.from_run(run).model_dump(mode="json")
     return event.data
 
 
@@ -274,6 +292,31 @@ async def get_project_conversation_or_404(
             detail="Conversation not found.",
         )
     return conversation
+
+
+async def get_project_deep_search_run_or_404(
+    session: DbSession,
+    *,
+    project_id: str,
+    run_id: str,
+) -> DeepSearchRun:
+    """Return a deep search run belonging to a project."""
+
+    result = await session.execute(
+        select(DeepSearchRun)
+        .options(selectinload(DeepSearchRun.sources))
+        .where(
+            DeepSearchRun.project_id == project_id,
+            DeepSearchRun.id == run_id,
+        )
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deep search run not found.",
+        )
+    return run
 
 
 async def get_project_writer_output_or_404(
@@ -1020,6 +1063,98 @@ async def get_project_conversation(
         conversation_id=conversation_id,
     )
     return ProjectConversationRead.from_conversation(conversation)
+
+
+@router.post(
+    "/{project_id}/deep-search/stream",
+    status_code=status.HTTP_201_CREATED,
+)
+async def stream_deep_search(
+    project_id: str,
+    payload: DeepSearchCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    deep_search_service: DeepSearchServiceDependency,
+) -> StreamingResponse:
+    """Stream a project-scoped deep search run as SSE."""
+
+    ensure_deep_search_allowed(current_user)
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    selected_papers = await get_project_papers_or_404(
+        session,
+        project_id=project.id,
+        paper_ids=payload.paper_ids,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in deep_search_service.stream_run(
+                session=session,
+                project=project,
+                question=payload.question,
+                selected_papers=selected_papers,
+            ):
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                yield encode_sse_event(event.event, deep_search_stream_payload(event))
+        except Exception as error:
+            await session.rollback()
+            yield encode_sse_event("error", {"detail": str(error)})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        status_code=status.HTTP_201_CREATED,
+        headers=sse_headers(),
+    )
+
+
+@router.get(
+    "/{project_id}/deep-search-runs",
+    response_model=list[DeepSearchRunSummaryRead],
+)
+async def list_deep_search_runs(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> list[DeepSearchRunSummaryRead]:
+    """List persisted deep search runs for an owned project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    result = await session.execute(
+        select(DeepSearchRun)
+        .options(selectinload(DeepSearchRun.sources))
+        .where(DeepSearchRun.project_id == project.id)
+        .order_by(DeepSearchRun.created_at.desc())
+    )
+    runs = result.scalars().all()
+    return [DeepSearchRunSummaryRead.from_run(run) for run in runs]
+
+
+@router.get(
+    "/{project_id}/deep-search-runs/{run_id}",
+    response_model=DeepSearchRunRead,
+)
+async def get_deep_search_run(
+    project_id: str,
+    run_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> DeepSearchRunRead:
+    """Fetch one persisted deep search run for an owned project."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    run = await get_project_deep_search_run_or_404(
+        session,
+        project_id=project.id,
+        run_id=run_id,
+    )
+    return DeepSearchRunRead.from_run(run)
 
 
 @router.post(
