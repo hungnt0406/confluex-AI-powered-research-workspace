@@ -30,6 +30,34 @@ class Settings(BaseSettings):
         default="openai/text-embedding-3-small",
         validation_alias=AliasChoices("OPENROUTER_EMBEDDING_MODEL", "OPENAI_EMBEDDING_MODEL"),
     )
+    tavily_api_key: str | None = Field(default=None, alias="TAVILY_API_KEY")
+    tavily_base_url: str = Field(default="https://api.tavily.com", alias="TAVILY_BASE_URL")
+    deep_search_planner_model: str = Field(
+        default="google/gemini-2.5-flash-lite",
+        alias="DEEP_SEARCH_PLANNER_MODEL",
+    )
+    deep_search_research_model: str = Field(
+        default="google/gemini-2.5-flash-lite",
+        alias="DEEP_SEARCH_RESEARCH_MODEL",
+    )
+    deep_search_summarizer_model: str = Field(
+        default="google/gemini-2.5-flash-lite",
+        alias="DEEP_SEARCH_SUMMARIZER_MODEL",
+    )
+    deep_search_writer_model: str = Field(
+        default="deepseek/deepseek-chat-v3.1",
+        alias="DEEP_SEARCH_WRITER_MODEL",
+    )
+    deep_search_verifier_model: str = Field(
+        default="google/gemini-2.5-flash-lite",
+        alias="DEEP_SEARCH_VERIFIER_MODEL",
+    )
+    deep_search_max_web_searches: int = Field(default=5, alias="DEEP_SEARCH_MAX_WEB_SEARCHES")
+    deep_search_max_iterations: int = Field(default=2, alias="DEEP_SEARCH_MAX_ITERATIONS")
+    deep_search_max_results_per_query: int = Field(
+        default=5,
+        alias="DEEP_SEARCH_MAX_RESULTS_PER_QUERY",
+    )
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/literature_review",
         alias="DATABASE_URL",
