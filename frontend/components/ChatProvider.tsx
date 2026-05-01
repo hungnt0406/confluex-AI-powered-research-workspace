@@ -235,6 +235,12 @@ function buildRestoredConversationMessages(
     }));
 }
 
+function sortRestoredChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  return [...messages].sort(
+    (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
+  );
+}
+
 function deepSearchSourceEventToDisplaySource(
   source: DeepSearchSourceEventData,
 ): DeepSearchDisplaySource {
@@ -280,7 +286,7 @@ function buildRestoredDeepSearchMessages(project: Project, runs: DeepSearchRun[]
           content: run.report_body,
           kind: "summary",
           sources: run.sources.map(deepSearchSourceToDisplaySource),
-          createdAt: run.completed_at ?? run.updated_at,
+          createdAt: run.created_at,
         });
       }
       return messages;
@@ -457,6 +463,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           project,
           restoredDeepSearchRuns,
         );
+        const restoredConversationMessages = restoredConversation
+          ? buildRestoredConversationMessages(project, restoredConversation)
+          : [];
+        const restoredChatMessages = sortRestoredChatMessages([
+          ...restoredConversationMessages,
+          ...restoredDeepSearchMessages,
+        ]);
 
         const fallbackSelectedPaperIds = normalizeSelectedPaperIds(
           restoredConversation?.selected_paper_ids ?? [],
@@ -474,15 +487,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const shellMessages = buildProjectShellMessages(project, nextPapers, {
           omitEmptyPaperStatus: restoredDeepSearchMessages.length > 0,
         });
-        setMessages(
-          restoredConversation
-            ? [
-              ...shellMessages,
-              ...buildRestoredConversationMessages(project, restoredConversation),
-              ...restoredDeepSearchMessages,
-            ]
-            : [...shellMessages, ...restoredDeepSearchMessages],
-        );
+        setMessages([...shellMessages, ...restoredChatMessages]);
       } catch (err: any) {
         if (err?.status === 404) {
           persistActiveProjectId(user?.id, null);
