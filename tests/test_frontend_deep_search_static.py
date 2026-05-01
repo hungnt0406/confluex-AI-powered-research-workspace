@@ -41,3 +41,13 @@ def test_frontend_restores_completed_deep_search_runs_after_refresh() -> None:
     assert "createdAt: run.created_at" in chat_provider
     assert "...restoredConversationMessages" in chat_provider
     assert "...restoredDeepSearchMessages" in chat_provider
+
+
+def test_frontend_restored_chat_sort_handles_invalid_timestamps() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+
+    assert "restoredChatSortKey" in chat_provider
+    assert "Number.isFinite(parsed)" in chat_provider
+    assert "Number.POSITIVE_INFINITY" in chat_provider
+    assert "left.sortKey < right.sortKey" in chat_provider
+    assert "left.index - right.index" in chat_provider
