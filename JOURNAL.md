@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-01 22:29
+- **done:**
+  - Hardened restored chat sorting against malformed timestamps by replacing raw `Date.parse(...)` subtraction with a finite sort key and stable index tiebreaker.
+  - Added frontend static regression coverage for invalid timestamp handling in restored chat sorting.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-05-01 22:22
 - **done:**
   - Fixed restored chat ordering so Deep Search answers are restored as turn-paired messages anchored to the run start time instead of the completion time.
