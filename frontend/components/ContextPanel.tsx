@@ -14,6 +14,7 @@ export default function ContextPanel() {
     lastUploadedPaperId = null,
   } = useChat();
   const open = papers.length > 0 || deepSearchSources.length > 0;
+  const splitPanel = papers.length > 0 && deepSearchSources.length > 0;
 
   const [width, setWidth] = useState<number>(600);
   const dragging = useRef(false);
@@ -84,52 +85,58 @@ export default function ContextPanel() {
           style={{ width: "4px" }}
         />
       )}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-5 space-y-5" style={{ minWidth: "200px" }}>
-        {papers.length > 0 && (
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
-                Related Papers
-              </h3>
-              {runSummary && (
+      <div className="flex-1 min-h-0 p-5" style={{ minWidth: "200px" }}>
+        <div className="flex h-full min-h-0 flex-col gap-5">
+          {papers.length > 0 && (
+            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+              <div className="flex flex-none items-center justify-between">
+                <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                  Related Papers
+                </h3>
+                {runSummary && (
+                  <span className="text-[10px] text-hint">
+                    {runSummary.ranked_count} ranked
+                  </span>
+                )}
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                <ul className="space-y-2">
+                  {papers.map((paper) => (
+                    <PaperCard
+                      key={paper.id}
+                      paper={paper}
+                      isSelected={selectedPaperIds.includes(paper.id)}
+                      isFreshlyUploaded={lastUploadedPaperId === paper.id}
+                      onToggle={() => togglePaperSelection(paper.id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            </section>
+          )}
+
+          {deepSearchSources.length > 0 && (
+            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+              <div className="flex flex-none items-center justify-between">
+                <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                  Deep Search Sources
+                </h3>
                 <span className="text-[10px] text-hint">
-                  {runSummary.ranked_count} ranked
+                  {deepSearchSources.length} cited
                 </span>
-              )}
-            </div>
+              </div>
 
-            <ul className="space-y-2">
-              {papers.map((paper) => (
-                <PaperCard
-                  key={paper.id}
-                  paper={paper}
-                  isSelected={selectedPaperIds.includes(paper.id)}
-                  isFreshlyUploaded={lastUploadedPaperId === paper.id}
-                  onToggle={() => togglePaperSelection(paper.id)}
-                />
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {deepSearchSources.length > 0 && (
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
-                Deep Search Sources
-              </h3>
-              <span className="text-[10px] text-hint">
-                {deepSearchSources.length} cited
-              </span>
-            </div>
-
-            <ul className="space-y-2">
-              {deepSearchSources.map((source) => (
-                <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
-              ))}
-            </ul>
-          </section>
-        )}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                <ul className="space-y-2">
+                  {deepSearchSources.map((source) => (
+                    <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
+                  ))}
+                </ul>
+              </div>
+            </section>
+          )}
+        </div>
       </div>
 
     </aside>
