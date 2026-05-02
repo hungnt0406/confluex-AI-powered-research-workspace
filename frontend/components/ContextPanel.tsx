@@ -180,12 +180,12 @@ function SourceFavicon({ source }: { source: DeepSearchDisplaySource }) {
 
   if (!faviconUrl || failed) {
     return (
-      <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
+      <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
         <span
           className="material-symbols-outlined"
           aria-hidden="true"
           style={{
-            fontSize: "15px",
+            fontSize: "13px",
             fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
           }}
         >
@@ -196,12 +196,12 @@ function SourceFavicon({ source }: { source: DeepSearchDisplaySource }) {
   }
 
   return (
-    <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high ring-1 ring-outline/20">
+    <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high ring-1 ring-outline/20">
       <img
         src={faviconUrl}
         alt=""
         aria-hidden="true"
-        className="h-4 w-4 object-contain"
+        className="h-3.5 w-3.5 object-contain"
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
