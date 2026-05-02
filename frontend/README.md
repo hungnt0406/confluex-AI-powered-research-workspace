@@ -44,10 +44,11 @@ npm run dev:reset
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
 - Composer mode toggle:
   1. `Standard` keeps the existing project conversation behavior.
-  2. `Deep Search` sends the current prompt and selected `paper_ids` to `POST /projects/{id}/deep-search/stream`.
-  3. With no active project, Deep Search first creates a project from the prompt, runs `POST /projects/{id}/run` to populate the related-paper panel, then streams the Deep Search run.
-  4. With an active project that has no discovered related papers yet, Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
-  5. The stream renders temporary progress status messages, appends report tokens into the assistant turn, and shows `source` / `done` event citations in the right context panel below `Related Papers`.
+  2. `Deep Search` first shows a pending research plan card with `Edit plan` and `Start research` actions instead of starting the stream immediately.
+  3. `Start research` sends the approved prompt and selected `paper_ids` to `POST /projects/{id}/deep-search/stream`.
+  4. With no active project, approved Deep Search first creates a project from the prompt, runs `POST /projects/{id}/run` to populate the related-paper panel, then streams the Deep Search run.
+  5. With an active project that has no discovered related papers yet, approved Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
+  6. The stream renders an expandable `Show thinking` panel from `status` and `source` events, appends report tokens into the assistant turn, and shows `source` / `done` event citations in the right context panel below `Related Papers`.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
