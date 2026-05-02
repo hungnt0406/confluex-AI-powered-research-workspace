@@ -11,8 +11,11 @@ import {
   useState,
 } from "react";
 import {
+  type ChatMessage,
   type ChatMode,
   type ComposerNotice,
+  type DeepSearchPlanMessage,
+  type DeepSearchThinkingState,
   useChat,
 } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
@@ -41,6 +44,8 @@ export default function ChatWorkspace() {
     setChatMode,
     clearComposerNotice,
     submitMessage,
+    startDeepSearchPlan,
+    editDeepSearchPlan,
     startNewResearch,
     uploadReferenceFile,
     togglePaperSelection,
@@ -72,6 +77,13 @@ export default function ChatWorkspace() {
     if (!text.trim() || composerBusy) return;
     setDraft("");
     await submitMessage(text);
+  }
+
+  function onEditDeepSearchPlan(planId: string) {
+    const question = editDeepSearchPlan(planId);
+    if (question !== null) {
+      setDraft(question);
+    }
   }
 
   function onSubmit(e: FormEvent) {
@@ -197,8 +209,10 @@ export default function ChatWorkspace() {
                 ) : (
                   <AgentBubble
                     key={message.id}
-                    text={message.content}
-                    kind={message.kind ?? "text"}
+                    message={message}
+                    disabled={composerBusy}
+                    onStartDeepSearchPlan={(planId) => void startDeepSearchPlan(planId)}
+                    onEditDeepSearchPlan={onEditDeepSearchPlan}
                   />
                 ),
               )}
@@ -494,18 +508,26 @@ function UserBubble({ text }: { text: string }) {
 }
 
 function AgentBubble({
-  text,
-  kind,
+  message,
+  disabled,
+  onStartDeepSearchPlan,
+  onEditDeepSearchPlan,
 }: {
-  text: string;
-  kind: "text" | "status" | "summary";
+  message: ChatMessage;
+  disabled: boolean;
+  onStartDeepSearchPlan: (planId: string) => void;
+  onEditDeepSearchPlan: (planId: string) => void;
 }) {
+  const kind = message.kind ?? "text";
   const isStatus = kind === "status";
+  const isPlan = kind === "deep_search_plan" && message.deepSearchPlan;
+  const isThinking = kind === "deep_search_thinking" && message.thinking;
+
   return (
     <div className="flex gap-4">
       <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center flex-shrink-0 mt-1">
         <span className="material-symbols-outlined text-primary text-sm">
-          {isStatus ? "hourglass_top" : "school"}
+          {isStatus ? "hourglass_top" : isPlan || isThinking ? "travel_explore" : "school"}
         </span>
       </div>
       <div
@@ -513,8 +535,183 @@ function AgentBubble({
           isStatus ? "italic text-on-surface-variant" : "text-on-surface"
         }`}
       >
-        {isStatus ? text : <MarkdownContent text={text} />}
+        {isPlan ? (
+          <DeepSearchPlanCard
+            plan={message.deepSearchPlan!}
+            disabled={disabled}
+            onStart={() => onStartDeepSearchPlan(message.deepSearchPlan!.id)}
+            onEdit={() => onEditDeepSearchPlan(message.deepSearchPlan!.id)}
+          />
+        ) : isThinking ? (
+          <DeepSearchThinkingPanel thinking={message.thinking!} />
+        ) : isStatus ? (
+          message.content
+        ) : (
+          <MarkdownContent text={message.content} />
+        )}
       </div>
+    </div>
+  );
+}
+
+function DeepSearchPlanCard({
+  plan,
+  disabled,
+  onStart,
+  onEdit,
+}: {
+  plan: DeepSearchPlanMessage;
+  disabled: boolean;
+  onStart: () => void;
+  onEdit: () => void;
+}) {
+  const pending = plan.status === "pending";
+  const statusLabel = pending
+    ? "Ready in a few mins"
+    : plan.status === "started"
+      ? "Research started"
+      : plan.status === "editing"
+        ? "Editing in composer"
+        : "Replaced by newer plan";
+  return (
+    <div className="max-w-3xl rounded-2xl bg-surface-container-low px-5 py-5 shadow-sm ring-1 ring-outline/20">
+      <p className="text-sm text-on-surface">Here&apos;s a research plan for that topic.</p>
+      <div className="mt-4 space-y-4">
+        <h3 className="text-sm font-semibold text-on-surface">
+          Deep Search Plan
+        </h3>
+        <div className="space-y-4">
+          {plan.steps.map((step) => (
+            <div key={step.title} className="flex gap-3">
+              <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant">
+                <span
+                  className="material-symbols-outlined"
+                  aria-hidden="true"
+                  style={{ fontSize: "18px" }}
+                >
+                  {step.title === "Analyze Results"
+                    ? "filter_list"
+                    : step.title === "Create Report"
+                      ? "manage_search"
+                      : "content_copy"}
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-on-surface">{step.title}</p>
+                <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-on-surface-variant marker:text-hint">
+                  {step.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 pt-2 text-xs text-on-surface-variant">
+          <span
+            className="material-symbols-outlined"
+            aria-hidden="true"
+            style={{ fontSize: "17px" }}
+          >
+            schedule
+          </span>
+          <span>{statusLabel}</span>
+        </div>
+      </div>
+      {pending && (
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            disabled={disabled}
+            className="inline-flex h-10 items-center justify-center rounded-full border border-outline/50 px-5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 disabled:opacity-40"
+          >
+            Edit plan
+          </button>
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={disabled}
+            className="inline-flex h-10 items-center justify-center rounded-full bg-primary px-6 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            Start research
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeepSearchThinkingPanel({ thinking }: { thinking: DeepSearchThinkingState }) {
+  const [expanded, setExpanded] = useState(true);
+  const steps = thinking.steps.length > 0
+    ? thinking.steps
+    : [
+      {
+        phase: "preparing",
+        title: "Preparing research run",
+        detail: "I am setting up the deep search workflow.",
+        status: "active" as const,
+        sources: [],
+      },
+    ];
+
+  return (
+    <div className="max-w-3xl">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-2 text-xs font-semibold text-on-surface transition-colors hover:text-primary"
+        aria-expanded={expanded}
+      >
+        <span
+          className="material-symbols-outlined text-primary"
+          aria-hidden="true"
+          style={{ fontSize: "18px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20" }}
+        >
+          auto_awesome
+        </span>
+        Show thinking
+        <span className="material-symbols-outlined text-sm" aria-hidden="true">
+          {expanded ? "expand_less" : "expand_more"}
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-4 border-l border-outline/30 pl-5">
+          {steps.map((step) => (
+            <div key={step.phase} className={step.status === "active" ? "text-on-surface" : "text-on-surface-variant"}>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${step.status === "active" ? "bg-primary" : "bg-outline"}`}
+                  aria-hidden="true"
+                />
+                <p className="text-xs font-semibold italic">{step.title}</p>
+              </div>
+              <p className="mt-1 text-xs italic leading-relaxed">
+                {step.detail}
+              </p>
+              {step.sources.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {step.sources.map((source) => (
+                    <a
+                      key={`${step.phase}-${source.id}-${source.title}`}
+                      href={source.url ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-surface-container-low px-2.5 py-1 text-[11px] not-italic text-on-surface-variant ring-1 ring-outline/20 ${source.url ? "hover:text-primary" : "pointer-events-none"}`}
+                    >
+                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
+                        {source.sourceType === "web" ? "public" : "article"}
+                      </span>
+                      <span className="truncate">{source.title}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
