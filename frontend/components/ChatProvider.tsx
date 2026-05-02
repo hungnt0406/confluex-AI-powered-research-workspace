@@ -38,8 +38,10 @@ export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  kind?: "text" | "status" | "summary";
+  kind?: "text" | "status" | "summary" | "deep_search_plan" | "deep_search_thinking";
   sources?: DeepSearchDisplaySource[];
+  deepSearchPlan?: DeepSearchPlanMessage;
+  thinking?: DeepSearchThinkingState;
   createdAt: string;
 };
 
@@ -50,6 +52,35 @@ export type DeepSearchDisplaySource = {
   title: string;
   url: string | null;
   sourceType: DeepSearchSource["source_type"];
+};
+
+export type DeepSearchPlanStep = {
+  title: string;
+  items: string[];
+};
+
+export type DeepSearchPlanMessage = {
+  id: string;
+  question: string;
+  projectId: string | null;
+  status: "pending" | "started" | "editing" | "superseded";
+  steps: DeepSearchPlanStep[];
+  createdAt: string;
+};
+
+export type DeepSearchThinkingStep = {
+  phase: string;
+  title: string;
+  detail: string;
+  status: "active" | "complete";
+  sources: DeepSearchDisplaySource[];
+};
+
+export type DeepSearchThinkingState = {
+  id: string;
+  question: string;
+  completed: boolean;
+  steps: DeepSearchThinkingStep[];
 };
 
 export type ComposerNotice = {
@@ -69,6 +100,7 @@ type ChatState = {
   selectedPaperIds: string[];
   selectedPapers: ProjectPaper[];
   deepSearchSources: DeepSearchDisplaySource[];
+  pendingDeepSearchPlan: DeepSearchPlanMessage | null;
   queries: string[];
   conversation: ProjectConversation | null;
   runSummary: RunPipelineResponse | null;
@@ -84,6 +116,8 @@ type ChatState = {
   deleteProject: (id: string) => Promise<void>;
   startNewResearch: () => void;
   submitMessage: (text: string) => Promise<void>;
+  startDeepSearchPlan: (planId: string) => Promise<void>;
+  editDeepSearchPlan: (planId: string) => string | null;
   uploadReferenceFile: (file: File, options?: UploadReferenceFileOptions) => Promise<void>;
   togglePaperSelection: (paperId: string) => void;
   clearComposerNotice: () => void;
@@ -293,6 +327,196 @@ function dedupeDeepSearchSources(sources: DeepSearchDisplaySource[]) {
   });
 }
 
+function truncateForUi(text: string, maxLength: number) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildDeepSearchPlanSteps(question: string): DeepSearchPlanStep[] {
+  const compactQuestion = truncateForUi(question, 120);
+  return [
+    {
+      title: "Research Websites",
+      items: [
+        `Define the research question around "${compactQuestion}".`,
+        "Search scholarly indexes, project papers, and current web sources for supporting evidence.",
+        "Collect source notes that can be cited directly in the final report.",
+      ],
+    },
+    {
+      title: "Analyze Results",
+      items: [
+        "Compare evidence quality across papers, web results, and selected project context.",
+        "Extract points of agreement, disagreement, limitations, and recent developments.",
+      ],
+    },
+    {
+      title: "Create Report",
+      items: [
+        "Write a concise synthesis with source IDs for factual claims.",
+        "Run citation checks and preserve the final sources in the context panel.",
+      ],
+    },
+  ];
+}
+
+function createDeepSearchPlanMessage(
+  question: string,
+  projectId: string | null,
+): ChatMessage & { deepSearchPlan: DeepSearchPlanMessage } {
+  const createdAt = now();
+  const plan: DeepSearchPlanMessage = {
+    id: uid(),
+    question,
+    projectId,
+    status: "pending",
+    steps: buildDeepSearchPlanSteps(question),
+    createdAt,
+  };
+  return {
+    id: `deep-search-plan-${plan.id}`,
+    role: "assistant",
+    kind: "deep_search_plan",
+    content: "Here's a research plan for that topic.",
+    deepSearchPlan: plan,
+    createdAt,
+  };
+}
+
+function deepSearchThinkingDefinition(phase: string, question: string) {
+  const compactQuestion = truncateForUi(question, 140);
+  const definitions: Record<string, { title: string; detail: string }> = {
+    planning: {
+      title: "Defining the research paradigm",
+      detail: `I am turning "${compactQuestion}" into focused research questions and deciding which evidence paths to inspect first.`,
+    },
+    project_evidence: {
+      title: "Reading selected project papers",
+      detail: "I am extracting relevant abstracts, summaries, and available PDF chunks from the selected papers.",
+    },
+    academic_search: {
+      title: "Mapping the academic landscape",
+      detail: "I am searching scholarly providers for papers that can confirm, refine, or challenge the project evidence.",
+    },
+    web_search: {
+      title: "Researching websites",
+      detail: "I am checking current web sources for recent context, implementations, and supporting material.",
+    },
+    summarizing_sources: {
+      title: "Uncovering source signals",
+      detail: "I am compressing each source into a short evidence note and filtering duplicate results.",
+    },
+    writing: {
+      title: "Synthesizing the report",
+      detail: "I am drafting the final answer and attaching source IDs to factual claims.",
+    },
+    verifying: {
+      title: "Resolving verification and citation gaps",
+      detail: "I am checking whether claims are cited and flagging weak or web-only evidence.",
+    },
+    persisting: {
+      title: "Saving research artifacts",
+      detail: "I am storing the report, source list, warnings, and QA flags for refresh and later review.",
+    },
+  };
+  return definitions[phase] ?? {
+    title: formatDeepSearchPhase(phase),
+    detail: "I am advancing the deep research workflow and preparing the next step.",
+  };
+}
+
+function createDeepSearchThinkingMessage(question: string): ChatMessage {
+  const thinking: DeepSearchThinkingState = {
+    id: uid(),
+    question,
+    completed: false,
+    steps: [],
+  };
+  return {
+    id: `deep-search-thinking-${thinking.id}`,
+    role: "assistant",
+    kind: "deep_search_thinking",
+    content: "Show thinking",
+    thinking,
+    createdAt: now(),
+  };
+}
+
+function upsertDeepSearchThinkingPhase(
+  thinking: DeepSearchThinkingState,
+  phase: string,
+): DeepSearchThinkingState {
+  const definition = deepSearchThinkingDefinition(phase, thinking.question);
+  const nextSteps = thinking.steps.map((step) => ({
+    ...step,
+    status: step.phase === phase ? "active" as const : "complete" as const,
+  }));
+  const existingIndex = nextSteps.findIndex((step) => step.phase === phase);
+  if (existingIndex >= 0) {
+    nextSteps[existingIndex] = {
+      ...nextSteps[existingIndex],
+      title: definition.title,
+      detail: definition.detail,
+      status: "active",
+    };
+    return { ...thinking, completed: false, steps: nextSteps };
+  }
+  return {
+    ...thinking,
+    completed: false,
+    steps: [
+      ...nextSteps,
+      {
+        phase,
+        title: definition.title,
+        detail: definition.detail,
+        status: "active",
+        sources: [],
+      },
+    ],
+  };
+}
+
+function appendDeepSearchThinkingSourceToState(
+  thinking: DeepSearchThinkingState,
+  source: DeepSearchSourceEventData,
+): DeepSearchThinkingState {
+  const displaySource = deepSearchSourceEventToDisplaySource(source);
+  const targetPhase = source.source_type === "web" ? "web_search" : "academic_search";
+  const existingStep = thinking.steps.find((step) => step.phase === targetPhase);
+  const steps = existingStep
+    ? thinking.steps
+    : [
+      ...thinking.steps,
+      {
+        phase: targetPhase,
+        ...deepSearchThinkingDefinition(targetPhase, thinking.question),
+        status: "complete" as const,
+        sources: [],
+      },
+    ];
+
+  return {
+    ...thinking,
+    steps: steps.map((step) => {
+      if (step.phase !== targetPhase) return step;
+      const nextSources = dedupeDeepSearchSources([...step.sources, displaySource]).slice(0, 18);
+      return { ...step, sources: nextSources };
+    }),
+  };
+}
+
+function completeDeepSearchThinkingState(
+  thinking: DeepSearchThinkingState,
+): DeepSearchThinkingState {
+  return {
+    ...thinking,
+    completed: true,
+    steps: thinking.steps.map((step) => ({ ...step, status: "complete" })),
+  };
+}
+
 function buildRestoredDeepSearchMessages(project: Project, runs: DeepSearchRun[]): ChatMessage[] {
   return [...runs]
     .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
@@ -352,6 +576,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [composerNotice, setComposerNotice] = useState<ComposerNotice | null>(null);
   const [lastUploadedPaperId, setLastUploadedPaperId] = useState<string | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode>("standard");
+  const [pendingDeepSearchPlan, setPendingDeepSearchPlan] =
+    useState<DeepSearchPlanMessage | null>(null);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   activeProjectIdRef.current = activeProject?.id ?? null;
 
@@ -402,6 +628,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     setMessages((prev) => prev.filter((message) => !statusIds.has(message.id)));
     statusIds.clear();
+  }, []);
+
+  const updateDeepSearchThinkingPhase = useCallback((messageId: string, phase: string) => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === messageId && message.thinking
+          ? { ...message, thinking: upsertDeepSearchThinkingPhase(message.thinking, phase) }
+          : message,
+      ),
+    );
+  }, []);
+
+  const appendDeepSearchThinkingSource = useCallback(
+    (messageId: string, source: DeepSearchSourceEventData) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === messageId && message.thinking
+            ? {
+              ...message,
+              thinking: appendDeepSearchThinkingSourceToState(message.thinking, source),
+            }
+            : message,
+        ),
+      );
+    },
+    [],
+  );
+
+  const completeDeepSearchThinking = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === messageId && message.thinking
+          ? { ...message, thinking: completeDeepSearchThinkingState(message.thinking) }
+          : message,
+      ),
+    );
   }, []);
 
   const ensureDeepSearchRelatedPapers = useCallback(
@@ -472,6 +734,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setRunSummary(null);
     setComposerNotice(null);
     setLastUploadedPaperId(null);
+    setPendingDeepSearchPlan(null);
     setError(null);
   }, []);
 
@@ -482,6 +745,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
+      setPendingDeepSearchPlan(null);
       try {
         setActiveProject(null);
         setPapers([]);
@@ -893,6 +1157,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) throw new Error("You must be logged in to chat.");
 
       const assistantMessageId = uid();
+      const thinkingMessage = createDeepSearchThinkingMessage(question);
+      const thinkingMessageId = thinkingMessage.id;
       const collectedSources: DeepSearchDisplaySource[] = [];
       let completedRun: DeepSearchRun | null = null;
       let streamedError: string | null = null;
@@ -900,6 +1166,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       clearDeepSearchStatusMessages();
       setMessages((prev) => [
         ...prev,
+        thinkingMessage,
         {
           id: assistantMessageId,
           role: "assistant",
@@ -915,17 +1182,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         json: { paper_ids: paperIds, question },
         onEvent: (event) => {
           if (event.event === "run") {
-            appendDeepSearchStatusMessage("Deep Search run started.");
+            updateDeepSearchThinkingPhase(thinkingMessageId, "planning");
             return;
           }
 
           if (event.event === "status") {
-            appendDeepSearchStatusMessage(`Deep Search: ${formatDeepSearchPhase(event.data.phase)}`);
+            updateDeepSearchThinkingPhase(thinkingMessageId, event.data.phase);
             return;
           }
 
           if (event.event === "source") {
             collectedSources.push(deepSearchSourceEventToDisplaySource(event.data));
+            appendDeepSearchThinkingSource(thinkingMessageId, event.data);
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantMessageId
@@ -952,6 +1220,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             completedRun = event.data;
             const finalSources = event.data.sources.map(deepSearchSourceToDisplaySource);
             clearDeepSearchStatusMessages();
+            completeDeepSearchThinking(thinkingMessageId);
             setMessages((prev) =>
               prev.map((message) =>
                 message.id === assistantMessageId
@@ -992,7 +1261,143 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
       return completedRun;
     },
-    [appendDeepSearchStatusMessage, clearDeepSearchStatusMessages],
+    [
+      appendDeepSearchThinkingSource,
+      clearDeepSearchStatusMessages,
+      completeDeepSearchThinking,
+      updateDeepSearchThinkingPhase,
+    ],
+  );
+
+  const startDeepSearchPlan = useCallback(
+    async (planId: string) => {
+      if (!authedRef.current || busy) return;
+      const plan = pendingDeepSearchPlan?.id === planId ? pendingDeepSearchPlan : null;
+      if (!plan || plan.status !== "pending") return;
+
+      setBusy(true);
+      setError(null);
+      setComposerNotice(null);
+      setLastUploadedPaperId(null);
+      setPendingDeepSearchPlan(null);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.deepSearchPlan?.id === planId
+            ? {
+              ...message,
+              deepSearchPlan: { ...message.deepSearchPlan, status: "started" },
+            }
+            : message,
+        ),
+      );
+
+      try {
+        if (!plan.projectId || !activeProject) {
+          appendDeepSearchStatusMessage("Creating your project for Deep Search…", "assistant");
+
+          const project = await api<Project>("/projects", {
+            method: "POST",
+            token: authedRef.current,
+            json: buildProjectCreatePayload(plan.question),
+          });
+          setActiveProject(project);
+          await refreshProjects();
+
+          const nextPapers = await fetchProjectPapers(project.id);
+          setPapers(nextPapers);
+          setSelectedPaperIds([]);
+          setQueries([]);
+          setRunSummary(null);
+          setConversation(null);
+
+          const nextSelectedPaperIds = await ensureDeepSearchRelatedPapers({
+            projectId: project.id,
+            currentPapers: [],
+            paperIdsToKeep: [],
+            shouldRunDiscovery: true,
+          });
+
+          await streamDeepSearchTurn({
+            projectId: project.id,
+            paperIds: nextSelectedPaperIds,
+            question: plan.question,
+          });
+          return;
+        }
+
+        if (plan.projectId !== activeProject.id) {
+          throw new Error("This Deep Search plan belongs to a different project.");
+        }
+
+        const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
+        if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
+          setSelectedPaperIds(nextSelectedPaperIds);
+        }
+
+        const deepSearchPaperIds = await ensureDeepSearchRelatedPapers({
+          projectId: activeProject.id,
+          currentPapers: papers,
+          paperIdsToKeep: nextSelectedPaperIds,
+          shouldRunDiscovery: !hasDiscoveredProjectPapers(papers),
+        });
+
+        await streamDeepSearchTurn({
+          projectId: activeProject.id,
+          paperIds: deepSearchPaperIds,
+          question: plan.question,
+        });
+      } catch (err: any) {
+        const detail = err?.message ?? "Something went wrong.";
+        setError(detail);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: uid(),
+            role: "assistant",
+            kind: "status",
+            content: `Error: ${detail}`,
+            createdAt: now(),
+          },
+        ]);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      activeProject,
+      appendDeepSearchStatusMessage,
+      busy,
+      ensureDeepSearchRelatedPapers,
+      fetchProjectPapers,
+      papers,
+      pendingDeepSearchPlan,
+      refreshProjects,
+      selectedPaperIds,
+      streamDeepSearchTurn,
+    ],
+  );
+
+  const editDeepSearchPlan = useCallback(
+    (planId: string) => {
+      if (busy) return null;
+      const plan = pendingDeepSearchPlan?.id === planId ? pendingDeepSearchPlan : null;
+      if (!plan || plan.status !== "pending") return null;
+
+      setPendingDeepSearchPlan(null);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.deepSearchPlan?.id === planId
+            ? {
+              ...message,
+              content: "Research plan moved back to the composer for editing.",
+              deepSearchPlan: { ...message.deepSearchPlan, status: "editing" },
+            }
+            : message,
+        ),
+      );
+      return plan.question;
+    },
+    [busy, pendingDeepSearchPlan],
   );
 
   const submitMessage = useCallback(
@@ -1000,7 +1405,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) return;
       const trimmed = text.trim();
       if (!trimmed) return;
-      setBusy(true);
       setError(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
@@ -1014,41 +1418,30 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       };
       setMessages((prev) => [...prev, userMessage]);
 
+      if (pendingDeepSearchPlan) {
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.deepSearchPlan?.id === pendingDeepSearchPlan.id
+              ? {
+                ...message,
+                deepSearchPlan: { ...message.deepSearchPlan, status: "superseded" },
+              }
+              : message,
+          ),
+        );
+        setPendingDeepSearchPlan(null);
+      }
+
+      if (chatMode === "deep_search") {
+        const planMessage = createDeepSearchPlanMessage(trimmed, activeProject?.id ?? null);
+        setPendingDeepSearchPlan(planMessage.deepSearchPlan);
+        setMessages((prev) => [...prev, planMessage]);
+        return;
+      }
+
+      setBusy(true);
       try {
         if (!activeProject) {
-          if (chatMode === "deep_search") {
-            appendDeepSearchStatusMessage("Creating your project for Deep Search…", "assistant");
-
-            const project = await api<Project>("/projects", {
-              method: "POST",
-              token: authedRef.current,
-              json: buildProjectCreatePayload(trimmed),
-            });
-            setActiveProject(project);
-            await refreshProjects();
-
-            const nextPapers = await fetchProjectPapers(project.id);
-            setPapers(nextPapers);
-            setSelectedPaperIds([]);
-            setQueries([]);
-            setRunSummary(null);
-            setConversation(null);
-
-            const nextSelectedPaperIds = await ensureDeepSearchRelatedPapers({
-              projectId: project.id,
-              currentPapers: [],
-              paperIdsToKeep: [],
-              shouldRunDiscovery: true,
-            });
-
-            await streamDeepSearchTurn({
-              projectId: project.id,
-              paperIds: nextSelectedPaperIds,
-              question: trimmed,
-            });
-            return;
-          }
-
           setMessages((prev) => [
             ...prev,
             {
@@ -1121,22 +1514,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setSelectedPaperIds(nextSelectedPaperIds);
         }
 
-        if (chatMode === "deep_search") {
-          const deepSearchPaperIds = await ensureDeepSearchRelatedPapers({
-            projectId: activeProject.id,
-            currentPapers: papers,
-            paperIdsToKeep: nextSelectedPaperIds,
-            shouldRunDiscovery: !hasDiscoveredProjectPapers(papers),
-          });
-
-          await streamDeepSearchTurn({
-            projectId: activeProject.id,
-            paperIds: deepSearchPaperIds,
-            question: trimmed,
-          });
-          return;
-        }
-
         if (!conversation) {
           await streamProjectChatTurn({
             projectId: activeProject.id,
@@ -1174,12 +1551,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       chatMode,
       conversation,
       fetchProjectPapers,
-      ensureDeepSearchRelatedPapers,
-      appendDeepSearchStatusMessage,
       papers,
+      pendingDeepSearchPlan,
       refreshProjects,
       selectedPaperIds,
-      streamDeepSearchTurn,
       streamProjectChatTurn,
     ],
   );
@@ -1193,6 +1568,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       selectedPaperIds,
       selectedPapers,
       deepSearchSources,
+      pendingDeepSearchPlan,
       queries,
       conversation,
       runSummary,
@@ -1208,6 +1584,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       startNewResearch,
       submitMessage,
+      startDeepSearchPlan,
+      editDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
       clearComposerNotice,
@@ -1221,6 +1599,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       selectedPaperIds,
       selectedPapers,
       deepSearchSources,
+      pendingDeepSearchPlan,
       queries,
       conversation,
       runSummary,
@@ -1235,6 +1614,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       startNewResearch,
       submitMessage,
+      startDeepSearchPlan,
+      editDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
       clearComposerNotice,
