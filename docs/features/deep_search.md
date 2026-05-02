@@ -1,6 +1,6 @@
 # Deep Search Mode
 
-Deep Search is a project-scoped research mode for the chat workspace. It creates a persisted run, gathers selected-paper evidence, searches academic providers, optionally searches the web through Tavily, streams progress and the final report through SSE, and stores sources, warnings, and QA flags for later review.
+Deep Search is a project-scoped research mode for the chat workspace. The frontend first shows a research plan and waits for the user to start it. After approval, it creates a persisted run, gathers selected-paper evidence, searches academic providers, optionally searches the web through Tavily, streams visible thinking/progress and the final report through SSE, and stores sources, warnings, and QA flags for later review.
 
 ## Endpoints
 
@@ -50,6 +50,12 @@ Deep Search keeps the right context panel split into two sections:
 - `Deep Search Sources` appears below it and is populated from the Deep Search run's streamed and persisted source events.
 
 When a Deep Search prompt starts without discovered project papers, the frontend runs `POST /projects/{project_id}/run`, refreshes `GET /projects/{project_id}/papers`, and then starts the Deep Search stream. Existing discovered paper lists are preserved for follow-up Deep Search prompts so selected non-uploaded papers are not deleted by a redundant discovery rerun.
+
+## Frontend Approval and Thinking UI
+
+When the composer is in Deep Search mode, submitting text appends the user message and a pending `Deep Search Plan` card instead of immediately calling the streaming endpoint. The plan card summarizes the research, analysis, and report-writing steps and exposes `Edit plan` and `Start research` actions.
+
+`Start research` runs the existing project creation/discovery preflight when needed, then calls `POST /projects/{project_id}/deep-search/stream`. Stream `status` events are rendered as a single expandable `Show thinking` panel with phase-level summaries such as planning, academic search, web search, source summarization, writing, and verification. Stream `source` events are attached both to the thinking panel and to the right-side `Deep Search Sources` panel. The final answer continues to stream into the assistant report message.
 
 ## Configuration
 
