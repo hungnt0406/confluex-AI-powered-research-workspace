@@ -42,6 +42,15 @@ The stream emits:
 - Frontend mode switch: `frontend/components/ChatWorkspace.tsx`.
 - Frontend stream orchestration: `frontend/components/ChatProvider.tsx`.
 
+## Frontend Context Panel
+
+Deep Search keeps the right context panel split into two sections:
+
+- `Related Papers` appears first and is populated from the existing Searcher -> Reader project pipeline.
+- `Deep Search Sources` appears below it and is populated from the Deep Search run's streamed and persisted source events.
+
+When a Deep Search prompt starts without discovered project papers, the frontend runs `POST /projects/{project_id}/run`, refreshes `GET /projects/{project_id}/papers`, and then starts the Deep Search stream. Existing discovered paper lists are preserved for follow-up Deep Search prompts so selected non-uploaded papers are not deleted by a redundant discovery rerun.
+
 ## Configuration
 
 - `TAVILY_API_KEY`
