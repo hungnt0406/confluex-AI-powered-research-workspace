@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-02 16:33
+- **done:**
+  - Split the context panel into fixed Related Papers and Deep Search Sources regions when both lists are present.
+  - Added independent scroll containers to each context-panel list so long related-paper or source lists do not push the other section away.
+  - Updated frontend static coverage for the split-scroll context panel layout.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
 ### 2026-05-02 11:08
 - **done:**
   - Fixed the misleading Deep Search finalization error where a completed run could stream through `Verifying` and then fail with `Deep search run could not be loaded.`
