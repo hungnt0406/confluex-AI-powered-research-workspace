@@ -19,14 +19,42 @@ def test_frontend_deep_search_mode_wiring() -> None:
     assert "source" in api_client
 
 
-def test_frontend_deep_search_progress_is_cleared_after_completion() -> None:
+def test_frontend_deep_search_requires_plan_approval_before_streaming() -> None:
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
 
-    assert "deepSearchStatusMessageIds" in chat_provider
-    assert "clearDeepSearchStatusMessages" in chat_provider
-    assert "Deep Search run started." in chat_provider
-    assert "!statusIds.has(message.id)" in chat_provider
-    assert "clearDeepSearchStatusMessages();" in chat_provider
+    assert 'kind?: "text" | "status" | "summary" | "deep_search_plan" | "deep_search_thinking"' in chat_provider
+    assert "DeepSearchPlanMessage" in chat_provider
+    assert "pendingDeepSearchPlan" in chat_provider
+    assert "createDeepSearchPlanMessage" in chat_provider
+    assert "startDeepSearchPlan" in chat_provider
+    assert "editDeepSearchPlan" in chat_provider
+    assert "Here's a research plan for that topic." in chat_provider
+    assert "if (chatMode === \"deep_search\")" in chat_provider
+    assert "setPendingDeepSearchPlan(planMessage.deepSearchPlan);" in chat_provider
+    assert "await streamDeepSearchTurn({" not in chat_provider[
+        chat_provider.index("const submitMessage = useCallback") : chat_provider.index("const value = useMemo<ChatState>")
+    ].split("if (chatMode === \"deep_search\")", 1)[1].split("return;", 1)[0]
+    assert "DeepSearchPlanCard" in chat_workspace
+    assert "Start research" in chat_workspace
+    assert "Edit plan" in chat_workspace
+
+
+def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+
+    assert "DeepSearchThinkingState" in chat_provider
+    assert "createDeepSearchThinkingMessage" in chat_provider
+    assert "updateDeepSearchThinkingPhase" in chat_provider
+    assert "appendDeepSearchThinkingSource" in chat_provider
+    assert "completeDeepSearchThinking" in chat_provider
+    assert "DeepSearch: ${formatDeepSearchPhase(event.data.phase)}" not in chat_provider
+    assert "appendDeepSearchThinkingSource(thinkingMessageId, event.data);" in chat_provider
+    assert "completeDeepSearchThinking(thinkingMessageId);" in chat_provider
+    assert "DeepSearchThinkingPanel" in chat_workspace
+    assert "Show thinking" in chat_workspace
+    assert "Researching websites" in chat_provider
 
 
 def test_frontend_restores_completed_deep_search_runs_after_refresh() -> None:
@@ -71,7 +99,10 @@ def test_frontend_deep_search_sources_render_in_context_panel() -> None:
     assert "sources={message.sources}" not in chat_workspace
     assert context_panel.index("Related Papers") < context_panel.index("Deep Search Sources")
     assert "const splitPanel = papers.length > 0 && deepSearchSources.length > 0" in context_panel
-    assert 'splitPanel ? "flex-1 basis-0" : "flex-1"' in context_panel
+    assert 'splitPanel ? "flex-[2_1_0%]" : "flex-1"' in context_panel
+    assert 'splitPanel ? "flex-[1_1_0%]" : "flex-1"' in context_panel
+    assert 'aria-hidden="true"' in context_panel
+    assert "h-px flex-none bg-outline/20" in context_panel
     assert "overflow-y-auto pr-1 custom-scrollbar" in context_panel
     assert context_panel.count("overflow-y-auto pr-1 custom-scrollbar") >= 2
 

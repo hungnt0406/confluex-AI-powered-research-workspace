@@ -16,7 +16,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
 - Grounded paper conversations with persisted first-turn and follow-up Q&A
 - Project-scoped multi-paper grounded conversations for the main chat workspace
-- Project-scoped Deep Search mode with persisted runs, Tavily web search fallback, academic/project evidence, SSE progress, report streaming, source capture, and QA flags
+- Project-scoped Deep Search mode with plan approval, visible thinking/progress, persisted runs, Tavily web search fallback, academic/project evidence, report streaming, source capture, and QA flags
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
 - Project-scoped OpenRouter token usage telemetry with aggregate API
 - Admin-only OpenRouter token usage monitoring across all users/projects
@@ -137,7 +137,7 @@ npm run dev
 `POST /projects/{id}/conversations/{conversation_id}/messages` appends a follow-up turn for the current selected paper set; when the selected set changes, including being cleared, the conversation stores a system message describing the new selection before the user turn.
 `POST /projects/{id}/conversations/{conversation_id}/messages/stream` provides the same follow-up behavior over `text/event-stream` while preserving usage telemetry and persisted message semantics.
 `GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
-`POST /projects/{id}/deep-search/stream` creates a persisted Deep Search run, streams `run`, `status`, `source`, `token`, `done`, and `error` SSE events, uses selected project papers when provided, searches Semantic Scholar/arXiv, and uses Tavily web search when `TAVILY_API_KEY` is configured.
+`POST /projects/{id}/deep-search/stream` creates a persisted Deep Search run, streams `run`, `status`, `source`, `token`, `done`, and `error` SSE events, uses selected project papers when provided, searches Semantic Scholar/arXiv, and uses Tavily web search when `TAVILY_API_KEY` is configured. The frontend shows a plan approval card before calling this endpoint and renders stream phases as an expandable thinking panel.
 `GET /projects/{id}/deep-search-runs` and `GET /projects/{id}/deep-search-runs/{run_id}` expose persisted Deep Search run summaries, sources, reports, warnings, and QA flags.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
