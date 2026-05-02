@@ -497,6 +497,48 @@ async def test_deep_search_structured_output_truncation_falls_back_without_faili
     assert any("verifier fell back" in warning for warning in done_payload["warnings"])
 
 
+@pytest.mark.asyncio
+async def test_deep_search_finalizes_without_run_reload_helper(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    class NoReloadDeepSearchService(DeepSearchService):
+        async def _get_run_for_update(self, *, session: AsyncSession, run_id: str) -> DeepSearchRun:
+            raise RuntimeError("Deep search run could not be loaded.")
+
+    service = NoReloadDeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=one_academic_result,
+        arxiv_search=no_academic_results,
+    )
+    app.dependency_overrides[get_deep_search_service] = lambda: service
+
+    response = await client.post(
+        f"/projects/{sample_project['id']}/deep-search/stream",
+        headers=auth_headers,
+        json={"paper_ids": [], "question": "Finalize without reloading the running row."},
+    )
+    app.dependency_overrides.pop(get_deep_search_service, None)
+
+    events = parse_sse_events(response.text)
+    done_payload = events[-1][1]
+
+    assert response.status_code == 201
+    assert events[-1][0] == "done"
+    assert done_payload["status"] == "completed"
+    assert done_payload["report_body"].startswith("# Deep Search Report")
+
+    async with session_factory() as session:
+        run = await session.get(DeepSearchRun, done_payload["id"])
+        assert run is not None
+        assert run.status == "completed"
+
+
 def test_deep_search_source_deduplication_and_local_verifier_flags() -> None:
     candidates = [
         DeepSearchSourceCandidate(
