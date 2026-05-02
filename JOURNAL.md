@@ -47,6 +47,38 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-02 11:08
+- **done:**
+  - Fixed the misleading Deep Search finalization error where a completed run could stream through `Verifying` and then fail with `Deep search run could not be loaded.`
+  - Changed Deep Search success/failure finalization to update the run row directly by id instead of depending on a fragile ORM reload helper during the SSE stream.
+  - Added backend regression coverage for completing a Deep Search run even when the reload helper is unavailable.
+  - Changed files: `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused Deep Search backend tests, Ruff, and mypy on the touched service.
+- **blocked:**
+  - None.
+
+### 2026-05-02 11:01
+- **done:**
+  - Updated Deep Search submissions to ensure the related-paper discovery pipeline runs before streaming when the project has no discovered related papers yet.
+  - Preserved the two-part right context panel order with `Related Papers` above `Deep Search Sources`.
+  - Updated frontend static coverage and Deep Search frontend docs for the combined related-paper/source panel behavior.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused Deep Search frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-01 23:56
+- **done:**
+  - Reduced Deep Search source favicon sizes in the right context panel.
+  - Updated frontend static coverage to pin the smaller source icon dimensions.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
 ### 2026-05-01 23:34
 - **done:**
   - Added favicon-style source images to Deep Search source cards in the right context panel.
