@@ -47,6 +47,350 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-02 16:33
+- **done:**
+  - Split the context panel into fixed Related Papers and Deep Search Sources regions when both lists are present.
+  - Added independent scroll containers to each context-panel list so long related-paper or source lists do not push the other section away.
+  - Updated frontend static coverage for the split-scroll context panel layout.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-02 11:08
+- **done:**
+  - Fixed the misleading Deep Search finalization error where a completed run could stream through `Verifying` and then fail with `Deep search run could not be loaded.`
+  - Changed Deep Search success/failure finalization to update the run row directly by id instead of depending on a fragile ORM reload helper during the SSE stream.
+  - Added backend regression coverage for completing a Deep Search run even when the reload helper is unavailable.
+  - Changed files: `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused Deep Search backend tests, Ruff, and mypy on the touched service.
+- **blocked:**
+  - None.
+
+### 2026-05-02 11:01
+- **done:**
+  - Updated Deep Search submissions to ensure the related-paper discovery pipeline runs before streaming when the project has no discovered related papers yet.
+  - Preserved the two-part right context panel order with `Related Papers` above `Deep Search Sources`.
+  - Updated frontend static coverage and Deep Search frontend docs for the combined related-paper/source panel behavior.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused Deep Search frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-01 23:56
+- **done:**
+  - Reduced Deep Search source favicon sizes in the right context panel.
+  - Updated frontend static coverage to pin the smaller source icon dimensions.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 23:34
+- **done:**
+  - Added favicon-style source images to Deep Search source cards in the right context panel.
+  - Uses each source URL hostname to load a small favicon image, with a local article icon fallback for missing or failed favicons.
+  - Extended frontend static coverage for favicon rendering in Deep Search source cards.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 23:26
+- **done:**
+  - Moved Deep Search source display from inline answer chips into the right context panel as a `Deep Search Sources` section, matching the existing related-paper sidebar pattern.
+  - Exposed a deduped `deepSearchSources` list from chat state and kept the context panel open when sources exist even if no ranked papers are present.
+  - Removed the inline Deep Search source chip strip under assistant answers.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 22:29
+- **done:**
+  - Hardened restored chat sorting against malformed timestamps by replacing raw `Date.parse(...)` subtraction with a finite sort key and stable index tiebreaker.
+  - Added frontend static regression coverage for invalid timestamp handling in restored chat sorting.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 22:22
+- **done:**
+  - Fixed restored chat ordering so Deep Search answers are restored as turn-paired messages anchored to the run start time instead of the completion time.
+  - Merged restored normal conversation messages and restored Deep Search messages chronologically to prevent stacked user questions after refresh.
+  - Extended the frontend static regression to cover restored message ordering.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 22:09
+- **done:**
+  - Fixed project refresh restoration so completed Deep Search runs are fetched from `/deep-search-runs`, converted back into assistant messages, and rendered with saved source chips.
+  - Suppressed the empty-paper placeholder when a project has a restored Deep Search answer but no ranked papers.
+  - Added static frontend regression coverage for restoring completed Deep Search runs after refresh.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 17:41
+- **done:**
+  - Fixed Deep Search progress rows so `Deep Search run started` and phase messages are tracked as transient status messages and removed when the final report completes.
+  - Added static frontend regression coverage for clearing Deep Search progress after completion.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static regression, frontend TypeScript, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-05-01 17:29
+- **done:**
+  - Fixed Deep Search live structured-output failures so OpenRouter truncation in planning, source summarization, or verification falls back to local deterministic behavior instead of failing the whole run.
+  - Reused the captured run id for final persistence/reload to avoid stale ORM access during streamed completion.
+  - Added regression coverage for truncated structured output completing successfully with fallback warnings.
+  - Changed files: `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with targeted Deep Search tests, Ruff, mypy on the touched service, and `git diff --check`.
+- **blocked:**
+  - None for this fix.
+
+### 2026-05-01 17:02
+- **done:**
+  - Implemented Deep Search mode from `plans/deep-search-mode.md`: persisted runs/sources, Tavily fallback, project/academic evidence collection, SSE run/status/source/token/done/error events, report streaming, source chips, QA flags, and usage telemetry.
+  - Added backend coverage for stream persistence, ownership, Tavily request/failure behavior, failed runs, OpenRouter usage events, source deduplication, and verifier flags.
+  - Updated docs and configuration for the new API surface and `DEEP_SEARCH_*` settings.
+  - Changed files: `.env.example`, `README.md`, `AI_WORKLOG.md`, `JOURNAL.md`, `backend/config.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260501_01_deep_search.py`, `backend/services/tavily.py`, `backend/services/deep_search.py`, `backend/api/dependencies.py`, `backend/api/schemas/projects.py`, `backend/api/routers/projects.py`, `database_schema.sql`, `docs/feature-map.md`, `docs/features/deep_search.md`, `frontend/README.md`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`.
+- **doing:**
+  - Verified targeted checks; see `AI_WORKLOG.md` for command details.
+- **blocked:**
+  - Full `python -m mypy backend/` is still blocked by the pre-existing untyped Google auth call in `backend/api/routers/auth.py:85`.
+
+### 2026-05-01 16:38
+- **done:**
+  - Saved the Deep Search mode implementation plan for the planned Tavily-backed research mode.
+  - Changed files: `plans/deep-search-mode.md`, `JOURNAL.md`.
+- **doing:**
+  - Plan is saved for future implementation; no code changes were made.
+- **blocked:**
+  - None.
+
+### 2026-04-30 10:22
+- **done:**
+  - Replaced the browser-native user search clear control with a custom neutral clear button.
+  - Increased the clear button hit target and added accessible focus/hover states.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-30 10:18
+- **done:**
+  - Added a subtle hover lift, shadow, color transition, active press state, and disabled cursor state to the primary login button.
+  - Changed files: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-30 10:11
+- **done:**
+  - Changed the Google Sign-In GIS button from pill-shaped to rectangular so it visually matches the existing `Sign in` button shape.
+  - Rendered the Google button at the login form content width instead of the previous fixed 300px width.
+  - Changed files: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-30 00:38
+- **done:**
+  - Implemented Google Sign-In (OAuth 2.0) across the full stack.
+  - Backend: new `POST /auth/google` endpoint verifying Google ID tokens via `google-auth` library, auto-registration and account linking logic, guarded email login for password-less users.
+  - Database: Alembic migration adding `auth_provider`, `google_sub` columns to users table, made `hashed_password` nullable for OAuth-only accounts.
+  - Frontend: Google Identity Services button on login page, `loginWithGoogle` in AuthProvider, TypeScript type declarations for GIS.
+  - Fixed login page font consistency (`font-ui text-on-surface` on `<main>`).
+  - Changed files: `backend/config.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260430_01_google_auth.py`, `backend/api/routers/auth.py`, `backend/api/schemas/auth.py`, `frontend/app/layout.tsx`, `frontend/components/AuthProvider.tsx`, `frontend/app/login/page.tsx`, `frontend/types/google-gsi.d.ts`, `.env`, `.env.example`, `pyproject.toml`, `JOURNAL.md`.
+- **doing:**
+  - Verified: `ruff check` passes, `tsc --noEmit` passes, `alembic upgrade head` succeeded.
+- **blocked:**
+  - None.
+
+---
+
+### 2026-04-30 00:04
+- **done:**
+  - Applied the existing thin custom scrollbar styling to the admin usage log scroll container.
+  - Extended the shared scrollbar utility to keep horizontal table scrolling thin and minimal too.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/app/globals.css`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-30 00:00
+- **done:**
+  - Made the shared admin usage log table render inside a fixed-height scroll area.
+  - Kept the log table header sticky so column labels remain visible while scrolling long selected-range logs.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:54
+- **done:**
+  - Stacked `Top projects` above the global dashboard log instead of rendering the two panels side by side.
+  - Kept the global dashboard log title as `Recent activity` while preserving `User log` on selected-user analysis.
+  - Changed the admin usage summary to return all matching log rows for the selected range instead of capping recent events at 25.
+  - Changed files: `backend/services/ai_usage.py`, `frontend/app/admin/usage/page.tsx`, `README.md`, `frontend/README.md`, `tests/test_admin.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `python -m pytest tests/test_admin.py -q`, `python -m ruff check backend/services/ai_usage.py tests/test_admin.py`, `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:43
+- **done:**
+  - Renamed the admin usage recent-event table to `User log` in the UI.
+  - Added admin-only prompt display for project chat usage rows by reading the matching persisted user message at response time, without storing prompts in `ai_usage_events`.
+  - Changed files: `backend/services/ai_usage.py`, `backend/api/schemas/admin.py`, `backend/api/routers/admin.py`, `frontend/lib/api.ts`, `frontend/app/admin/usage/components.tsx`, `frontend/app/admin/usage/users/page.tsx`, `README.md`, `frontend/README.md`, `tests/test_admin.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with `python -m pytest tests/test_admin.py -q`, `python -m ruff check backend/services/ai_usage.py backend/api/schemas/admin.py backend/api/routers/admin.py tests/test_admin.py`, `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:36
+- **done:**
+  - Updated recent `AI_WORKLOG.md` admin UI entries so the `Prompt/Request` field preserves exact user prompt text instead of only paraphrased summaries.
+  - Changed files: `AI_WORKLOG.md`, `JOURNAL.md`.
+- **doing:**
+  - Verified the documentation-only change with `git diff --check`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:32
+- **done:**
+  - Moved `Projects used` above `Recent activity` on `/admin/usage/users` by removing the side-by-side two-column grid for those sections.
+  - Changed files: `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend layout change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:26
+- **done:**
+  - Replaced the admin usage date-range preset dropdown with a shared popover picker that keeps 7-day, 30-day, and all-time presets.
+  - Added custom calendar range selection for `/admin/usage` and `/admin/usage/users`, including one-day ranges by selecting the same date twice or double-clicking the date.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:14
+- **done:**
+  - Fixed the `/admin/usage/users` searchable user picker so outside blur closes the listbox without discarding the typed search query.
+  - Added keyboard navigation for filtered user results with ArrowDown/ArrowUp, active descendant ARIA state, and Enter selection from the highlighted option.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - None.
+
+### 2026-04-29 23:00
+- **done:**
+  - Replaced the selected-user native dropdown on `/admin/usage/users` with a searchable combobox that filters loaded users by email or user id.
+  - Kept the existing selected-user URL behavior and admin token usage API contract unchanged.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the frontend change with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - The first sandboxed `npm run build` hit the known Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
+
+### 2026-04-28 15:39
+- **done:**
+  - Changed the `/admin/usage` daily trend to render the API-provided daily rows for the selected date range instead of defaulting to a hardcoded seven-day window.
+  - Hardened `DailyTrend` SVG math for empty and single-point datasets by avoiding unnecessary division and closing the area fill from the actual first and last plotted points.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+- **blocked:**
+  - None.
+
+### 2026-04-28 15:30
+- **done:**
+  - Removed the `Admin` badge from the shared admin usage page header, which updates both `/admin/usage` and `/admin/usage/users`.
+  - Changed files: `frontend/app/admin/usage/components.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the change with `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+- **blocked:**
+  - None.
+
+### 2026-04-28 15:21
+- **done:**
+  - Removed the `useRouter` dependency from `/admin/usage/users` query-string updates to avoid callback identity churn in the selected-user loading effect.
+  - Changed selected-user loading so `loadUsersAndSelectedUsage` fetches the computed user's filtered usage directly instead of calling another state-dependent loader.
+  - Added request sequencing to ignore stale user-list and selected-user usage responses when date ranges or users change quickly.
+  - Changed files: `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the fix with `cd frontend && ./node_modules/.bin/tsc --noEmit` and `cd frontend && npm run build`.
+- **blocked:**
+  - The first sandboxed `npm run build` hit a Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
+
+### 2026-04-28 14:36
+- **done:**
+  - Split the admin monitor into `/admin/usage` for the global dashboard and `/admin/usage/users` for selected-user analysis.
+  - Extracted shared admin access, route navigation, date range controls, loading/error/empty states, KPI cards, trend chart, breakdown panels, project table, and recent events table into reusable admin usage components.
+  - Changed `/admin/usage/users` to load `/admin/token-usage` first without `user_id`, default to the top token user, then load the selected user's filtered usage while preserving `?user_id=...` in the URL.
+  - Updated frontend docs and feature ownership for the new route.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `frontend/app/admin/usage/users/page.tsx`, `frontend/app/admin/usage/components.tsx`, `frontend/README.md`, `docs/feature-map.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verification completed with `cd frontend && ./node_modules/.bin/tsc --noEmit`, `cd frontend && npm run build`, and `python -m pytest tests/test_admin.py -q`.
+- **blocked:**
+  - Manual browser verification with real admin/non-admin sessions was not run in this environment.
+  - The first sandboxed `npm run build` hit a Turbopack port-binding restriction; rerunning the same command outside the sandbox passed.
+
+### 2026-04-28 14:16
+- **done:**
+  - Changed the `/admin/usage` daily usage trend from bars to a line graph.
+  - Set the admin dashboard default date range to the last 7 days ending on the current day.
+  - Filled missing daily chart points with zero values so the graph always shows exactly seven days.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Daily usage trend now visualizes the current seven-day window as a line chart.
+- **blocked:**
+  - None.
+
+### 2026-04-28 14:06
+- **done:**
+  - Fixed the `/admin/usage` daily usage trend bars by giving each bar a stable chart height context and visible minimum height.
+  - Added compact token labels and a clearer zero-token state for the daily trend chart.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Daily trend now renders visible bars whenever daily token totals are present.
+- **blocked:**
+  - None.
+
+### 2026-04-28 13:53
+- **done:**
+  - Replaced the `/admin/usage` date segmented control with a dropdown matching the user and project filter controls.
+  - Changed files: `frontend/app/admin/usage/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Admin filters now use consistent dropdown interactions.
+- **blocked:**
+  - None.
+
 ### 2026-04-28 14:05
 - **done:**
   - Added a Connected-Papers-style citation neighborhood graph as a "Graph" tab inside the right-hand `ContextPanel`, picking one seed paper from the project and rendering ~30 nodes (seed + up to 10 cited-by + up to 20 references) as a force-directed graph with year-encoded colors and citation-count-encoded node sizes.

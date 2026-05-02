@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CitationGraph from "@/components/CitationGraph";
-import { useChat } from "@/components/ChatProvider";
+import { type DeepSearchDisplaySource, useChat } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 
 type ContextPanelTab = "papers" | "graph";
@@ -11,12 +11,14 @@ export default function ContextPanel() {
   const {
     activeProject,
     papers,
+    deepSearchSources,
     runSummary,
     selectedPaperIds,
     togglePaperSelection,
     lastUploadedPaperId = null,
   } = useChat();
-  const open = papers.length > 0;
+  const open = papers.length > 0 || deepSearchSources.length > 0;
+  const splitPanel = papers.length > 0 && deepSearchSources.length > 0;
 
   const [width, setWidth] = useState<number>(600);
   const [activeTab, setActiveTab] = useState<ContextPanelTab>("papers");
@@ -120,17 +122,52 @@ export default function ContextPanel() {
 
         <div className="mt-4 flex-1 min-h-0">
           {activeTab === "papers" ? (
-            <ul className="h-full space-y-2 overflow-y-auto custom-scrollbar pr-1">
-              {papers.map((paper) => (
-                <PaperCard
-                  key={paper.id}
-                  paper={paper}
-                  isSelected={selectedPaperIds.includes(paper.id)}
-                  isFreshlyUploaded={lastUploadedPaperId === paper.id}
-                  onToggle={() => togglePaperSelection(paper.id)}
-                />
-              ))}
-            </ul>
+            <div className="flex h-full min-h-0 flex-col gap-5">
+              {papers.length > 0 && (
+                <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+                  <div className="flex flex-none items-center justify-between">
+                    <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                      Related Papers
+                    </h3>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                    <ul className="space-y-2">
+                      {papers.map((paper) => (
+                        <PaperCard
+                          key={paper.id}
+                          paper={paper}
+                          isSelected={selectedPaperIds.includes(paper.id)}
+                          isFreshlyUploaded={lastUploadedPaperId === paper.id}
+                          onToggle={() => togglePaperSelection(paper.id)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
+
+              {deepSearchSources.length > 0 && (
+                <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+                  <div className="flex flex-none items-center justify-between">
+                    <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                      Deep Search Sources
+                    </h3>
+                    <span className="text-[10px] text-hint">
+                      {deepSearchSources.length} cited
+                    </span>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                    <ul className="space-y-2">
+                      {deepSearchSources.map((source) => (
+                        <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
+            </div>
           ) : (
             <CitationGraph
               projectId={activeProject?.id ?? ""}
@@ -177,6 +214,90 @@ function TabButton({
       {label}
     </button>
   );
+}
+
+function DeepSearchSourceCard({ source }: { source: DeepSearchDisplaySource }) {
+  const typeLabel = formatDeepSearchSourceType(source.sourceType);
+  const body = (
+    <>
+      <div className="flex items-start gap-2">
+        <SourceFavicon source={source} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium text-on-surface leading-snug line-clamp-2">
+            {source.title}
+          </p>
+          <p className="mt-1 text-[10px] text-hint">
+            {source.id} · {typeLabel}
+          </p>
+        </div>
+      </div>
+    </>
+  );
+
+  const className =
+    "block p-3 rounded-xl border border-outline/20 bg-surface-container-low transition-[background-color,border-color] hover:border-primary/30";
+
+  if (source.url) {
+    return (
+      <li>
+        <a href={source.url} target="_blank" rel="noreferrer" className={className}>
+          {body}
+        </a>
+      </li>
+    );
+  }
+
+  return (
+    <li className={className}>
+      {body}
+    </li>
+  );
+}
+
+function SourceFavicon({ source }: { source: DeepSearchDisplaySource }) {
+  const [failed, setFailed] = useState(false);
+  const faviconUrl = source.url ? getFaviconUrl(source.url) : null;
+
+  if (!faviconUrl || failed) {
+    return (
+      <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
+        <span
+          className="material-symbols-outlined"
+          aria-hidden="true"
+          style={{
+            fontSize: "13px",
+            fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+          }}
+        >
+          article
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-container-high ring-1 ring-outline/20">
+      <img
+        src={faviconUrl}
+        alt=""
+        aria-hidden="true"
+        className="h-3.5 w-3.5 object-contain"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
+function getFaviconUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    if (!hostname) return null;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
+  } catch {
+    return null;
+  }
 }
 
 function PaperCard({
@@ -379,6 +500,13 @@ function SummarySection({
       <p className="text-[10px] text-on-surface leading-snug">{value ?? <span className="text-hint">—</span>}</p>
     </div>
   );
+}
+
+function formatDeepSearchSourceType(sourceType: DeepSearchDisplaySource["sourceType"]) {
+  return sourceType
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function isUploadedReferencePaper(paper: ProjectPaper) {

@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db.models import AIUsageEvent, Project, User
+from backend.db.models import AIUsageEvent, Project, ProjectConversation, ProjectMessage, User
 
 
 @dataclass(frozen=True)
@@ -106,6 +106,7 @@ class UsageRecentEventRow:
     reasoning_tokens: int
     cached_tokens: int
     cost_credits: float | None
+    user_prompt: str | None
 
 
 @dataclass(frozen=True)
@@ -252,7 +253,7 @@ async def summarize_admin_usage(
     date_to: date | None = None,
     user_id: str | None = None,
     project_id: str | None = None,
-    recent_limit: int = 25,
+    recent_limit: int | None = None,
 ) -> AdminTokenUsageSummary:
     """Aggregate persisted usage across all users and projects for admins."""
 
@@ -543,9 +544,27 @@ async def _admin_recent_events(
     *,
     session: AsyncSession,
     filters: list[Any],
-    recent_limit: int,
+    recent_limit: int | None,
 ) -> list[UsageRecentEventRow]:
-    result = await session.execute(
+    user_prompt_subquery = (
+        select(ProjectMessage.content)
+        .join(ProjectConversation, ProjectConversation.id == ProjectMessage.conversation_id)
+        .where(
+            ProjectConversation.project_id == AIUsageEvent.project_id,
+            ProjectMessage.role == "user",
+            ProjectMessage.created_at <= AIUsageEvent.created_at,
+        )
+        .order_by(ProjectMessage.created_at.desc(), ProjectMessage.id.desc())
+        .limit(1)
+        .correlate(AIUsageEvent)
+        .scalar_subquery()
+    )
+    user_prompt_expression = case(
+        (AIUsageEvent.feature == "project_chat_answer", user_prompt_subquery),
+        else_=None,
+    )
+
+    statement = (
         select(
             AIUsageEvent.id,
             AIUsageEvent.created_at,
@@ -564,13 +583,17 @@ async def _admin_recent_events(
             func.coalesce(AIUsageEvent.reasoning_tokens, 0),
             func.coalesce(AIUsageEvent.cached_tokens, 0),
             AIUsageEvent.cost_credits,
+            user_prompt_expression,
         )
         .join(Project, Project.id == AIUsageEvent.project_id)
         .join(User, User.id == AIUsageEvent.user_id)
         .where(*filters)
         .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id.desc())
-        .limit(recent_limit)
     )
+    if recent_limit is not None:
+        statement = statement.limit(recent_limit)
+
+    result = await session.execute(statement)
     return [
         UsageRecentEventRow(
             id=str(row[0]),
@@ -590,6 +613,7 @@ async def _admin_recent_events(
             reasoning_tokens=int(row[14] or 0),
             cached_tokens=int(row[15] or 0),
             cost_credits=_float_or_none(row[16]),
+            user_prompt=str(row[17]) if row[17] is not None else None,
         )
         for row in result.all()
     ]

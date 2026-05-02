@@ -1,11 +1,13 @@
 from datetime import date, datetime
 from math import ceil
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from backend.db.models import (
+        DeepSearchRun,
+        DeepSearchSource,
         PaperConversation,
         ProjectConversation,
         ReferenceFile,
@@ -325,6 +327,122 @@ class ProjectConversationCreate(ProjectConversationQuestionCreate):
 
 class ProjectConversationMessageCreate(ProjectConversationQuestionCreate):
     """Request body for adding a follow-up turn to a project-scoped conversation."""
+
+
+class DeepSearchCreate(BaseModel):
+    """Request body for starting a project-scoped deep search run."""
+
+    paper_ids: list[str] = Field(max_length=5)
+    question: str = Field(min_length=1, max_length=8_000)
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> "DeepSearchCreate":
+        normalized_ids = [paper_id.strip() for paper_id in self.paper_ids]
+        if any(not paper_id for paper_id in normalized_ids):
+            raise ValueError("paper_ids must not contain empty values.")
+        if len(dict.fromkeys(normalized_ids)) != len(normalized_ids):
+            raise ValueError("paper_ids must be unique.")
+        self.paper_ids = normalized_ids
+        self.question = self.question.strip()
+        return self
+
+
+class DeepSearchSourceRead(BaseModel):
+    """Serialized source row collected for a deep search run."""
+
+    id: str
+    run_id: str
+    source_type: Literal["paper", "paper_chunk", "citation_graph", "web"]
+    title: str
+    url: str | None
+    paper_id: str | None
+    snippet: str
+    metadata: dict[str, Any]
+    created_at: datetime
+
+    @classmethod
+    def from_source(cls, source: "DeepSearchSource") -> "DeepSearchSourceRead":
+        return cls(
+            id=source.id,
+            run_id=source.run_id,
+            source_type=cast(
+                Literal["paper", "paper_chunk", "citation_graph", "web"],
+                source.source_type,
+            ),
+            title=source.title,
+            url=source.url,
+            paper_id=source.paper_id,
+            snippet=source.snippet,
+            metadata=dict(source.metadata_json),
+            created_at=source.created_at,
+        )
+
+
+class DeepSearchRunSummaryRead(BaseModel):
+    """Serialized deep search run summary for list views and run SSE events."""
+
+    id: str
+    project_id: str
+    user_prompt: str
+    status: Literal["running", "completed", "failed"]
+    selected_paper_ids: list[str]
+    source_count: int
+    warning_count: int
+    qa_flag_count: int
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+    @classmethod
+    def from_run(cls, run: "DeepSearchRun") -> "DeepSearchRunSummaryRead":
+        loaded_sources = list(run.__dict__.get("sources", []))
+        return cls(
+            id=run.id,
+            project_id=run.project_id,
+            user_prompt=run.user_prompt,
+            status=cast(Literal["running", "completed", "failed"], run.status),
+            selected_paper_ids=list(run.selected_paper_ids_json),
+            source_count=len(loaded_sources),
+            warning_count=len(run.warnings_json),
+            qa_flag_count=len(run.qa_flags_json),
+            created_at=run.created_at,
+            updated_at=run.updated_at,
+            completed_at=run.completed_at,
+        )
+
+
+class DeepSearchRunRead(DeepSearchRunSummaryRead):
+    """Serialized full deep search run with report and sources."""
+
+    plan: dict[str, Any]
+    report_body: str
+    source_summary: dict[str, Any]
+    warnings: list[str]
+    qa_flags: list[dict[str, Any]]
+    sources: list[DeepSearchSourceRead]
+
+    @classmethod
+    def from_run(cls, run: "DeepSearchRun") -> "DeepSearchRunRead":
+        loaded_sources = list(run.__dict__.get("sources", []))
+        return cls(
+            id=run.id,
+            project_id=run.project_id,
+            user_prompt=run.user_prompt,
+            status=cast(Literal["running", "completed", "failed"], run.status),
+            selected_paper_ids=list(run.selected_paper_ids_json),
+            source_count=len(loaded_sources),
+            warning_count=len(run.warnings_json),
+            qa_flag_count=len(run.qa_flags_json),
+            created_at=run.created_at,
+            updated_at=run.updated_at,
+            completed_at=run.completed_at,
+            plan=dict(run.plan_json),
+            report_body=run.report_body,
+            source_summary=dict(run.source_summary_json),
+            warnings=list(run.warnings_json),
+            qa_flags=[dict(flag) for flag in run.qa_flags_json],
+            sources=[DeepSearchSourceRead.from_source(source) for source in loaded_sources],
+        )
 
 
 class ProjectMessageRead(BaseModel):

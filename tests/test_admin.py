@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from backend.config import get_settings
-from backend.db.models import AIUsageEvent, Project, User
+from backend.db.models import AIUsageEvent, Project, ProjectConversation, ProjectMessage, User
 from backend.security import create_access_token, hash_password
 
 
@@ -87,6 +87,17 @@ async def test_admin_token_usage_aggregates_across_users_and_projects(
         )
         session.add(other_project)
         await session.flush()
+        conversation = ProjectConversation(project_id=sample_project["id"])
+        session.add(conversation)
+        await session.flush()
+        session.add(
+            ProjectMessage(
+                conversation_id=conversation.id,
+                role="user",
+                content="How should I compare remote education shifts?",
+                created_at=datetime(2026, 4, 20, 11, 59, tzinfo=UTC),
+            )
+        )
         session.add_all(
             [
                 AIUsageEvent(
@@ -158,6 +169,11 @@ async def test_admin_token_usage_aggregates_across_users_and_projects(
     assert [event["total_tokens"] for event in payload["recent_events"]] == [40, 30]
     assert payload["recent_events"][0]["user_email"] == "usage-team@example.com"
     assert payload["recent_events"][0]["project_title"] == "Team Research"
+    assert payload["recent_events"][0]["user_prompt"] is None
+    chat_event = next(
+        event for event in payload["recent_events"] if event["feature"] == "project_chat_answer"
+    )
+    assert chat_event["user_prompt"] == "How should I compare remote education shifts?"
 
 
 @pytest.mark.asyncio
@@ -270,3 +286,49 @@ async def test_admin_token_usage_filters_by_user_project_and_date(
     ]
     assert payload["by_project"][0]["project_id"] == other_project_id
     assert payload["recent_events"][0]["feature"] == "paper_summary"
+
+
+@pytest.mark.asyncio
+async def test_admin_token_usage_returns_all_events_in_selected_range(
+    client,
+    auth_headers,
+    sample_project,
+    sample_user,
+    session_factory,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", sample_user["email"])
+    get_settings.cache_clear()
+
+    async with session_factory() as session:
+        session.add_all(
+            [
+                AIUsageEvent(
+                    user_id=sample_user["id"],
+                    project_id=sample_project["id"],
+                    provider="openrouter",
+                    endpoint="chat/completions",
+                    feature="paper_summary",
+                    model="model-a",
+                    status="success",
+                    prompt_tokens=1,
+                    completion_tokens=1,
+                    total_tokens=2,
+                    metadata_json={},
+                    created_at=datetime(2026, 4, day, 12, 0, tzinfo=UTC),
+                )
+                for day in range(1, 29)
+            ]
+        )
+        await session.commit()
+
+    response = await client.get(
+        "/admin/token-usage?date_from=2026-04-01&date_to=2026-04-30",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["recent_events"]) == 28
+    assert payload["recent_events"][0]["created_at"].startswith("2026-04-28")
+    assert payload["recent_events"][-1]["created_at"].startswith("2026-04-01")

@@ -10,6 +10,12 @@ class AuthRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class GoogleAuthRequest(BaseModel):
+    """Request body for Google Sign-In endpoint."""
+
+    credential: str = Field(min_length=1, description="Google ID token from GIS callback")
+
+
 class UserRead(BaseModel):
     """Serialized user payload."""
 

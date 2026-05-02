@@ -16,6 +16,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
 - Grounded paper conversations with persisted first-turn and follow-up Q&A
 - Project-scoped multi-paper grounded conversations for the main chat workspace
+- Project-scoped Deep Search mode with persisted runs, Tavily web search fallback, academic/project evidence, SSE progress, report streaming, source capture, and QA flags
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
 - Project-scoped OpenRouter token usage telemetry with aggregate API
 - Admin-only OpenRouter token usage monitoring across all users/projects
@@ -116,13 +117,16 @@ npm run dev
 - `POST /projects/{id}/conversations/{conversation_id}/messages/stream`
 - `POST /projects/{id}/writer/generate`
 - `GET /projects/{id}/writer/outputs/{output_id}`
+- `POST /projects/{id}/deep-search/stream`
+- `GET /projects/{id}/deep-search-runs`
+- `GET /projects/{id}/deep-search-runs/{run_id}`
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
 `PATCH /projects/{id}` renames an owned project without changing any of its persisted papers, conversations, or writer outputs.
 `DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
 `GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist.
-`GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and recent events with optional `date_from`, `date_to`, `user_id`, and `project_id` filters.
+`GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and all matching user log rows for the selected range with optional `date_from`, `date_to`, `user_id`, and `project_id` filters. Project chat usage rows include the persisted user prompt that produced the chat answer.
 `GET /projects/{id}/token-usage` returns provider-reported token totals plus breakdowns by feature, model, and day for the authenticated user's project.
 `GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references; each related paper now includes its own `citation_count` so the frontend can render a Connected-Papers-style citation neighborhood graph in the right-hand context panel.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
@@ -133,6 +137,8 @@ npm run dev
 `POST /projects/{id}/conversations/{conversation_id}/messages` appends a follow-up turn for the current selected paper set; when the selected set changes, including being cleared, the conversation stores a system message describing the new selection before the user turn.
 `POST /projects/{id}/conversations/{conversation_id}/messages/stream` provides the same follow-up behavior over `text/event-stream` while preserving usage telemetry and persisted message semantics.
 `GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
+`POST /projects/{id}/deep-search/stream` creates a persisted Deep Search run, streams `run`, `status`, `source`, `token`, `done`, and `error` SSE events, uses selected project papers when provided, searches Semantic Scholar/arXiv, and uses Tavily web search when `TAVILY_API_KEY` is configured.
+`GET /projects/{id}/deep-search-runs` and `GET /projects/{id}/deep-search-runs/{run_id}` expose persisted Deep Search run summaries, sources, reports, warnings, and QA flags.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
 
@@ -154,8 +160,9 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literatu
 ## Notes
 
 - Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
+- Deep Search uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. If `TAVILY_API_KEY` is missing, web search is skipped with a persisted warning while academic/project evidence still runs.
 - Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
-- Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry.
+- Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry. The admin user log reads chat prompts from already-persisted project messages for display.
 - `ADMIN_EMAILS` is a comma-separated allowlist for the admin usage monitor.
 - When those API keys are missing in local/dev/test environments, the pipeline falls back to deterministic offline behavior so the app and tests still run.
 - Live API smoke tests for Semantic Scholar and arXiv are opt-in:

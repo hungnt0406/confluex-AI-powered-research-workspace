@@ -14,6 +14,7 @@
 - [Phase 4A: Export Infrastructure](./in-progress/phase-4a-export-infrastructure.md)
 - [Phase 4B: Advanced Research Settings](./in-progress/phase-4b-advanced-settings.md)
 - [Phase 4C: UI Refinements & Hardening](./in-progress/phase-4c-ui-refinements.md)
+- [Admin Token Usage Monitoring](./in-progress/admin-token-usage-monitoring.md)
 
 ## Cost estimate (per full pipeline run)
 

@@ -11,6 +11,7 @@ from backend.config import get_settings
 from backend.db.models import User
 from backend.db.session import get_db_session
 from backend.security import decode_access_token
+from backend.services.deep_search import DeepSearchService
 from backend.services.paper_citations import PaperCitationService
 from backend.services.paper_conversations import PaperConversationService
 from backend.services.project_conversations import ProjectConversationService
@@ -105,6 +106,12 @@ def get_writer_output_service() -> WriterOutputService:
     return WriterOutputService()
 
 
+def get_deep_search_service() -> DeepSearchService:
+    """Return the default deep search service."""
+
+    return DeepSearchService()
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(get_current_admin_user)]
 PipelineServiceDependency = Annotated[LiteraturePipelineService, Depends(get_pipeline_service)]
@@ -127,4 +134,8 @@ ProjectConversationServiceDependency = Annotated[
 WriterOutputServiceDependency = Annotated[
     WriterOutputService,
     Depends(get_writer_output_service),
+]
+DeepSearchServiceDependency = Annotated[
+    DeepSearchService,
+    Depends(get_deep_search_service),
 ]

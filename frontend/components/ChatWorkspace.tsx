@@ -10,7 +10,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { type ComposerNotice, useChat } from "@/components/ChatProvider";
+import {
+  type ChatMode,
+  type ComposerNotice,
+  useChat,
+} from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 import Logo from "@/components/Logo";
 
@@ -33,6 +37,8 @@ export default function ChatWorkspace() {
     busy,
     uploadingReferenceFile,
     composerNotice,
+    chatMode,
+    setChatMode,
     clearComposerNotice,
     submitMessage,
     startNewResearch,
@@ -139,9 +145,13 @@ export default function ChatWorkspace() {
   }
 
   const showGreeting = messages.length === 0 && !activeProject;
-  const composerPlaceholder = activeProject
-    ? "Ask a grounded question about the selected papers…"
-    : "Describe a research topic to begin…";
+  const composerPlaceholder = chatMode === "deep_search"
+    ? activeProject
+      ? "Run Deep Search across selected papers and web…"
+      : "Describe a topic for Deep Search…"
+    : activeProject
+      ? "Ask a grounded question about the selected papers…"
+      : "Describe a research topic to begin…";
 
   return (
     <main className="min-w-0 flex-1 flex flex-col relative h-full bg-background overflow-hidden">
@@ -257,6 +267,7 @@ export default function ChatWorkspace() {
               </div>
             )}
             {visibleComposerNotice && <ComposerInlineNotice notice={visibleComposerNotice} />}
+            <ModeToggle mode={chatMode} onChange={setChatMode} disabled={composerBusy} />
             <form
               onSubmit={onSubmit}
               className="flex w-full items-center gap-1 bg-surface-container-low rounded-2xl border border-outline/30 px-2 py-2 focus-within:border-primary/40 transition-all shadow-sm"
@@ -304,6 +315,57 @@ export default function ChatWorkspace() {
         </div>
       </div>
     </main>
+  );
+}
+
+function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: ChatMode;
+  onChange: (mode: ChatMode) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      className="mb-3 inline-flex rounded-xl border border-outline/30 bg-surface-container-low p-1"
+      role="group"
+      aria-label="Chat mode"
+    >
+      <button
+        type="button"
+        onClick={() => onChange("standard")}
+        disabled={disabled}
+        aria-pressed={mode === "standard"}
+        className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${
+          mode === "standard"
+            ? "bg-background text-on-surface shadow-sm"
+            : "text-secondary hover:bg-primary/5 hover:text-on-surface"
+        }`}
+      >
+        <span className="material-symbols-outlined text-sm" aria-hidden="true">
+          chat
+        </span>
+        Standard
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("deep_search")}
+        disabled={disabled}
+        aria-pressed={mode === "deep_search"}
+        className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${
+          mode === "deep_search"
+            ? "bg-background text-on-surface shadow-sm"
+            : "text-secondary hover:bg-primary/5 hover:text-on-surface"
+        }`}
+      >
+        <span className="material-symbols-outlined text-sm" aria-hidden="true">
+          travel_explore
+        </span>
+        Deep Search
+      </button>
+    </div>
   );
 }
 
@@ -431,7 +493,13 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AgentBubble({ text, kind }: { text: string; kind: "text" | "status" | "summary" }) {
+function AgentBubble({
+  text,
+  kind,
+}: {
+  text: string;
+  kind: "text" | "status" | "summary";
+}) {
   const isStatus = kind === "status";
   return (
     <div className="flex gap-4">

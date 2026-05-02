@@ -57,6 +57,7 @@ class AdminUsageEventRow(BaseModel):
     reasoning_tokens: int
     cached_tokens: int
     cost_credits: float | None
+    user_prompt: str | None
 
 
 class AdminTokenUsageRead(BaseModel):
