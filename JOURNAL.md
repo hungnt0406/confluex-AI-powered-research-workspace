@@ -47,6 +47,38 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-02 17:23
+- **done:**
+  - Changed Deep Search composer submissions to create a pending research plan card first, with `Edit plan` and `Start research` actions.
+  - Moved actual Deep Search execution behind plan approval while preserving project creation, related-paper discovery preflight, source capture, and report streaming.
+  - Added an expandable `Show thinking` panel driven by Deep Search `status` and `source` stream events.
+  - Updated docs and static frontend coverage for the new plan approval and thinking UI.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `README.md`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-02 16:47
+- **done:**
+  - Added a thin divider line between Related Papers and Deep Search Sources in the split context panel.
+  - Updated frontend static coverage to pin the separator.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-02 16:43
+- **done:**
+  - Changed the split context panel ratio so Related Papers uses two thirds of the available panel height and Deep Search Sources uses one third.
+  - Updated frontend static coverage to pin the 2:1 split ratio while keeping independent section scrollbars.
+  - Changed files: `frontend/components/ContextPanel.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
 ### 2026-05-02 16:33
 - **done:**
   - Split the context panel into fixed Related Papers and Deep Search Sources regions when both lists are present.
