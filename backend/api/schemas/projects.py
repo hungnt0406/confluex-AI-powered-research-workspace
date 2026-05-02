@@ -160,6 +160,7 @@ class CitationGraphPaperRead(BaseModel):
     source_paper_id: str | None
     source_url: str | None
     pdf_url: str | None
+    citation_count: int | None = None
 
 
 class PaperCitationGraphRead(BaseModel):

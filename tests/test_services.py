@@ -143,6 +143,7 @@ async def test_semantic_scholar_get_paper_citations_normalizes_nested_citing_pap
                             "url": "https://www.semanticscholar.org/paper/semantic-100",
                             "openAccessPdf": {"url": "https://pdf.example.com/semantic-100.pdf"},
                             "externalIds": {"DOI": "10.1000/citing"},
+                            "citationCount": 88,
                         }
                     }
                 ],
@@ -164,6 +165,7 @@ async def test_semantic_scholar_get_paper_citations_normalizes_nested_citing_pap
             "source_paper_id": "semantic-100",
             "source_url": "https://www.semanticscholar.org/paper/semantic-100",
             "pdf_url": "https://pdf.example.com/semantic-100.pdf",
+            "citation_count": 88,
         }
     ]
 
@@ -187,6 +189,7 @@ async def test_semantic_scholar_get_paper_references_normalizes_nested_cited_pap
                             "url": "https://www.semanticscholar.org/paper/semantic-200",
                             "openAccessPdf": {"url": "https://pdf.example.com/semantic-200.pdf"},
                             "externalIds": {"DOI": "10.1000/referenced"},
+                            "citationCount": 1234,
                         }
                     }
                 ],
@@ -208,6 +211,7 @@ async def test_semantic_scholar_get_paper_references_normalizes_nested_cited_pap
             "source_paper_id": "semantic-200",
             "source_url": "https://www.semanticscholar.org/paper/semantic-200",
             "pdf_url": "https://pdf.example.com/semantic-200.pdf",
+            "citation_count": 1234,
         }
     ]
 

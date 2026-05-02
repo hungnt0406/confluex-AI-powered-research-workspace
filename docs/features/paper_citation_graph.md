@@ -28,7 +28,17 @@ Query params:
 4. After resolution, the service calls:
    - `GET /graph/v1/paper/{paper_id}/citations`
    - `GET /graph/v1/paper/{paper_id}/references`
-5. The response returns `citation_count`, `reference_count`, `cited_by`, and `references`.
+5. The response returns `citation_count`, `reference_count`, `cited_by`, and `references`. Each related-paper item also includes its own `citation_count` (when Semantic Scholar provides one), used by the frontend to size graph nodes.
+
+## Frontend visualization
+
+The Confluex frontend renders a Connected-Papers-style citation neighborhood inline in the right-hand `ContextPanel` under a "Graph" tab.
+
+- The seed paper is picked from a dropdown of the project's papers; only papers with a Semantic Scholar id, arXiv id, or DOI are selectable.
+- Up to 10 cited-by nodes and 20 reference nodes are rendered around the seed (capped client-side from a `limit=20` request).
+- Node size scales with `citation_count` (logarithmic), node color encodes recency (older publications fade toward background), and clicking a node opens its `source_url` in a new tab.
+- The graph is rendered with `react-force-graph-2d`, dynamically imported with `ssr: false` so it never executes during server-side rendering.
+- v1 does not persist the graph; each tab open issues a fresh `GET /citation-graph` call.
 
 ## Error Mapping
 

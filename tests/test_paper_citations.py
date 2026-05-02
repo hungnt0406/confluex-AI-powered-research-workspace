@@ -32,6 +32,7 @@ def build_related_paper(
     doi: str | None = None,
     year: int = 2024,
     authors: list[str] | None = None,
+    citation_count: int | None = None,
 ) -> dict[str, object]:
     return {
         "title": title,
@@ -43,6 +44,7 @@ def build_related_paper(
         "source_paper_id": source_paper_id,
         "source_url": source_url,
         "pdf_url": pdf_url,
+        "citation_count": citation_count,
     }
 
 
@@ -334,12 +336,14 @@ async def test_get_paper_citation_graph_returns_semantic_scholar_payload(
                     source_paper_id="SEM-ROUTE-CITE-1",
                     source_url="https://www.semanticscholar.org/paper/SEM-ROUTE-CITE-1",
                     pdf_url="https://pdf.example.com/sem-route-cite-1.pdf",
+                    citation_count=42,
                 ),
                 build_related_paper(
                     title="Route Citing Paper Two",
                     source_paper_id="SEM-ROUTE-CITE-2",
                     source_url="https://www.semanticscholar.org/paper/SEM-ROUTE-CITE-2",
                     pdf_url="https://pdf.example.com/sem-route-cite-2.pdf",
+                    citation_count=None,
                 ),
             ],
             references=[
@@ -348,6 +352,7 @@ async def test_get_paper_citation_graph_returns_semantic_scholar_payload(
                     source_paper_id="SEM-ROUTE-REF-1",
                     source_url="https://www.semanticscholar.org/paper/SEM-ROUTE-REF-1",
                     pdf_url="https://pdf.example.com/sem-route-ref-1.pdf",
+                    citation_count=7,
                 )
             ],
         )
@@ -371,7 +376,9 @@ async def test_get_paper_citation_graph_returns_semantic_scholar_payload(
         "Route Citing Paper One",
         "Route Citing Paper Two",
     ]
+    assert [item["citation_count"] for item in payload["cited_by"]] == [42, None]
     assert [item["title"] for item in payload["references"]] == ["Route Reference Paper"]
+    assert payload["references"][0]["citation_count"] == 7
     assert len(service.calls) == 1
     assert service.calls[0]["paper"].id == paper.id
     assert service.calls[0]["limit"] == 2
