@@ -169,6 +169,10 @@ function isUploadedProjectPaper(paper: ProjectPaper) {
   return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
 }
 
+function hasDiscoveredProjectPapers(papers: ProjectPaper[]) {
+  return papers.some((paper) => !isUploadedProjectPaper(paper));
+}
+
 function buildProjectShellMessages(
   project: Project,
   papers: ProjectPaper[],
@@ -399,6 +403,41 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setMessages((prev) => prev.filter((message) => !statusIds.has(message.id)));
     statusIds.clear();
   }, []);
+
+  const ensureDeepSearchRelatedPapers = useCallback(
+    async ({
+      projectId,
+      currentPapers,
+      paperIdsToKeep,
+      shouldRunDiscovery,
+    }: {
+      projectId: string;
+      currentPapers: ProjectPaper[];
+      paperIdsToKeep: string[];
+      shouldRunDiscovery: boolean;
+    }) => {
+      if (!authedRef.current) throw new Error("You must be logged in to search papers.");
+
+      if (!shouldRunDiscovery) {
+        return normalizeSelectedPaperIds(paperIdsToKeep, currentPapers);
+      }
+
+      appendDeepSearchStatusMessage("Finding related papers for the sidebar...");
+      const runResponse = await api<RunPipelineResponse>(`/projects/${projectId}/run`, {
+        method: "POST",
+        token: authedRef.current,
+      });
+      setRunSummary(runResponse);
+      setQueries(runResponse.queries);
+
+      const nextPapers = await fetchProjectPapers(projectId);
+      const nextSelectedPaperIds = normalizeSelectedPaperIds(paperIdsToKeep, nextPapers);
+      setPapers(nextPapers);
+      setSelectedPaperIds(nextSelectedPaperIds);
+      return nextSelectedPaperIds;
+    },
+    [appendDeepSearchStatusMessage, fetchProjectPapers],
+  );
 
   useEffect(() => {
     if (token) refreshProjects().catch((e) => setError(String(e)));
@@ -995,9 +1034,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             setRunSummary(null);
             setConversation(null);
 
+            const nextSelectedPaperIds = await ensureDeepSearchRelatedPapers({
+              projectId: project.id,
+              currentPapers: [],
+              paperIdsToKeep: [],
+              shouldRunDiscovery: true,
+            });
+
             await streamDeepSearchTurn({
               projectId: project.id,
-              paperIds: [],
+              paperIds: nextSelectedPaperIds,
               question: trimmed,
             });
             return;
@@ -1076,9 +1122,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (chatMode === "deep_search") {
+          const deepSearchPaperIds = await ensureDeepSearchRelatedPapers({
+            projectId: activeProject.id,
+            currentPapers: papers,
+            paperIdsToKeep: nextSelectedPaperIds,
+            shouldRunDiscovery: !hasDiscoveredProjectPapers(papers),
+          });
+
           await streamDeepSearchTurn({
             projectId: activeProject.id,
-            paperIds: nextSelectedPaperIds,
+            paperIds: deepSearchPaperIds,
             question: trimmed,
           });
           return;
@@ -1121,6 +1174,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       chatMode,
       conversation,
       fetchProjectPapers,
+      ensureDeepSearchRelatedPapers,
       appendDeepSearchStatusMessage,
       papers,
       refreshProjects,
