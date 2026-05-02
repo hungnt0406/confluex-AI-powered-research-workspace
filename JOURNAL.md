@@ -423,6 +423,21 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **blocked:**
   - None.
 
+### 2026-04-28 14:05
+- **done:**
+  - Added a Connected-Papers-style citation neighborhood graph as a "Graph" tab inside the right-hand `ContextPanel`, picking one seed paper from the project and rendering ~30 nodes (seed + up to 10 cited-by + up to 20 references) as a force-directed graph with year-encoded colors and citation-count-encoded node sizes.
+  - Extended `backend/services/semantic_scholar.py` to request `citingPaper.citationCount` and `citedPaper.citationCount`, propagated `citation_count` through `normalize_related_paper_payload`, and added the field to `CitationGraphPaperRead` so the frontend can size graph nodes proportionally.
+  - Updated `tests/test_services.py` and `tests/test_paper_citations.py` to assert the new `citation_count` field on related papers; verified `tests/test_paper_citations.py::test_get_paper_citation_graph_returns_semantic_scholar_payload` passes locally with the new schema.
+  - Built `frontend/components/CitationGraph.tsx` using `react-force-graph-2d` with `next/dynamic({ ssr: false })` and added a `fetchPaperCitationGraph` helper plus `CitationGraph` / `CitationGraphPaper` types in `frontend/lib/api.ts`.
+  - Refactored `frontend/components/ContextPanel.tsx` into a tabbed Papers / Graph layout while preserving the existing paper list, summary expansion, and paper selection behavior.
+  - Documented the visualization in `docs/features/paper_citation_graph.md`, updated the citation graph row in `docs/feature-map.md`, and refreshed the API surface note in `README.md` and the file map in `frontend/README.md`.
+  - Changed files: `backend/services/semantic_scholar.py`, `backend/api/schemas/projects.py`, `tests/test_services.py`, `tests/test_paper_citations.py`, `frontend/package.json`, `frontend/lib/api.ts`, `frontend/components/CitationGraph.tsx`, `frontend/components/ContextPanel.tsx`, `docs/features/paper_citation_graph.md`, `docs/feature-map.md`, `README.md`, `frontend/README.md`, `JOURNAL.md`.
+- **doing:**
+  - v1 ships without persistence: every tab open issues a fresh Semantic Scholar lookup via the existing `/citation-graph` endpoint.
+- **blocked:**
+  - `npm install react-force-graph-2d` must be run by the next contributor — the dependency is pinned to `^1.29.1` in `frontend/package.json`, but no package manager was available in this session to run the install.
+  - Full `tests/test_services.py` runs on Windows hang on a pre-existing `RequestWindowLimiter` semaphore-leak across pytest event loops; targeted runs of the citation-graph tests pass.
+
 ### 2026-04-28 11:32
 - **done:**
   - Removed the Confluex logo/wordmark from the `/admin/usage` page header next to `Token Usage Monitor`.

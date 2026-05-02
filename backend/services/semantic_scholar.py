@@ -16,12 +16,14 @@ SEMANTIC_SCHOLAR_PAPER_FIELDS = (
 SEMANTIC_SCHOLAR_CITATION_FIELDS = (
     "citingPaper.paperId,citingPaper.url,citingPaper.openAccessPdf,"
     "citingPaper.title,citingPaper.authors,citingPaper.year,"
-    "citingPaper.abstract,citingPaper.externalIds"
+    "citingPaper.abstract,citingPaper.externalIds,"
+    "citingPaper.citationCount"
 )
 SEMANTIC_SCHOLAR_REFERENCE_FIELDS = (
     "citedPaper.paperId,citedPaper.url,citedPaper.openAccessPdf,"
     "citedPaper.title,citedPaper.authors,citedPaper.year,"
-    "citedPaper.abstract,citedPaper.externalIds"
+    "citedPaper.abstract,citedPaper.externalIds,"
+    "citedPaper.citationCount"
 )
 
 
@@ -168,6 +170,7 @@ def normalize_related_paper_payload(
         "source_paper_id": normalized_paper["source_paper_id"],
         "source_url": normalized_paper["source_url"],
         "pdf_url": normalized_paper["pdf_url"],
+        "citation_count": normalized_paper["citation_count"],
     }
 
 

@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import CitationGraph from "@/components/CitationGraph";
 import { type DeepSearchDisplaySource, useChat } from "@/components/ChatProvider";
 import { ProjectPaper } from "@/lib/api";
 
+type ContextPanelTab = "papers" | "graph";
+
 export default function ContextPanel() {
   const {
+    activeProject,
     papers,
     deepSearchSources,
     runSummary,
@@ -17,6 +21,7 @@ export default function ContextPanel() {
   const splitPanel = papers.length > 0 && deepSearchSources.length > 0;
 
   const [width, setWidth] = useState<number>(600);
+  const [activeTab, setActiveTab] = useState<ContextPanelTab>("papers");
   const dragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
@@ -85,63 +90,131 @@ export default function ContextPanel() {
           style={{ width: "4px" }}
         />
       )}
-      <div className="flex-1 min-h-0 p-5" style={{ minWidth: "200px" }}>
-        <div className="flex h-full min-h-0 flex-col gap-5">
-          {papers.length > 0 && (
-            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[2_1_0%]" : "flex-1"}`}>
-              <div className="flex flex-none items-center justify-between">
-                <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
-                  Related Papers
-                </h3>
-                {runSummary && (
-                  <span className="text-[10px] text-hint">
-                    {runSummary.ranked_count} ranked
-                  </span>
-                )}
-              </div>
+      <div
+        className="flex flex-1 min-h-0 flex-col p-5"
+        style={{ minWidth: "200px" }}
+      >
+        <div className="flex items-center justify-between">
+          <div
+            role="tablist"
+            aria-label="Context panel tabs"
+            className="flex items-center gap-1 rounded-lg bg-surface-container-low p-0.5"
+          >
+            <TabButton
+              label="Papers"
+              icon="article"
+              isActive={activeTab === "papers"}
+              onClick={() => setActiveTab("papers")}
+            />
+            <TabButton
+              label="Graph"
+              icon="hub"
+              isActive={activeTab === "graph"}
+              onClick={() => setActiveTab("graph")}
+            />
+          </div>
+        </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                <ul className="space-y-2">
-                  {papers.map((paper) => (
-                    <PaperCard
-                      key={paper.id}
-                      paper={paper}
-                      isSelected={selectedPaperIds.includes(paper.id)}
-                      isFreshlyUploaded={lastUploadedPaperId === paper.id}
-                      onToggle={() => togglePaperSelection(paper.id)}
-                    />
-                  ))}
-                </ul>
-              </div>
-            </section>
-          )}
+        <div className="mt-4 flex-1 min-h-0">
+          {activeTab === "papers" ? (
+            <div className="flex h-full min-h-0 flex-col gap-5">
+              {papers.length > 0 && (
+                <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[2_1_0%]" : "flex-1"}`}>
+                  <div className="flex flex-none items-center justify-between">
+                    <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                      Related Papers
+                    </h3>
+                    {runSummary && (
+                      <span className="text-[10px] text-hint">
+                        {runSummary.ranked_count} ranked
+                      </span>
+                    )}
+                  </div>
 
-          {splitPanel && <div aria-hidden="true" className="h-px flex-none bg-outline/20" />}
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                    <ul className="space-y-2">
+                      {papers.map((paper) => (
+                        <PaperCard
+                          key={paper.id}
+                          paper={paper}
+                          isSelected={selectedPaperIds.includes(paper.id)}
+                          isFreshlyUploaded={lastUploadedPaperId === paper.id}
+                          onToggle={() => togglePaperSelection(paper.id)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
 
-          {deepSearchSources.length > 0 && (
-            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[1_1_0%]" : "flex-1"}`}>
-              <div className="flex flex-none items-center justify-between">
-                <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
-                  Deep Search Sources
-                </h3>
-                <span className="text-[10px] text-hint">
-                  {deepSearchSources.length} cited
-                </span>
-              </div>
+              {splitPanel && <div aria-hidden="true" className="h-px flex-none bg-outline/20" />}
 
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                <ul className="space-y-2">
-                  {deepSearchSources.map((source) => (
-                    <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
-                  ))}
-                </ul>
-              </div>
-            </section>
+              {deepSearchSources.length > 0 && (
+                <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[1_1_0%]" : "flex-1"}`}>
+                  <div className="flex flex-none items-center justify-between">
+                    <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
+                      Deep Search Sources
+                    </h3>
+                    <span className="text-[10px] text-hint">
+                      {deepSearchSources.length} cited
+                    </span>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                    <ul className="space-y-2">
+                      {deepSearchSources.map((source) => (
+                        <DeepSearchSourceCard key={`${source.id}-${source.title}`} source={source} />
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
+            </div>
+          ) : (
+            <CitationGraph
+              projectId={activeProject?.id ?? ""}
+              papers={papers}
+            />
           )}
         </div>
       </div>
 
     </aside>
+  );
+}
+
+function TabButton({
+  label,
+  icon,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  icon: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest transition-colors ${
+        isActive
+          ? "bg-background text-on-surface shadow-sm"
+          : "text-on-surface-variant hover:text-on-surface"
+      }`}
+    >
+      <span
+        className="material-symbols-outlined"
+        aria-hidden="true"
+        style={{ fontSize: "14px" }}
+      >
+        {icon}
+      </span>
+      {label}
+    </button>
   );
 }
 

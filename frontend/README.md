@@ -60,7 +60,8 @@ npm run dev:reset
 - `app/admin/usage/page.tsx`, `app/admin/usage/users/page.tsx`, `app/admin/usage/components.tsx` — admin-only token usage dashboard, selected-user analysis, and shared monitor UI.
 - `components/AuthProvider.tsx` — token/user state.
 - `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, grounded project conversations, and Deep Search streaming.
-- `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, admin monitor navigation, and uploaded-paper markers.
+- `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, admin monitor navigation, uploaded-paper markers, and the Papers / Graph tab switcher in the right context panel.
+- `components/CitationGraph.tsx` — Connected-Papers-style force-directed citation neighborhood for one selected seed paper, dynamically imported (`ssr: false`) and backed by `GET /projects/{id}/papers/{paper_id}/citation-graph`.
 - `lib/api.ts` — typed `fetch` wrapper, SSE stream parsers, and backend DTO types.
 
 ## Current limitations

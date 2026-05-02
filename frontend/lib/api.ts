@@ -251,6 +251,42 @@ export type Paginated<T> = {
   meta: { total: number; page: number; per_page: number; total_pages: number };
 };
 
+export type CitationGraphPaper = {
+  title: string;
+  authors: string[];
+  year: number | null;
+  abstract: string | null;
+  doi: string | null;
+  source: string;
+  source_paper_id: string | null;
+  source_url: string | null;
+  pdf_url: string | null;
+  citation_count: number | null;
+};
+
+export type CitationGraph = {
+  paper_id: string;
+  resolved_by: string;
+  resolved_source_paper_id: string;
+  citation_count: number | null;
+  reference_count: number | null;
+  cited_by: CitationGraphPaper[];
+  references: CitationGraphPaper[];
+};
+
+export async function fetchPaperCitationGraph(
+  projectId: string,
+  paperId: string,
+  token: string,
+  options?: { limit?: number },
+): Promise<CitationGraph> {
+  const limit = options?.limit ?? 20;
+  return api<CitationGraph>(
+    `/projects/${projectId}/papers/${paperId}/citation-graph?limit=${limit}`,
+    { token },
+  );
+}
+
 export type PaperMessage = {
   id: string;
   conversation_id: string;
