@@ -63,7 +63,21 @@ def test_frontend_deep_search_sources_render_in_context_panel() -> None:
     assert "SourceFavicon" in context_panel
     assert "getFaviconUrl" in context_panel
     assert "https://www.google.com/s2/favicons" in context_panel
+    assert "h-5 w-5" in context_panel
+    assert "h-3.5 w-3.5" in context_panel
     assert "onError={() => setFailed(true)}" in context_panel
     assert "Deep Search Sources" in context_panel
     assert "open = papers.length > 0 || deepSearchSources.length > 0" in context_panel
     assert "sources={message.sources}" not in chat_workspace
+    assert context_panel.index("Related Papers") < context_panel.index("Deep Search Sources")
+
+
+def test_frontend_deep_search_primes_related_papers() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+
+    assert "hasDiscoveredProjectPapers" in chat_provider
+    assert "ensureDeepSearchRelatedPapers" in chat_provider
+    assert "Finding related papers for the sidebar..." in chat_provider
+    assert "`/projects/${projectId}/run`" in chat_provider
+    assert "await ensureDeepSearchRelatedPapers({" in chat_provider
+    assert "shouldRunDiscovery: !hasDiscoveredProjectPapers(papers)" in chat_provider
