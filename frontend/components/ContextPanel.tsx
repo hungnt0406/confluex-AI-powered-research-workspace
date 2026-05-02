@@ -88,7 +88,7 @@ export default function ContextPanel() {
       <div className="flex-1 min-h-0 p-5" style={{ minWidth: "200px" }}>
         <div className="flex h-full min-h-0 flex-col gap-5">
           {papers.length > 0 && (
-            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[2_1_0%]" : "flex-1"}`}>
               <div className="flex flex-none items-center justify-between">
                 <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
                   Related Papers
@@ -116,8 +116,10 @@ export default function ContextPanel() {
             </section>
           )}
 
+          {splitPanel && <div aria-hidden="true" className="h-px flex-none bg-outline/20" />}
+
           {deepSearchSources.length > 0 && (
-            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-1 basis-0" : "flex-1"}`}>
+            <section className={`flex min-h-0 flex-col space-y-2 ${splitPanel ? "flex-[1_1_0%]" : "flex-1"}`}>
               <div className="flex flex-none items-center justify-between">
                 <h3 className="font-bold text-xs text-on-surface uppercase tracking-widest">
                   Deep Search Sources
