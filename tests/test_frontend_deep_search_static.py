@@ -70,6 +70,10 @@ def test_frontend_deep_search_sources_render_in_context_panel() -> None:
     assert "open = papers.length > 0 || deepSearchSources.length > 0" in context_panel
     assert "sources={message.sources}" not in chat_workspace
     assert context_panel.index("Related Papers") < context_panel.index("Deep Search Sources")
+    assert "const splitPanel = papers.length > 0 && deepSearchSources.length > 0" in context_panel
+    assert 'splitPanel ? "flex-1 basis-0" : "flex-1"' in context_panel
+    assert "overflow-y-auto pr-1 custom-scrollbar" in context_panel
+    assert context_panel.count("overflow-y-auto pr-1 custom-scrollbar") >= 2
 
 
 def test_frontend_deep_search_primes_related_papers() -> None:
