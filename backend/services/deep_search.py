@@ -10,7 +10,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -776,21 +776,29 @@ class DeepSearchService:
         qa_flags: list[dict[str, str]],
         web_metadata: dict[str, Any],
     ) -> None:
-        run = await self._get_run_for_update(session=session, run_id=run_id)
-        run.status = "completed"
-        run.plan_json = plan_payload
-        run.report_body = report_body
-        run.source_summary_json = {
+        completed_at = datetime.now(UTC)
+        source_summary = {
             "sources": source_summaries,
             "metadata": {
                 **web_metadata,
                 "source_count": len(source_summaries),
             },
         }
-        run.warnings_json = warnings
-        run.qa_flags_json = qa_flags
-        run.completed_at = datetime.now(UTC)
-        run.updated_at = datetime.now(UTC)
+        await session.execute(
+            update(DeepSearchRun)
+            .where(DeepSearchRun.id == run_id)
+            .values(
+                status="completed",
+                plan_json=plan_payload,
+                report_body=report_body,
+                source_summary_json=source_summary,
+                warnings_json=warnings,
+                qa_flags_json=qa_flags,
+                completed_at=completed_at,
+                updated_at=completed_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
 
         notes_by_id = {
             str(summary.get("id", "")).strip(): str(summary.get("note", "")).strip()
@@ -804,7 +812,7 @@ class DeepSearchService:
             }
             session.add(
                 DeepSearchSource(
-                    run_id=run.id,
+                    run_id=run_id,
                     source_type=source_candidate.source_type,
                     title=_truncate(source_candidate.title, MAX_SOURCE_TITLE_CHARS),
                     url=source_candidate.url,
@@ -816,11 +824,18 @@ class DeepSearchService:
         await session.commit()
 
     async def _mark_failed(self, *, session: AsyncSession, run_id: str, detail: str) -> None:
-        run = await self._get_run_for_update(session=session, run_id=run_id)
-        run.status = "failed"
-        run.warnings_json = _dedupe_strings([*list(run.warnings_json), detail])
-        run.completed_at = datetime.now(UTC)
-        run.updated_at = datetime.now(UTC)
+        completed_at = datetime.now(UTC)
+        await session.execute(
+            update(DeepSearchRun)
+            .where(DeepSearchRun.id == run_id)
+            .values(
+                status="failed",
+                warnings_json=[detail],
+                completed_at=completed_at,
+                updated_at=completed_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
         await session.commit()
 
     async def _get_run_for_update(self, *, session: AsyncSession, run_id: str) -> DeepSearchRun:
