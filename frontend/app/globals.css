@@ -30,3 +30,9 @@ a { color: #32432C; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #1d2d1840; border-radius: 10px; }
 .chat-container { max-width: 48rem; margin-left: auto; margin-right: auto; }
+
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); opacity: 0.35; }
+  50% { opacity: 0.75; }
+  100% { transform: translateX(220%); opacity: 0.35; }
+}
