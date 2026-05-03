@@ -47,6 +47,30 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-03 16:29
+- **done:**
+  - Changed the Deep Search thinking panel to show the full research path immediately while the user waits for the answer.
+  - Added a pending thinking-step state so future phases are visible but muted, while stream `status` events move the active phase through the list.
+  - Updated frontend static coverage and docs for the full thinking path behavior.
+  - Changed files: `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with the focused frontend static test and frontend TypeScript.
+- **blocked:**
+  - None.
+
+### 2026-05-03 16:15
+- **done:**
+  - Fixed Deep Search streaming UX so the final answer bubble is created only after the first streamed token or final `done` event instead of showing an empty assistant row during retrieval.
+  - Added a live elapsed timer, pulsing active phase, and progress shimmer to the `Show thinking` panel so long backend phases do not look frozen.
+  - Added optional padding to Deep Search SSE frames so small `status` updates are less likely to be buffered until the end of the run.
+  - Kept streamed source events visible in both the thinking panel and right context panel before the report starts.
+  - Updated frontend static coverage and Deep Search docs for the live thinking behavior.
+  - Changed files: `backend/api/routers/projects.py`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/app/globals.css`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with focused Deep Search backend/frontend tests, frontend TypeScript, Ruff, mypy on the touched router, and whitespace checks.
+- **blocked:**
+  - None.
+
 ### 2026-05-02 17:23
 - **done:**
   - Changed Deep Search composer submissions to create a pending research plan card first, with `Edit plan` and `Start research` actions.

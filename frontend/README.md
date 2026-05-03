@@ -48,7 +48,7 @@ npm run dev:reset
   3. `Start research` sends the approved prompt and selected `paper_ids` to `POST /projects/{id}/deep-search/stream`.
   4. With no active project, approved Deep Search first creates a project from the prompt, runs `POST /projects/{id}/run` to populate the related-paper panel, then streams the Deep Search run.
   5. With an active project that has no discovered related papers yet, approved Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
-  6. The stream renders an expandable `Show thinking` panel from `status` and `source` events, appends report tokens into the assistant turn, and shows `source` / `done` event citations in the right context panel below `Related Papers`.
+  6. The stream renders an expandable `Show thinking` panel with the full research path visible immediately, advances the active phase from `status` events, keeps a live elapsed timer/progress shimmer while waiting for the next backend event, creates the final answer bubble only when report text is available, and shows `source` / `done` event citations in the right context panel below `Related Papers`. Deep Search backend frames include SSE padding comments so small status updates are less likely to be buffered until the end of the run.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
