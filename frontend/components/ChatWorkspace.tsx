@@ -644,17 +644,20 @@ function DeepSearchPlanCard({
 
 function DeepSearchThinkingPanel({ thinking }: { thinking: DeepSearchThinkingState }) {
   const [expanded, setExpanded] = useState(true);
-  const steps = thinking.steps.length > 0
-    ? thinking.steps
-    : [
-      {
-        phase: "preparing",
-        title: "Preparing research run",
-        detail: "I am setting up the deep search workflow.",
-        status: "active" as const,
-        sources: [],
-      },
-    ];
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const steps = thinking.steps;
+  const activeStep = [...steps].reverse().find((step) => step.status === "active");
+
+  useEffect(() => {
+    if (thinking.completed) return;
+
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [thinking.id, thinking.completed]);
 
   return (
     <div className="max-w-3xl">
@@ -678,11 +681,40 @@ function DeepSearchThinkingPanel({ thinking }: { thinking: DeepSearchThinkingSta
       </button>
       {expanded && (
         <div className="mt-3 space-y-4 border-l border-outline/30 pl-5">
+          {!thinking.completed && (
+            <div className="max-w-md">
+              <div className="flex items-center gap-2 text-[11px] font-medium text-on-surface-variant">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" aria-hidden="true" />
+                <span>
+                  Working for {elapsedSeconds}s
+                  {activeStep ? ` · ${activeStep.title}` : ""}
+                </span>
+              </div>
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-outline/20">
+                <div className="h-full w-1/2 rounded-full bg-primary/50 animate-[progress-shimmer_1.4s_ease-in-out_infinite]" />
+              </div>
+            </div>
+          )}
           {steps.map((step) => (
-            <div key={step.phase} className={step.status === "active" ? "text-on-surface" : "text-on-surface-variant"}>
+            <div
+              key={step.phase}
+              className={
+                step.status === "active"
+                  ? "text-on-surface"
+                  : step.status === "pending"
+                    ? "text-on-surface-variant/55"
+                    : "text-on-surface-variant"
+              }
+            >
               <div className="flex items-center gap-2">
                 <span
-                  className={`h-1.5 w-1.5 rounded-full ${step.status === "active" ? "bg-primary" : "bg-outline"}`}
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    step.status === "active"
+                      ? "bg-primary animate-pulse"
+                      : step.status === "pending"
+                        ? "bg-outline/50"
+                        : "bg-outline"
+                  }`}
                   aria-hidden="true"
                 />
                 <p className="text-xs font-semibold italic">{step.title}</p>
