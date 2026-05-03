@@ -6,7 +6,7 @@ import re
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -34,7 +34,28 @@ SOURCE_CITATION_PATTERN = re.compile(r"\[S(\d+)\]")
 
 SourceType = Literal["paper", "paper_chunk", "citation_graph", "web"]
 DeepSearchEventName = Literal["run", "status", "activity", "source", "token", "done", "error"]
+DeepSearchActivityEventType = Literal[
+    "stage_start",
+    "stage_update",
+    "source_found",
+    "stage_complete",
+    "finalizing",
+]
 AcademicSearchCallable = Callable[[str, int, int], Awaitable[list[PaperRecord]]]
+DeepSearchCollectionItem = (
+    tuple[Literal["activity"], dict[str, Any]]
+    | tuple[Literal["candidates"], list["DeepSearchSourceCandidate"]]
+    | tuple[Literal["warnings"], list[str]]
+    | tuple[Literal["metadata"], dict[str, Any]]
+)
+
+ALLOWED_DEEP_SEARCH_ACTIVITY_TYPES: set[str] = {
+    "stage_start",
+    "stage_update",
+    "source_found",
+    "stage_complete",
+    "finalizing",
+}
 
 
 @dataclass(frozen=True)
@@ -208,6 +229,15 @@ class DeepSearchService:
 
         try:
             yield DeepSearchStreamEvent("status", {"phase": "planning"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_start",
+                    phase="planning",
+                    stage="Defining the research path",
+                    detail="I am defining focused research questions before gathering evidence.",
+                ),
+            )
             try:
                 questions = await self._plan_questions(
                     project_title=project.title,
@@ -231,8 +261,9 @@ class DeepSearchService:
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type="stage_complete",
                     phase="planning",
-                    title="Identifying research domains",
+                    stage="Defining the research path",
                     detail=_planning_activity_detail(questions),
                 ),
             )
@@ -240,6 +271,15 @@ class DeepSearchService:
             candidates: list[DeepSearchSourceCandidate] = []
 
             yield DeepSearchStreamEvent("status", {"phase": "project_evidence"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_start",
+                    phase="project_evidence",
+                    stage="Reading selected sources",
+                    detail="I am checking the selected project papers and saved PDF chunks for usable evidence.",
+                ),
+            )
             project_candidates = await self._collect_project_sources(
                 session=session,
                 selected_papers=selected_papers,
@@ -248,8 +288,9 @@ class DeepSearchService:
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type=_source_activity_event_type(project_candidates),
                     phase="project_evidence",
-                    title="Reading selected project evidence",
+                    stage="Reading selected sources",
                     detail=_source_activity_detail(
                         project_candidates,
                         empty_detail="No selected project paper evidence was available, so I will rely on external academic and web sources.",
@@ -260,17 +301,35 @@ class DeepSearchService:
             )
 
             yield DeepSearchStreamEvent("status", {"phase": "academic_search"})
-            academic_candidates, academic_warnings = await self._collect_academic_sources(
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_start",
+                    phase="academic_search",
+                    stage="Searching scholarly evidence",
+                    detail="I am searching academic providers for papers related to the planned questions.",
+                ),
+            )
+            academic_candidates: list[DeepSearchSourceCandidate] = []
+            academic_warnings: list[str] = []
+            async for item_type, item_payload in self._iter_academic_sources_with_activity(
                 project=project,
                 questions=questions,
-            )
+            ):
+                if item_type == "activity":
+                    yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
+                elif item_type == "candidates":
+                    academic_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+                elif item_type == "warnings":
+                    academic_warnings.extend(cast(list[str], item_payload))
             candidates.extend(academic_candidates)
             warnings.extend(academic_warnings)
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type=_source_activity_event_type(academic_candidates),
                     phase="academic_search",
-                    title="Mapping the academic evidence",
+                    stage="Searching for evidence",
                     detail=_source_activity_detail(
                         academic_candidates,
                         empty_detail="The scholarly providers did not return usable abstracts for the planned questions.",
@@ -281,14 +340,35 @@ class DeepSearchService:
             )
 
             yield DeepSearchStreamEvent("status", {"phase": "web_search"})
-            web_candidates, web_warnings, web_metadata = await self._collect_web_sources(questions)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_start",
+                    phase="web_search",
+                    stage="Researching websites",
+                    detail="I am searching current web sources for implementation context and recent evidence.",
+                ),
+            )
+            web_candidates: list[DeepSearchSourceCandidate] = []
+            web_warnings: list[str] = []
+            web_metadata: dict[str, Any] = {}
+            async for item_type, item_payload in self._iter_web_sources_with_activity(questions):
+                if item_type == "activity":
+                    yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
+                elif item_type == "candidates":
+                    web_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+                elif item_type == "warnings":
+                    web_warnings.extend(cast(list[str], item_payload))
+                elif item_type == "metadata":
+                    web_metadata.update(cast(dict[str, Any], item_payload))
             candidates.extend(web_candidates)
             warnings.extend(web_warnings)
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type=_source_activity_event_type(web_candidates),
                     phase="web_search",
-                    title="Researching websites",
+                    stage="Searching for evidence",
                     detail=_source_activity_detail(
                         web_candidates,
                         empty_detail="No usable web results were returned for the planned questions.",
@@ -308,8 +388,9 @@ class DeepSearchService:
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type="stage_start",
                     phase="summarizing_sources",
-                    title="Condensing source evidence",
+                    stage="Condensing source evidence",
                     detail=(
                         f"I am turning {len(indexed_sources)} deduplicated sources into compact evidence notes "
                         "before writing the final synthesis."
@@ -326,13 +407,36 @@ class DeepSearchService:
                 warnings.append(summarizer_warning)
             for source_summary in source_summaries:
                 yield DeepSearchStreamEvent("source", source_summary)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_complete",
+                    phase="summarizing_sources",
+                    stage="Condensing source evidence",
+                    detail=(
+                        f"I finished condensing {len(source_summaries)} source note(s) for the report."
+                    )
+                    if source_summaries
+                    else "There were no source notes to condense for this run.",
+                ),
+            )
 
             yield DeepSearchStreamEvent("status", {"phase": "writing"})
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type="stage_start",
                     phase="writing",
-                    title="Synthesizing the answer",
+                    stage="Synthesizing the answer",
+                    detail="I am starting the final synthesis from the condensed source notes.",
+                ),
+            )
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="finalizing",
+                    phase="writing",
+                    stage="Synthesizing the answer",
                     detail=(
                         "I am organizing the evidence into a report and attaching source IDs "
                         "to factual claims."
@@ -352,13 +456,32 @@ class DeepSearchService:
             report_body = "".join(report_parts).strip()
             if not report_body:
                 raise RuntimeError("Deep search report writer returned no content.")
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_complete",
+                    phase="writing",
+                    stage="Synthesizing the answer",
+                    detail="I finished drafting the report from the available source notes.",
+                ),
+            )
 
             yield DeepSearchStreamEvent("status", {"phase": "verifying"})
             yield DeepSearchStreamEvent(
                 "activity",
                 _thinking_activity(
+                    event_type="stage_start",
                     phase="verifying",
-                    title="Checking citation coverage",
+                    stage="Checking citation coverage",
+                    detail="I am starting a citation coverage check before saving the run.",
+                ),
+            )
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="finalizing",
+                    phase="verifying",
+                    stage="Checking citation coverage",
                     detail="I am scanning the drafted report for uncited claims and weak citation patterns.",
                 ),
             )
@@ -368,6 +491,15 @@ class DeepSearchService:
             )
             if verifier_warning:
                 warnings.append(verifier_warning)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_complete",
+                    phase="verifying",
+                    stage="Checking citation coverage",
+                    detail=f"I finished checking citation coverage and found {len(qa_flags)} QA flag(s).",
+                ),
+            )
 
             await self._persist_success(
                 session=session,
@@ -504,6 +636,24 @@ class DeepSearchService:
     ) -> tuple[list[DeepSearchSourceCandidate], list[str]]:
         candidates: list[DeepSearchSourceCandidate] = []
         warnings: list[str] = []
+        async for item_type, item_payload in self._iter_academic_sources_with_activity(
+            project=project,
+            questions=questions,
+        ):
+            if item_type == "candidates":
+                candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+            elif item_type == "warnings":
+                warnings.extend(cast(list[str], item_payload))
+        return candidates, _dedupe_strings(warnings)
+
+    async def _iter_academic_sources_with_activity(
+        self,
+        *,
+        project: Project,
+        questions: list[str],
+    ) -> AsyncIterator[DeepSearchCollectionItem]:
+        candidates: list[DeepSearchSourceCandidate] = []
+        warnings: list[str] = []
         search_questions = questions[: max(1, min(self.max_web_searches, len(questions)))]
 
         for query in search_questions:
@@ -512,16 +662,27 @@ class DeepSearchService:
                 ("arxiv", self.arxiv_search),
             ]
             for provider_name, search in provider_calls:
+                provider_stage = _academic_provider_stage(provider_name)
+                yield (
+                    "activity",
+                    _thinking_activity(
+                        event_type="stage_update",
+                        phase="academic_search",
+                        stage=provider_stage,
+                        detail=f"{provider_stage} for: {_compact_text(query, limit=160)}.",
+                    ),
+                )
                 try:
                     papers = await search(query, project.year_start, self.max_results_per_query)
                 except Exception:
                     warnings.append(f"{provider_name} search failed for query '{query}'.")
                     continue
+                query_candidates: list[DeepSearchSourceCandidate] = []
                 for paper_record in papers:
                     snippet = _compact_text(paper_record.get("abstract", ""))
                     if not snippet:
                         continue
-                    candidates.append(
+                    query_candidates.append(
                         DeepSearchSourceCandidate(
                             source_type="paper",
                             title=paper_record["title"],
@@ -542,12 +703,44 @@ class DeepSearchService:
                             },
                         )
                     )
-        return candidates, _dedupe_strings(warnings)
+                if query_candidates:
+                    candidates.extend(query_candidates)
+                    yield (
+                        "activity",
+                        _thinking_activity(
+                            event_type="source_found",
+                            phase="academic_search",
+                            stage="Sources found",
+                            detail=(
+                                f"{provider_stage} returned {len(query_candidates)} usable scholarly "
+                                "source(s)."
+                            ),
+                            sources=_source_activity_sources(query_candidates),
+                        ),
+                    )
+        yield ("candidates", candidates)
+        yield ("warnings", _dedupe_strings(warnings))
 
     async def _collect_web_sources(
         self,
         questions: list[str],
     ) -> tuple[list[DeepSearchSourceCandidate], list[str], dict[str, Any]]:
+        candidates: list[DeepSearchSourceCandidate] = []
+        warnings: list[str] = []
+        metadata: dict[str, Any] = {}
+        async for item_type, item_payload in self._iter_web_sources_with_activity(questions):
+            if item_type == "candidates":
+                candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+            elif item_type == "warnings":
+                warnings.extend(cast(list[str], item_payload))
+            elif item_type == "metadata":
+                metadata.update(cast(dict[str, Any], item_payload))
+        return candidates, _dedupe_strings(warnings), metadata
+
+    async def _iter_web_sources_with_activity(
+        self,
+        questions: list[str],
+    ) -> AsyncIterator[DeepSearchCollectionItem]:
         candidates: list[DeepSearchSourceCandidate] = []
         warnings: list[str] = []
         metadata = {
@@ -556,17 +749,27 @@ class DeepSearchService:
             "tavily_configured": self.tavily_service.is_configured(),
         }
         for query in questions[: self.max_web_searches]:
+            yield (
+                "activity",
+                _thinking_activity(
+                    event_type="stage_update",
+                    phase="web_search",
+                    stage="Searching web",
+                    detail=f"Searching Tavily for: {_compact_text(query, limit=160)}.",
+                ),
+            )
             metadata["tavily_search_count"] += 1
             response = await self.tavily_service.search(
                 query,
                 max_results=self.max_results_per_query,
             )
             warnings.extend(response.warnings)
+            query_candidates: list[DeepSearchSourceCandidate] = []
             for result in response.results:
                 snippet = _compact_text(result.content)
                 if not snippet:
                     continue
-                candidates.append(
+                query_candidates.append(
                     DeepSearchSourceCandidate(
                         source_type="web",
                         title=result.title,
@@ -580,8 +783,22 @@ class DeepSearchService:
                         },
                     )
                 )
+            if query_candidates:
+                candidates.extend(query_candidates)
+                yield (
+                    "activity",
+                    _thinking_activity(
+                        event_type="source_found",
+                        phase="web_search",
+                        stage="Sources found",
+                        detail=f"Tavily returned {len(query_candidates)} usable web source(s).",
+                        sources=_source_activity_sources(query_candidates),
+                    ),
+                )
         metadata["tavily_result_count"] = len(candidates)
-        return candidates, _dedupe_strings(warnings), metadata
+        yield ("candidates", candidates)
+        yield ("warnings", _dedupe_strings(warnings))
+        yield ("metadata", metadata)
 
     async def _summarize_sources(
         self,
@@ -1163,21 +1380,53 @@ def _source_summary(
     }
 
 
+def _academic_provider_stage(provider_name: str) -> str:
+    if provider_name == "semantic_scholar":
+        return "Searching Semantic Scholar"
+    if provider_name == "arxiv":
+        return "Searching arXiv"
+    return f"Searching {provider_name.replace('_', ' ').title()}"
+
+
 def _thinking_activity(
     *,
+    event_type: DeepSearchActivityEventType,
     phase: str,
-    title: str,
+    stage: str,
     detail: str,
     sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if event_type not in ALLOWED_DEEP_SEARCH_ACTIVITY_TYPES:
+        raise ValueError(f"Unsupported deep search activity event type: {event_type}")
     payload: dict[str, Any] = {
+        "type": event_type,
+        "event_type": event_type,
         "phase": phase,
-        "title": title,
+        "stage": stage,
+        "title": stage,
+        "message": detail,
         "detail": detail,
+        "sources": sources or [],
     }
-    if sources:
-        payload["sources"] = sources
     return payload
+
+
+def _source_activity_event_type(
+    candidates: list[DeepSearchSourceCandidate],
+) -> DeepSearchActivityEventType:
+    return "source_found" if candidates else "stage_complete"
+
+
+def _activity_source_type(source_type: str) -> str:
+    if source_type == "paper":
+        return "paper"
+    if source_type == "paper_chunk":
+        return "pdf"
+    if source_type == "web":
+        return "website"
+    if source_type == "citation_graph":
+        return "paper"
+    return "other"
 
 
 def _planning_activity_detail(questions: list[str]) -> str:
@@ -1209,6 +1458,7 @@ def _source_activity_sources(
     return [
         {
             "id": f"preview-{index}",
+            "type": _activity_source_type(candidate.source_type),
             "source_type": candidate.source_type,
             "title": _truncate(candidate.title, MAX_SOURCE_TITLE_CHARS),
             "url": candidate.url,

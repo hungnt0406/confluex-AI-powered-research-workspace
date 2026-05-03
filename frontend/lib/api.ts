@@ -367,18 +367,29 @@ export type DeepSearchSourceEventData = {
   note: string;
 };
 
+export type DeepSearchActivityEventType =
+  "stage_start" | "stage_update" | "source_found" | "stage_complete" | "finalizing";
+
+export type DeepSearchActivityChipType =
+  "paper" | "website" | "pdf" | "document" | "dataset" | "code" | "other";
+
 export type DeepSearchActivitySource = {
   id: string;
-  source_type: "paper" | "paper_chunk" | "citation_graph" | "web";
+  type?: DeepSearchActivityChipType;
+  source_type: string;
   title: string;
   url: string | null;
   paper_id: string | null;
 };
 
 export type DeepSearchActivityEventData = {
+  type?: DeepSearchActivityEventType;
+  event_type?: DeepSearchActivityEventType;
   phase: string;
+  stage?: string;
   title: string;
-  detail: string;
+  message?: string;
+  detail?: string;
   sources?: DeepSearchActivitySource[];
 };
 

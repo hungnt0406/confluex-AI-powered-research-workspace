@@ -47,6 +47,30 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-03 21:39
+- **done:**
+  - Fixed Deep Search live progress streaming so activity events are emitted before slow stages and during academic/web provider loops.
+  - Added the required compatibility activity schema with `type`/`event_type`, `message`/`detail`, and runtime source chips with UI `type` plus backend `source_type`.
+  - Updated the frontend activity reducer to normalize compatibility fields, append source chips from `data.sources`, and keep final answer tokens separate.
+  - Added regression tests for activity schema, allowed event types, source chip mapping, source-found phases, and academic stage ordering before a fake slow search completes.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `backend/services/deep_search.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Running the requested focused pytest, Ruff, mypy, frontend TypeScript, and whitespace checks.
+- **blocked:**
+  - None.
+
+### 2026-05-03 17:34
+- **done:**
+  - Updated Deep Search `activity` payloads to follow the live progress narrator contract with `event_type` values for `stage_start`, `stage_update`, `source_found`, `stage_complete`, and `finalizing`.
+  - Aligned activity stage labels with the requested research-dashboard stages while keeping source chips tied only to real runtime sources.
+  - Updated tests and docs for the narrator payload contract.
+  - Changed files: `backend/services/deep_search.py`, `frontend/lib/api.ts`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with focused Deep Search tests, Ruff, mypy, frontend TypeScript, and whitespace checks.
+- **blocked:**
+  - None.
+
 ### 2026-05-03 17:13
 - **done:**
   - Removed the Deep Search planner timeout configuration and restored the planner to a direct `_plan_questions(...)` call.

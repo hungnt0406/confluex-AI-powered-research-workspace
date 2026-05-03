@@ -13,6 +13,8 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   DeepSearchRun,
   DeepSearchActivityEventData,
+  DeepSearchActivityChipType,
+  DeepSearchActivityEventType,
   DeepSearchActivitySource,
   DeepSearchSource,
   DeepSearchSourceEventData,
@@ -53,7 +55,7 @@ export type DeepSearchDisplaySource = {
   id: string;
   title: string;
   url: string | null;
-  sourceType: DeepSearchSource["source_type"];
+  sourceType: DeepSearchSource["source_type"] | DeepSearchActivityChipType;
 };
 
 export type DeepSearchPlanStep = {
@@ -307,6 +309,14 @@ function deepSearchSourceEventToDisplaySource(
   };
 }
 
+function activitySourceTypeFromBackend(sourceType: string): DeepSearchActivityChipType {
+  if (sourceType === "paper") return "paper";
+  if (sourceType === "paper_chunk") return "pdf";
+  if (sourceType === "web") return "website";
+  if (sourceType === "citation_graph") return "paper";
+  return "other";
+}
+
 function deepSearchActivitySourceToDisplaySource(
   source: DeepSearchActivitySource,
 ): DeepSearchDisplaySource {
@@ -314,7 +324,7 @@ function deepSearchActivitySourceToDisplaySource(
     id: source.id,
     title: source.title,
     url: source.url,
-    sourceType: source.source_type,
+    sourceType: source.type ?? activitySourceTypeFromBackend(source.source_type),
   };
 }
 
@@ -338,6 +348,20 @@ function dedupeDeepSearchSources(sources: DeepSearchDisplaySource[]) {
     seen.add(key);
     return true;
   });
+}
+
+function deepSearchActivityEventType(
+  activity: DeepSearchActivityEventData,
+): DeepSearchActivityEventType {
+  return activity.event_type ?? activity.type ?? "stage_update";
+}
+
+function deepSearchActivityTitle(activity: DeepSearchActivityEventData) {
+  return activity.title || activity.stage || formatDeepSearchPhase(activity.phase);
+}
+
+function deepSearchActivityMessage(activity: DeepSearchActivityEventData) {
+  return activity.message ?? activity.detail ?? "I am updating the research progress.";
 }
 
 function truncateForUi(text: string, maxLength: number) {
@@ -548,13 +572,14 @@ function applyDeepSearchThinkingActivityToState(
   thinking: DeepSearchThinkingState,
   activity: DeepSearchActivityEventData,
 ): DeepSearchThinkingState {
+  const eventType = deepSearchActivityEventType(activity);
   const activitySources = (activity.sources ?? []).map(deepSearchActivitySourceToDisplaySource);
   const existingIndex = thinking.steps.findIndex((step) => step.phase === activity.phase);
   const activityStep = {
     phase: activity.phase,
-    title: activity.title,
-    detail: activity.detail,
-    status: "active" as const,
+    title: deepSearchActivityTitle(activity),
+    detail: deepSearchActivityMessage(activity),
+    status: eventType === "stage_complete" ? "complete" as const : "active" as const,
     sources: dedupeDeepSearchSources(activitySources),
   };
 
@@ -581,9 +606,9 @@ function applyDeepSearchThinkingActivityToState(
       }
       return {
         ...step,
-        title: activity.title,
-        detail: activity.detail,
-        status: "active" as const,
+        title: deepSearchActivityTitle(activity),
+        detail: deepSearchActivityMessage(activity),
+        status: eventType === "stage_complete" ? "complete" as const : "active" as const,
         sources: dedupeDeepSearchSources([...step.sources, ...activitySources]).slice(0, 18),
       };
     }),
