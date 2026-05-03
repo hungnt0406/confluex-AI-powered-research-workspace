@@ -799,3 +799,108 @@ def test_deep_search_activity_source_chips_include_ui_and_backend_source_types()
         ("web", "website"),
         ("citation_graph", "paper"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_deep_search_heartbeat_during_slow_planning_emits_stage_updates(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Verify that a slow _plan_questions triggers at least 2 stage_update events."""
+
+    class SlowPlannerDeepSearchService(DeepSearchService):
+        async def _plan_questions(
+            self, *, project_title: str, project_topic: str, question: str
+        ) -> list[str]:
+            await asyncio.sleep(9)
+            return self._build_local_plan_questions(question)
+
+    service = SlowPlannerDeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=no_academic_results,
+        arxiv_search=no_academic_results,
+    )
+
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+
+        events: list[tuple[str, dict]] = []
+        async for event in service.stream_run(
+            session=session,
+            project=project,
+            question="Test heartbeat during slow planning",
+            selected_papers=[],
+        ):
+            events.append((event.event, event.data if isinstance(event.data, dict) else {}))
+            if event.event == "activity" and isinstance(event.data, dict):
+                if event.data.get("phase") == "planning" and event.data.get("event_type") == "stage_complete":
+                    break
+
+    planning_activities = [
+        (event_name, payload)
+        for event_name, payload in events
+        if event_name == "activity" and payload.get("phase") == "planning"
+    ]
+
+    stage_updates = [
+        payload for _, payload in planning_activities if payload.get("event_type") == "stage_update"
+    ]
+    stage_starts = [
+        payload for _, payload in planning_activities if payload.get("event_type") == "stage_start"
+    ]
+    stage_completes = [
+        payload for _, payload in planning_activities if payload.get("event_type") == "stage_complete"
+    ]
+
+    assert len(stage_starts) == 1, f"Expected 1 stage_start, got {len(stage_starts)}"
+    assert len(stage_updates) >= 2, f"Expected ≥2 stage_updates, got {len(stage_updates)}"
+    assert len(stage_completes) == 1, f"Expected 1 stage_complete, got {len(stage_completes)}"
+
+    event_types_in_order = [payload.get("event_type") for _, payload in planning_activities]
+    start_index = event_types_in_order.index("stage_start")
+    complete_index = event_types_in_order.index("stage_complete")
+    for i, event_type in enumerate(event_types_in_order):
+        if event_type == "stage_update":
+            assert start_index < i < complete_index, (
+                f"stage_update at index {i} should be between stage_start ({start_index}) "
+                f"and stage_complete ({complete_index})"
+            )
+
+
+@pytest.mark.asyncio
+async def test_deep_search_no_invented_source_chips_when_no_candidates(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+) -> None:
+    """Verify sources=[] when no candidates exist for a phase."""
+    service = DeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=no_academic_results,
+        arxiv_search=no_academic_results,
+    )
+    app.dependency_overrides[get_deep_search_service] = lambda: service
+    response = await client.post(
+        f"/projects/{sample_project['id']}/deep-search/stream",
+        headers=auth_headers,
+        json={"paper_ids": [], "question": "Check no fake sources."},
+    )
+    app.dependency_overrides.pop(get_deep_search_service, None)
+
+    events = parse_sse_events(response.text)
+    activity_payloads = [payload for event_name, payload in events if event_name == "activity"]
+
+    for payload in activity_payloads:
+        sources = payload.get("sources", [])
+        assert isinstance(sources, list)
+        if payload.get("event_type") in ("stage_start", "stage_update"):
+            assert sources == [], (
+                f"stage_start/stage_update should not have invented sources, "
+                f"got {len(sources)} for phase={payload.get('phase')}"
+            )
