@@ -33,7 +33,7 @@ MAX_REPORT_TOKENS = 1_800
 SOURCE_CITATION_PATTERN = re.compile(r"\[S(\d+)\]")
 
 SourceType = Literal["paper", "paper_chunk", "citation_graph", "web"]
-DeepSearchEventName = Literal["run", "status", "source", "token", "done", "error"]
+DeepSearchEventName = Literal["run", "status", "activity", "source", "token", "done", "error"]
 AcademicSearchCallable = Callable[[str, int, int], Awaitable[list[PaperRecord]]]
 
 
@@ -228,12 +228,35 @@ class DeepSearchService:
                     "verifier": self.verifier_model,
                 },
             }
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="planning",
+                    title="Identifying research domains",
+                    detail=_planning_activity_detail(questions),
+                ),
+            )
 
             candidates: list[DeepSearchSourceCandidate] = []
 
             yield DeepSearchStreamEvent("status", {"phase": "project_evidence"})
-            candidates.extend(
-                await self._collect_project_sources(session=session, selected_papers=selected_papers)
+            project_candidates = await self._collect_project_sources(
+                session=session,
+                selected_papers=selected_papers,
+            )
+            candidates.extend(project_candidates)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="project_evidence",
+                    title="Reading selected project evidence",
+                    detail=_source_activity_detail(
+                        project_candidates,
+                        empty_detail="No selected project paper evidence was available, so I will rely on external academic and web sources.",
+                        populated_detail="I found project-local evidence to anchor the search before expanding outward.",
+                    ),
+                    sources=_source_activity_sources(project_candidates),
+                ),
             )
 
             yield DeepSearchStreamEvent("status", {"phase": "academic_search"})
@@ -243,11 +266,37 @@ class DeepSearchService:
             )
             candidates.extend(academic_candidates)
             warnings.extend(academic_warnings)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="academic_search",
+                    title="Mapping the academic evidence",
+                    detail=_source_activity_detail(
+                        academic_candidates,
+                        empty_detail="The scholarly providers did not return usable abstracts for the planned questions.",
+                        populated_detail="I found scholarly sources that can support or challenge the answer.",
+                    ),
+                    sources=_source_activity_sources(academic_candidates),
+                ),
+            )
 
             yield DeepSearchStreamEvent("status", {"phase": "web_search"})
             web_candidates, web_warnings, web_metadata = await self._collect_web_sources(questions)
             candidates.extend(web_candidates)
             warnings.extend(web_warnings)
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="web_search",
+                    title="Researching websites",
+                    detail=_source_activity_detail(
+                        web_candidates,
+                        empty_detail="No usable web results were returned for the planned questions.",
+                        populated_detail="I found current web sources and implementation context to compare with the paper evidence.",
+                    ),
+                    sources=_source_activity_sources(web_candidates),
+                ),
+            )
 
             source_candidates = deduplicate_source_candidates(candidates)
             indexed_sources = [
@@ -256,6 +305,19 @@ class DeepSearchService:
             ]
 
             yield DeepSearchStreamEvent("status", {"phase": "summarizing_sources"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="summarizing_sources",
+                    title="Condensing source evidence",
+                    detail=(
+                        f"I am turning {len(indexed_sources)} deduplicated sources into compact evidence notes "
+                        "before writing the final synthesis."
+                    )
+                    if indexed_sources
+                    else "I did not find source candidates, so I will produce a limited report with warnings.",
+                ),
+            )
             source_summaries, summarizer_warning = await self._summarize_sources(
                 question=normalized_question,
                 indexed_sources=indexed_sources,
@@ -266,6 +328,17 @@ class DeepSearchService:
                 yield DeepSearchStreamEvent("source", source_summary)
 
             yield DeepSearchStreamEvent("status", {"phase": "writing"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="writing",
+                    title="Synthesizing the answer",
+                    detail=(
+                        "I am organizing the evidence into a report and attaching source IDs "
+                        "to factual claims."
+                    ),
+                ),
+            )
             report_parts: list[str] = []
             async for token in self._stream_report(
                 question=normalized_question,
@@ -281,6 +354,14 @@ class DeepSearchService:
                 raise RuntimeError("Deep search report writer returned no content.")
 
             yield DeepSearchStreamEvent("status", {"phase": "verifying"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    phase="verifying",
+                    title="Checking citation coverage",
+                    detail="I am scanning the drafted report for uncited claims and weak citation patterns.",
+                ),
+            )
             qa_flags, verifier_warning = await self._verify_report(
                 report_body=report_body,
                 source_summaries=source_summaries,
@@ -1080,6 +1161,61 @@ def _source_summary(
         "paper_id": source_candidate.paper_id,
         "note": _compact_text(note),
     }
+
+
+def _thinking_activity(
+    *,
+    phase: str,
+    title: str,
+    detail: str,
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "phase": phase,
+        "title": title,
+        "detail": detail,
+    }
+    if sources:
+        payload["sources"] = sources
+    return payload
+
+
+def _planning_activity_detail(questions: list[str]) -> str:
+    focus_items = "; ".join(_compact_text(question, limit=140) for question in questions[:3])
+    if not focus_items:
+        return "I am defining focused research questions before gathering evidence."
+    return f"I am separating the request into focused research paths: {focus_items}."
+
+
+def _source_activity_detail(
+    candidates: list[DeepSearchSourceCandidate],
+    *,
+    empty_detail: str,
+    populated_detail: str,
+) -> str:
+    if not candidates:
+        return empty_detail
+    source_types = sorted({candidate.source_type.replace("_", " ") for candidate in candidates})
+    source_label = ", ".join(source_types)
+    return f"{populated_detail} Current pool: {len(candidates)} {source_label} source(s)."
+
+
+def _source_activity_sources(
+    candidates: list[DeepSearchSourceCandidate],
+    *,
+    limit: int = 18,
+) -> list[dict[str, Any]]:
+    deduped_candidates = deduplicate_source_candidates(candidates)
+    return [
+        {
+            "id": f"preview-{index}",
+            "source_type": candidate.source_type,
+            "title": _truncate(candidate.title, MAX_SOURCE_TITLE_CHARS),
+            "url": candidate.url,
+            "paper_id": candidate.paper_id,
+        }
+        for index, candidate in enumerate(deduped_candidates[:limit], start=1)
+    ]
 
 
 def _compact_text(text: str, *, limit: int = MAX_SOURCE_SNIPPET_CHARS) -> str:
