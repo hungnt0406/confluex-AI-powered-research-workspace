@@ -61,7 +61,24 @@ def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     assert "Show thinking" in chat_workspace
     assert "Researching websites" in chat_provider
     assert "DeepSearchActivityEventData" in api_client
+    assert '"stage_start" | "stage_update" | "source_found" | "stage_complete" | "finalizing"' in api_client
     assert '| { event: "activity"; data: DeepSearchActivityEventData }' in api_client
+
+
+def test_frontend_deep_search_activity_accepts_compatibility_fields() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "type?: DeepSearchActivityEventType" in api_client
+    assert "event_type?: DeepSearchActivityEventType" in api_client
+    assert "message?: string" in api_client
+    assert "detail?: string" in api_client
+    assert "type?: DeepSearchActivityChipType" in api_client
+    assert "source_type: string" in api_client
+    assert "deepSearchActivityEventType(activity)" in chat_provider
+    assert "deepSearchActivityMessage(activity)" in chat_provider
+    assert "source.type ?? activitySourceTypeFromBackend(source.source_type)" in chat_provider
+    assert "options.onEvent({ event: eventName, data } as DeepSearchStreamEvent);" in api_client
 
 
 def test_frontend_deep_search_shows_full_thinking_plan_immediately() -> None:
