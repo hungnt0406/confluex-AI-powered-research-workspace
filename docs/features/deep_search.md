@@ -55,7 +55,9 @@ When a Deep Search prompt starts without discovered project papers, the frontend
 
 When the composer is in Deep Search mode, submitting text appends the user message and a pending `Deep Search Plan` card instead of immediately calling the streaming endpoint. The plan card summarizes the research, analysis, and report-writing steps and exposes `Edit plan` and `Start research` actions.
 
-`Start research` runs the existing project creation/discovery preflight when needed, then calls `POST /projects/{project_id}/deep-search/stream`. Stream `status` events are rendered as a single expandable `Show thinking` panel with phase-level summaries such as planning, academic search, web search, source summarization, writing, and verification. Stream `source` events are attached both to the thinking panel and to the right-side `Deep Search Sources` panel. The final answer continues to stream into the assistant report message.
+`Start research` runs the existing project creation/discovery preflight when needed, then calls `POST /projects/{project_id}/deep-search/stream`. The `Show thinking` panel immediately displays the full research path: planning, project evidence, academic search, web search, source summarization, writing, and verification. Stream `status` events move the active marker through that path while future phases remain visible but muted. While waiting for the next server event, the thinking panel keeps a live elapsed timer and animated progress bar so long backend phases do not look frozen. Stream `source` events are attached both to the thinking panel and to the right-side `Deep Search Sources` panel. The final answer bubble is created only after the first report token or final `done` event, avoiding an empty assistant row during retrieval.
+
+Deep Search SSE frames are sent with padding comments to reduce buffering of small `status` events in local browsers or proxies. The padding is ignored by the SSE parser and does not change the client event contract.
 
 ## Configuration
 
