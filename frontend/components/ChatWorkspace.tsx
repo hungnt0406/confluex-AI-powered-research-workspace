@@ -730,11 +730,9 @@ function DeepSearchThinkingPanel({ thinking }: { thinking: DeepSearchThinkingSta
                       href={source.url ?? undefined}
                       target="_blank"
                       rel="noreferrer"
-                      className={`inline-flex max-w-[180px] items-center gap-1.5 rounded-full bg-surface-container-low px-2.5 py-1 text-[11px] not-italic text-on-surface-variant ring-1 ring-outline/20 ${source.url ? "hover:text-primary" : "pointer-events-none"}`}
+                      className={`inline-flex h-9 max-w-[220px] items-center gap-2 rounded-full bg-surface-container-low px-3 text-[11px] not-italic text-on-surface-variant ring-1 ring-outline/20 ${source.url ? "hover:text-primary" : "pointer-events-none"}`}
                     >
-                      <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-                        {source.sourceType === "web" ? "public" : "article"}
-                      </span>
+                      <ThinkingSourceFavicon source={source} />
                       <span className="truncate">{source.title}</span>
                     </a>
                   ))}
@@ -746,6 +744,49 @@ function DeepSearchThinkingPanel({ thinking }: { thinking: DeepSearchThinkingSta
       )}
     </div>
   );
+}
+
+function ThinkingSourceFavicon({ source }: { source: { url: string | null } }) {
+  const [failed, setFailed] = useState(false);
+  const faviconUrl = source.url ? getFaviconUrl(source.url) : null;
+
+  if (!faviconUrl || failed) {
+    return (
+      <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
+        <span
+          className="material-symbols-outlined"
+          aria-hidden="true"
+          style={{ fontSize: "13px" }}
+        >
+          article
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high ring-1 ring-outline/20">
+      <img
+        src={faviconUrl}
+        alt=""
+        aria-hidden="true"
+        className="h-3.5 w-3.5 object-contain"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </span>
+  );
+}
+
+function getFaviconUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    if (!hostname) return null;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
+  } catch {
+    return null;
+  }
 }
 
 function MarkdownContent({ text }: { text: string }) {
