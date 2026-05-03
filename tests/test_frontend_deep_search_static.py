@@ -184,3 +184,26 @@ def test_frontend_deep_search_primes_related_papers() -> None:
     assert "`/projects/${projectId}/run`" in chat_provider
     assert "await ensureDeepSearchRelatedPapers({" in chat_provider
     assert "shouldRunDiscovery: !hasDiscoveredProjectPapers(papers)" in chat_provider
+
+
+def test_frontend_deep_search_accepts_heartbeat_stage_update_events() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "stage_update" in api_client
+    assert "stage_start" in api_client
+    assert "stage_complete" in api_client
+    assert "source_found" in api_client
+    assert "finalizing" in api_client
+
+    assert "type?: DeepSearchActivityEventType" in api_client
+    assert "event_type?: DeepSearchActivityEventType" in api_client
+    assert "message?: string" in api_client
+    assert "detail?: string" in api_client
+    assert "sources?: DeepSearchActivitySource[]" in api_client
+
+    assert "applyDeepSearchThinkingActivityToState" in chat_provider
+    assert "deepSearchActivityEventType(activity)" in chat_provider
+    assert "deepSearchActivityMessage(activity)" in chat_provider
+    assert 'if (event.event === "activity")' in chat_provider
+    assert "applyDeepSearchThinkingActivity(thinkingMessageId, event.data);" in chat_provider

@@ -47,6 +47,20 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-03 22:01
+- **done:**
+  - Implemented heartbeat-driven `stage_update` streaming for Deep Search slow operations (planning, project evidence, summarization, verification).
+  - Each slow `await` now runs inside an `asyncio.create_task` + `asyncio.shield` + `asyncio.wait_for(timeout=4)` loop that emits `stage_update` activity events every ~4 seconds so the UI stays responsive.
+  - Added `except Exception: break` in all heartbeat loops so task-level exceptions (e.g. `StructuredOutputError`) still reach their fallback handlers instead of bubbling through the heartbeat.
+  - Added backend test `test_deep_search_heartbeat_during_slow_planning_emits_stage_updates` verifying ≥2 `stage_update` events between `stage_start` and `stage_complete` for a simulated 9-second planner.
+  - Added backend test `test_deep_search_no_invented_source_chips_when_no_candidates` verifying `sources=[]` on `stage_start`/`stage_update` events.
+  - Added frontend static test `test_frontend_deep_search_accepts_heartbeat_stage_update_events` verifying the frontend handles all heartbeat-related fields.
+  - Changed files: `backend/services/deep_search.py`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`.
+- **doing:**
+  - All 27 tests pass. Ruff, mypy, TypeScript, and git diff checks pass.
+- **blocked:**
+  - None.
+
 ### 2026-05-03 21:39
 - **done:**
   - Fixed Deep Search live progress streaming so activity events are emitted before slow stages and during academic/web provider loops.
