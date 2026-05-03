@@ -175,9 +175,13 @@ async def test_stream_deep_search_creates_run_streams_sources_and_persists(
     event_names = [event_name for event_name, _ in events]
     assert event_names[0] == "run"
     assert "status" in event_names
+    assert "activity" in event_names
     assert "source" in event_names
     assert "token" in event_names
     assert event_names[-1] == "done"
+    activity_payloads = [payload for event_name, payload in events if event_name == "activity"]
+    assert any(payload["title"] == "Identifying research domains" for payload in activity_payloads)
+    assert any(payload["phase"] == "web_search" for payload in activity_payloads)
 
     run_payload = events[0][1]
     done_payload = events[-1][1]
