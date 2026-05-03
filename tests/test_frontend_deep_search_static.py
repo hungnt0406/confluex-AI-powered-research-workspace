@@ -43,6 +43,7 @@ def test_frontend_deep_search_requires_plan_approval_before_streaming() -> None:
 def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
     chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
 
     assert "DeepSearchThinkingState" in chat_provider
     assert "DEEP_SEARCH_THINKING_PHASES" in chat_provider
@@ -50,13 +51,17 @@ def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     assert "createDeepSearchThinkingMessage" in chat_provider
     assert "updateDeepSearchThinkingPhase" in chat_provider
     assert "appendDeepSearchThinkingSource" in chat_provider
+    assert "applyDeepSearchThinkingActivity" in chat_provider
     assert "completeDeepSearchThinking" in chat_provider
     assert "DeepSearch: ${formatDeepSearchPhase(event.data.phase)}" not in chat_provider
+    assert 'if (event.event === "activity")' in chat_provider
     assert "appendDeepSearchThinkingSource(thinkingMessageId, event.data);" in chat_provider
     assert "completeDeepSearchThinking(thinkingMessageId);" in chat_provider
     assert "DeepSearchThinkingPanel" in chat_workspace
     assert "Show thinking" in chat_workspace
     assert "Researching websites" in chat_provider
+    assert "DeepSearchActivityEventData" in api_client
+    assert '| { event: "activity"; data: DeepSearchActivityEventData }' in api_client
 
 
 def test_frontend_deep_search_shows_full_thinking_plan_immediately() -> None:
@@ -98,6 +103,8 @@ def test_frontend_deep_search_thinking_shows_live_activity_while_waiting() -> No
     assert "Working for" in chat_workspace
     assert "animate-pulse" in chat_workspace
     assert "animate-[progress-shimmer" in chat_workspace
+    assert "ThinkingSourceFavicon" in chat_workspace
+    assert "https://www.google.com/s2/favicons" in chat_workspace
     assert "@keyframes progress-shimmer" in globals_css
 
 

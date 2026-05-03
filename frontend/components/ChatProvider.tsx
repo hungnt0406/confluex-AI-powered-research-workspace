@@ -12,6 +12,8 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import {
   DeepSearchRun,
+  DeepSearchActivityEventData,
+  DeepSearchActivitySource,
   DeepSearchSource,
   DeepSearchSourceEventData,
   DeepSearchRunSummary,
@@ -305,6 +307,17 @@ function deepSearchSourceEventToDisplaySource(
   };
 }
 
+function deepSearchActivitySourceToDisplaySource(
+  source: DeepSearchActivitySource,
+): DeepSearchDisplaySource {
+  return {
+    id: source.id,
+    title: source.title,
+    url: source.url,
+    sourceType: source.source_type,
+  };
+}
+
 function deepSearchSourceToDisplaySource(source: DeepSearchSource): DeepSearchDisplaySource {
   const sourceId = typeof source.metadata?.source_id === "string"
     ? source.metadata.source_id
@@ -531,6 +544,52 @@ function appendDeepSearchThinkingSourceToState(
   };
 }
 
+function applyDeepSearchThinkingActivityToState(
+  thinking: DeepSearchThinkingState,
+  activity: DeepSearchActivityEventData,
+): DeepSearchThinkingState {
+  const activitySources = (activity.sources ?? []).map(deepSearchActivitySourceToDisplaySource);
+  const existingIndex = thinking.steps.findIndex((step) => step.phase === activity.phase);
+  const activityStep = {
+    phase: activity.phase,
+    title: activity.title,
+    detail: activity.detail,
+    status: "active" as const,
+    sources: dedupeDeepSearchSources(activitySources),
+  };
+
+  if (existingIndex < 0) {
+    return {
+      ...thinking,
+      completed: false,
+      steps: [
+        ...thinking.steps.map((step) => ({ ...step, status: "complete" as const })),
+        activityStep,
+      ],
+    };
+  }
+
+  return {
+    ...thinking,
+    completed: false,
+    steps: thinking.steps.map((step, index) => {
+      if (index < existingIndex) {
+        return { ...step, status: "complete" as const };
+      }
+      if (index > existingIndex) {
+        return { ...step, status: "pending" as const };
+      }
+      return {
+        ...step,
+        title: activity.title,
+        detail: activity.detail,
+        status: "active" as const,
+        sources: dedupeDeepSearchSources([...step.sources, ...activitySources]).slice(0, 18),
+      };
+    }),
+  };
+}
+
 function completeDeepSearchThinkingState(
   thinking: DeepSearchThinkingState,
 ): DeepSearchThinkingState {
@@ -674,6 +733,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               ...message,
               sources: dedupeDeepSearchSources([...(message.sources ?? []), displaySource]),
               thinking: appendDeepSearchThinkingSourceToState(message.thinking, source),
+            }
+            : message,
+        ),
+      );
+    },
+    [],
+  );
+
+  const applyDeepSearchThinkingActivity = useCallback(
+    (messageId: string, activity: DeepSearchActivityEventData) => {
+      const activitySources = (activity.sources ?? []).map(deepSearchActivitySourceToDisplaySource);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === messageId && message.thinking
+            ? {
+              ...message,
+              sources: dedupeDeepSearchSources([...(message.sources ?? []), ...activitySources]),
+              thinking: applyDeepSearchThinkingActivityToState(message.thinking, activity),
             }
             : message,
         ),
@@ -1225,6 +1302,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
+          if (event.event === "activity") {
+            applyDeepSearchThinkingActivity(thinkingMessageId, event.data);
+            return;
+          }
+
           if (event.event === "source") {
             collectedSources.push(deepSearchSourceEventToDisplaySource(event.data));
             appendDeepSearchThinkingSource(thinkingMessageId, event.data);
@@ -1302,6 +1384,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     },
     [
       appendDeepSearchThinkingSource,
+      applyDeepSearchThinkingActivity,
       clearDeepSearchStatusMessages,
       completeDeepSearchThinking,
       updateDeepSearchThinkingPhase,

@@ -367,6 +367,21 @@ export type DeepSearchSourceEventData = {
   note: string;
 };
 
+export type DeepSearchActivitySource = {
+  id: string;
+  source_type: "paper" | "paper_chunk" | "citation_graph" | "web";
+  title: string;
+  url: string | null;
+  paper_id: string | null;
+};
+
+export type DeepSearchActivityEventData = {
+  phase: string;
+  title: string;
+  detail: string;
+  sources?: DeepSearchActivitySource[];
+};
+
 export type DeepSearchRunSummary = {
   id: string;
   project_id: string;
@@ -393,6 +408,7 @@ export type DeepSearchRun = DeepSearchRunSummary & {
 export type DeepSearchStreamEvent =
   | { event: "run"; data: DeepSearchRunSummary }
   | { event: "status"; data: { phase: string } }
+  | { event: "activity"; data: DeepSearchActivityEventData }
   | { event: "source"; data: DeepSearchSourceEventData }
   | { event: "token"; data: { delta: string } }
   | { event: "done"; data: DeepSearchRun }
