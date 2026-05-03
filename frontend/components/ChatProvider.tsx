@@ -72,7 +72,7 @@ export type DeepSearchThinkingStep = {
   phase: string;
   title: string;
   detail: string;
-  status: "active" | "complete";
+  status: "pending" | "active" | "complete";
   sources: DeepSearchDisplaySource[];
 };
 
@@ -384,6 +384,16 @@ function createDeepSearchPlanMessage(
   };
 }
 
+const DEEP_SEARCH_THINKING_PHASES = [
+  "planning",
+  "project_evidence",
+  "academic_search",
+  "web_search",
+  "summarizing_sources",
+  "writing",
+  "verifying",
+] as const;
+
 function deepSearchThinkingDefinition(phase: string, question: string) {
   const compactQuestion = truncateForUi(question, 140);
   const definitions: Record<string, { title: string; detail: string }> = {
@@ -426,12 +436,21 @@ function deepSearchThinkingDefinition(phase: string, question: string) {
   };
 }
 
+function buildInitialDeepSearchThinkingSteps(question: string): DeepSearchThinkingStep[] {
+  return DEEP_SEARCH_THINKING_PHASES.map((phase, index) => ({
+    phase,
+    ...deepSearchThinkingDefinition(phase, question),
+    status: index === 0 ? "active" : "pending",
+    sources: [],
+  }));
+}
+
 function createDeepSearchThinkingMessage(question: string): ChatMessage {
   const thinking: DeepSearchThinkingState = {
     id: uid(),
     question,
     completed: false,
-    steps: [],
+    steps: buildInitialDeepSearchThinkingSteps(question),
   };
   return {
     id: `deep-search-thinking-${thinking.id}`,
@@ -448,20 +467,25 @@ function upsertDeepSearchThinkingPhase(
   phase: string,
 ): DeepSearchThinkingState {
   const definition = deepSearchThinkingDefinition(phase, thinking.question);
-  const nextSteps = thinking.steps.map((step) => ({
-    ...step,
-    status: step.phase === phase ? "active" as const : "complete" as const,
-  }));
-  const existingIndex = nextSteps.findIndex((step) => step.phase === phase);
+  const existingIndex = thinking.steps.findIndex((step) => step.phase === phase);
   if (existingIndex >= 0) {
-    nextSteps[existingIndex] = {
-      ...nextSteps[existingIndex],
-      title: definition.title,
-      detail: definition.detail,
-      status: "active",
-    };
+    const nextSteps = thinking.steps.map((step, index) => ({
+      ...step,
+      title: index === existingIndex ? definition.title : step.title,
+      detail: index === existingIndex ? definition.detail : step.detail,
+      status: index < existingIndex
+        ? "complete" as const
+        : index === existingIndex
+          ? "active" as const
+          : "pending" as const,
+    }));
     return { ...thinking, completed: false, steps: nextSteps };
   }
+
+  const nextSteps = thinking.steps.map((step) => ({
+    ...step,
+    status: "complete" as const,
+  }));
   return {
     ...thinking,
     completed: false,
@@ -642,11 +666,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const appendDeepSearchThinkingSource = useCallback(
     (messageId: string, source: DeepSearchSourceEventData) => {
+      const displaySource = deepSearchSourceEventToDisplaySource(source);
       setMessages((prev) =>
         prev.map((message) =>
           message.id === messageId && message.thinking
             ? {
               ...message,
+              sources: dedupeDeepSearchSources([...(message.sources ?? []), displaySource]),
               thinking: appendDeepSearchThinkingSourceToState(message.thinking, source),
             }
             : message,
@@ -1156,26 +1182,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }) => {
       if (!authedRef.current) throw new Error("You must be logged in to chat.");
 
-      const assistantMessageId = uid();
       const thinkingMessage = createDeepSearchThinkingMessage(question);
       const thinkingMessageId = thinkingMessage.id;
       const collectedSources: DeepSearchDisplaySource[] = [];
       let completedRun: DeepSearchRun | null = null;
       let streamedError: string | null = null;
+      let assistantMessageId: string | null = null;
+
+      const ensureDeepSearchAnswerMessage = (initialContent = "") => {
+        if (assistantMessageId) return assistantMessageId;
+
+        const nextMessageId = uid();
+        assistantMessageId = nextMessageId;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: nextMessageId,
+            role: "assistant",
+            kind: "summary",
+            content: initialContent,
+            sources: [...collectedSources],
+            createdAt: now(),
+          },
+        ]);
+        return nextMessageId;
+      };
 
       clearDeepSearchStatusMessages();
-      setMessages((prev) => [
-        ...prev,
-        thinkingMessage,
-        {
-          id: assistantMessageId,
-          role: "assistant",
-          kind: "summary",
-          content: "",
-          sources: [],
-          createdAt: now(),
-        },
-      ]);
+      setMessages((prev) => [...prev, thinkingMessage]);
 
       await streamDeepSearchRun(`/projects/${projectId}/deep-search/stream`, {
         token: authedRef.current,
@@ -1194,21 +1228,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           if (event.event === "source") {
             collectedSources.push(deepSearchSourceEventToDisplaySource(event.data));
             appendDeepSearchThinkingSource(thinkingMessageId, event.data);
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantMessageId
-                  ? { ...message, sources: [...collectedSources] }
-                  : message,
-              ),
-            );
+            if (assistantMessageId) {
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === assistantMessageId
+                    ? { ...message, sources: [...collectedSources] }
+                    : message,
+                ),
+              );
+            }
             return;
           }
 
           if (event.event === "token") {
             const delta = event.data.delta;
+            const targetMessageId = ensureDeepSearchAnswerMessage();
             setMessages((prev) =>
               prev.map((message) =>
-                message.id === assistantMessageId
+                message.id === targetMessageId
                   ? { ...message, content: `${message.content}${delta}` }
                   : message,
               ),
@@ -1221,9 +1258,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const finalSources = event.data.sources.map(deepSearchSourceToDisplaySource);
             clearDeepSearchStatusMessages();
             completeDeepSearchThinking(thinkingMessageId);
+            const targetMessageId = ensureDeepSearchAnswerMessage(event.data.report_body);
             setMessages((prev) =>
               prev.map((message) =>
-                message.id === assistantMessageId
+                message.id === targetMessageId
                   ? {
                     ...message,
                     content: event.data.report_body,
@@ -1238,9 +1276,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           if (event.event === "error") {
             streamedError = event.data.detail;
+            const targetMessageId = ensureDeepSearchAnswerMessage();
             setMessages((prev) =>
               prev.map((message) =>
-                message.id === assistantMessageId
+                message.id === targetMessageId
                   ? {
                     ...message,
                     kind: "status",
