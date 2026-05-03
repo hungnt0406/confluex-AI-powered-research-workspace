@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -9,16 +10,35 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.dependencies import get_deep_search_service
 from backend.api.routers.projects import encode_sse_event
-from backend.db.models import AIUsageEvent, DeepSearchRun, Paper, PaperChunk, Summary, User
+from backend.db.models import AIUsageEvent, DeepSearchRun, Paper, PaperChunk, Project, Summary, User
 from backend.security import create_access_token, hash_password
 from backend.services.deep_search import (
     DeepSearchService,
     DeepSearchSourceCandidate,
+    _source_activity_sources,
     deduplicate_source_candidates,
     verify_report_claims,
 )
 from backend.services.paper_types import PaperRecord
 from backend.services.tavily import TavilySearchService
+
+ALLOWED_DEEP_SEARCH_ACTIVITY_TYPES = {
+    "stage_start",
+    "stage_update",
+    "source_found",
+    "stage_complete",
+    "finalizing",
+}
+REQUIRED_DEEP_SEARCH_ACTIVITY_KEYS = {
+    "type",
+    "event_type",
+    "phase",
+    "stage",
+    "title",
+    "message",
+    "detail",
+    "sources",
+}
 
 
 def parse_sse_events(body: str) -> list[tuple[str, dict]]:
@@ -180,8 +200,23 @@ async def test_stream_deep_search_creates_run_streams_sources_and_persists(
     assert "token" in event_names
     assert event_names[-1] == "done"
     activity_payloads = [payload for event_name, payload in events if event_name == "activity"]
-    assert any(payload["title"] == "Identifying research domains" for payload in activity_payloads)
+    assert any(payload["title"] == "Defining the research path" for payload in activity_payloads)
     assert any(payload["phase"] == "web_search" for payload in activity_payloads)
+    assert activity_payloads
+    for payload in activity_payloads:
+        assert REQUIRED_DEEP_SEARCH_ACTIVITY_KEYS.issubset(payload)
+        assert payload["type"] == payload["event_type"]
+        assert payload["message"] == payload["detail"]
+        assert payload["event_type"] in ALLOWED_DEEP_SEARCH_ACTIVITY_TYPES
+        assert isinstance(payload["sources"], list)
+    assert any(payload["event_type"] == "source_found" for payload in activity_payloads)
+    source_payloads = [
+        source
+        for payload in activity_payloads
+        for source in payload["sources"]
+    ]
+    assert source_payloads
+    assert all("type" in source and "source_type" in source for source in source_payloads)
 
     run_payload = events[0][1]
     done_payload = events[-1][1]
@@ -197,6 +232,118 @@ async def test_stream_deep_search_creates_run_streams_sources_and_persists(
         assert run is not None
         assert run.status == "completed"
         assert run.user_prompt == "What evidence supports deep search?"
+
+
+@pytest.mark.asyncio
+async def test_deep_search_streams_academic_stage_start_before_slow_search_completes(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    search_started = asyncio.Event()
+    release_search = asyncio.Event()
+    search_completed = asyncio.Event()
+
+    async def slow_academic_search(query: str, year_start: int, limit: int) -> list[PaperRecord]:
+        search_started.set()
+        await release_search.wait()
+        search_completed.set()
+        return []
+
+    service = DeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=slow_academic_search,
+        arxiv_search=no_academic_results,
+    )
+
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        stream = service.stream_run(
+            session=session,
+            project=project,
+            question="What evidence supports live progress?",
+            selected_papers=[],
+        )
+        try:
+            while True:
+                event = await asyncio.wait_for(stream.__anext__(), timeout=1)
+                if event.event == "activity" and event.data["phase"] == "academic_search":
+                    assert event.data["event_type"] == "stage_start"
+                    assert not search_started.is_set()
+                    assert not search_completed.is_set()
+                    break
+
+            event = await asyncio.wait_for(stream.__anext__(), timeout=1)
+            assert event.event == "activity"
+            assert event.data["phase"] == "academic_search"
+            assert event.data["event_type"] == "stage_update"
+            assert event.data["title"] == "Searching Semantic Scholar"
+            assert not search_started.is_set()
+            assert not search_completed.is_set()
+
+            pending_event = asyncio.create_task(stream.__anext__())
+            await asyncio.wait_for(search_started.wait(), timeout=1)
+            assert not pending_event.done()
+            assert not search_completed.is_set()
+            release_search.set()
+            await asyncio.wait_for(pending_event, timeout=1)
+            assert search_completed.is_set()
+        finally:
+            await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_deep_search_source_found_activity_for_academic_web_and_project_sources(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    paper = await create_deep_search_paper(session_factory, project_id=sample_project["id"])
+
+    def tavily_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": "Deep search web source",
+                        "url": "https://web.example.com/source",
+                        "content": "A web source snippet with implementation context.",
+                        "score": 0.91,
+                    }
+                ]
+            },
+        )
+
+    transport = httpx.MockTransport(tavily_handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        service = DeepSearchService(
+            api_key="",
+            use_live_llm=False,
+            tavily_service=TavilySearchService(api_key="tvly-test", http_client=http_client),
+            semantic_scholar_search=one_academic_result,
+            arxiv_search=no_academic_results,
+        )
+        app.dependency_overrides[get_deep_search_service] = lambda: service
+        response = await client.post(
+            f"/projects/{sample_project['id']}/deep-search/stream",
+            headers=auth_headers,
+            json={"paper_ids": [paper.id], "question": "Find all source types."},
+        )
+        app.dependency_overrides.pop(get_deep_search_service, None)
+
+    assert response.status_code == 201
+    events = parse_sse_events(response.text)
+    source_found_by_phase = {
+        payload["phase"]
+        for event_name, payload in events
+        if event_name == "activity" and payload["event_type"] == "source_found"
+    }
+    assert {"project_evidence", "academic_search", "web_search"}.issubset(source_found_by_phase)
 
 
 @pytest.mark.asyncio
@@ -360,7 +507,9 @@ async def test_deep_search_failure_marks_run_failed_and_streams_error(
     app.dependency_overrides.pop(get_deep_search_service, None)
 
     events = parse_sse_events(response.text)
-    assert [event_name for event_name, _ in events] == ["run", "status", "error"]
+    assert [event_name for event_name, _ in events] == ["run", "status", "activity", "error"]
+    assert events[2][1]["event_type"] == "stage_start"
+    assert events[2][1]["phase"] == "planning"
     run_id = events[0][1]["id"]
     assert events[-1][1] == {"detail": "planner failed", "run_id": run_id}
 
@@ -601,3 +750,52 @@ def test_deep_search_source_deduplication_and_local_verifier_flags() -> None:
     assert len(deduped) == 2
     assert flags[0]["issue"] == "Claim appears without a source citation."
     assert web_only_flags[0]["issue"] == "Claim relies only on web sources."
+
+
+def test_deep_search_activity_source_chips_include_ui_and_backend_source_types() -> None:
+    sources = _source_activity_sources(
+        [
+            DeepSearchSourceCandidate(
+                source_type="paper",
+                title="Paper source",
+                url="https://example.com/paper",
+                paper_id="paper-1",
+                snippet="Paper snippet.",
+                metadata={},
+            ),
+            DeepSearchSourceCandidate(
+                source_type="paper_chunk",
+                title="PDF chunk",
+                url="https://example.com/chunk.pdf",
+                paper_id="paper-1",
+                snippet="Chunk snippet.",
+                metadata={"chunk_id": "chunk-1"},
+            ),
+            DeepSearchSourceCandidate(
+                source_type="web",
+                title="Website source",
+                url="https://example.com/web",
+                paper_id=None,
+                snippet="Web snippet.",
+                metadata={},
+            ),
+            DeepSearchSourceCandidate(
+                source_type="citation_graph",
+                title="Citation graph source",
+                url=None,
+                paper_id="paper-2",
+                snippet="Citation snippet.",
+                metadata={},
+            ),
+        ]
+    )
+
+    assert [
+        (source["source_type"], source["type"])
+        for source in sources
+    ] == [
+        ("paper", "paper"),
+        ("paper_chunk", "pdf"),
+        ("web", "website"),
+        ("citation_graph", "paper"),
+    ]
