@@ -47,6 +47,26 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-03 17:13
+- **done:**
+  - Removed the Deep Search planner timeout configuration and restored the planner to a direct `_plan_questions(...)` call.
+  - Removed the timeout-specific regression test and documentation references while keeping the Deep Search `activity` stream updates.
+  - Changed files: `backend/config.py`, `backend/services/deep_search.py`, `tests/test_deep_search.py`, `.env.example`, `README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with focused Deep Search tests, Ruff, mypy, frontend TypeScript, and whitespace checks.
+- **blocked:**
+  - None.
+
+### 2026-05-03 16:55
+- **done:**
+  - Added Deep Search `activity` stream events so the frontend thinking panel can show research-log notes and source chips as evidence is discovered, instead of only static phase labels.
+  - Added backend and frontend regression coverage for activity events and documented the live research trace behavior.
+  - Changed files: `backend/services/deep_search.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified with focused Deep Search backend/frontend tests, Ruff, mypy on touched backend files, and whitespace checks.
+- **blocked:**
+  - None.
+
 ### 2026-05-03 16:29
 - **done:**
   - Changed the Deep Search thinking panel to show the full research path immediately while the user waits for the answer.
