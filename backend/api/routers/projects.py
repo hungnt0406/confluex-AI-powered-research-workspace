@@ -75,6 +75,7 @@ from backend.services.reference_files import (
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+SSE_FLUSH_PADDING = ":" + (" " * 2048) + "\n"
 
 
 async def flush_project_usage_events(
@@ -88,10 +89,11 @@ async def flush_project_usage_events(
     await flush_usage_events(session=session, user_id=current_user.id, project_id=project.id)
 
 
-def encode_sse_event(event: str, data: Any) -> str:
+def encode_sse_event(event: str, data: Any, *, pad: bool = False) -> str:
     """Encode one server-sent event frame."""
 
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+    prefix = SSE_FLUSH_PADDING if pad else ""
+    return f"{prefix}event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
 def project_conversation_stream_payload(
@@ -1101,10 +1103,10 @@ async def stream_deep_search(
                         current_user=current_user,
                         project=project,
                     )
-                yield encode_sse_event(event.event, deep_search_stream_payload(event))
+                yield encode_sse_event(event.event, deep_search_stream_payload(event), pad=True)
         except Exception as error:
             await session.rollback()
-            yield encode_sse_event("error", {"detail": str(error)})
+            yield encode_sse_event("error", {"detail": str(error)}, pad=True)
 
     return StreamingResponse(
         events(),
