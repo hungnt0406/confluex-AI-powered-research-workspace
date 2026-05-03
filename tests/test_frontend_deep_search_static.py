@@ -45,6 +45,8 @@ def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
 
     assert "DeepSearchThinkingState" in chat_provider
+    assert "DEEP_SEARCH_THINKING_PHASES" in chat_provider
+    assert "buildInitialDeepSearchThinkingSteps" in chat_provider
     assert "createDeepSearchThinkingMessage" in chat_provider
     assert "updateDeepSearchThinkingPhase" in chat_provider
     assert "appendDeepSearchThinkingSource" in chat_provider
@@ -55,6 +57,48 @@ def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     assert "DeepSearchThinkingPanel" in chat_workspace
     assert "Show thinking" in chat_workspace
     assert "Researching websites" in chat_provider
+
+
+def test_frontend_deep_search_shows_full_thinking_plan_immediately() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+
+    assert 'status: index === 0 ? "active" : "pending"' in chat_provider
+    assert "steps: buildInitialDeepSearchThinkingSteps(question)" in chat_provider
+    assert "project_evidence" in chat_provider
+    assert "academic_search" in chat_provider
+    assert "web_search" in chat_provider
+    assert "summarizing_sources" in chat_provider
+    assert "writing" in chat_provider
+    assert "verifying" in chat_provider
+    assert "text-on-surface-variant/55" in chat_workspace
+    assert "bg-outline/50" in chat_workspace
+
+
+def test_frontend_deep_search_avoids_empty_answer_placeholder() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    stream_turn = chat_provider[
+        chat_provider.index("const streamDeepSearchTurn = useCallback")
+        : chat_provider.index("const startDeepSearchPlan = useCallback")
+    ]
+
+    assert "ensureDeepSearchAnswerMessage" in chat_provider
+    assert "setMessages((prev) => [...prev, thinkingMessage]);" in stream_turn
+    assert "content: \"\"," not in stream_turn.split("await streamDeepSearchRun", 1)[0]
+    assert "const targetMessageId = ensureDeepSearchAnswerMessage();" in stream_turn
+    assert "const targetMessageId = ensureDeepSearchAnswerMessage(event.data.report_body);" in stream_turn
+
+
+def test_frontend_deep_search_thinking_shows_live_activity_while_waiting() -> None:
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+    globals_css = (REPO_ROOT / "frontend/app/globals.css").read_text()
+
+    assert "setInterval" in chat_workspace
+    assert "thinking.completed" in chat_workspace
+    assert "Working for" in chat_workspace
+    assert "animate-pulse" in chat_workspace
+    assert "animate-[progress-shimmer" in chat_workspace
+    assert "@keyframes progress-shimmer" in globals_css
 
 
 def test_frontend_restores_completed_deep_search_runs_after_refresh() -> None:
