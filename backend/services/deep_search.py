@@ -238,12 +238,38 @@ class DeepSearchService:
                     detail="I am defining focused research questions before gathering evidence.",
                 ),
             )
-            try:
-                questions = await self._plan_questions(
+            planner_task = asyncio.create_task(
+                self._plan_questions(
                     project_title=project.title,
                     project_topic=project.topic_description,
                     question=normalized_question,
                 )
+            )
+            planning_updates = [
+                "I am narrowing the request into focused research questions.",
+                "I am deciding which evidence paths to inspect first.",
+                "I am preparing the search plan before collecting sources.",
+                "I am checking that the research paths cover project, academic, and web evidence.",
+            ]
+            update_index = 0
+            while not planner_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(planner_task), timeout=4)
+                except TimeoutError:
+                    yield DeepSearchStreamEvent(
+                        "activity",
+                        _thinking_activity(
+                            event_type="stage_update",
+                            phase="planning",
+                            stage="Defining the research path",
+                            detail=planning_updates[update_index % len(planning_updates)],
+                        ),
+                    )
+                    update_index += 1
+                except Exception:
+                    break
+            try:
+                questions = await planner_task
             except StructuredOutputError as error:
                 questions = self._build_local_plan_questions(normalized_question)
                 warnings.append(f"Deep Search planner fell back to local planning: {error}")
@@ -280,10 +306,35 @@ class DeepSearchService:
                     detail="I am checking the selected project papers and saved PDF chunks for usable evidence.",
                 ),
             )
-            project_candidates = await self._collect_project_sources(
-                session=session,
-                selected_papers=selected_papers,
+            project_evidence_task = asyncio.create_task(
+                self._collect_project_sources(
+                    session=session,
+                    selected_papers=selected_papers,
+                )
             )
+            project_evidence_updates = [
+                "I am checking the selected project papers for usable evidence.",
+                "I am looking for abstracts, summaries, and PDF chunks from the selected papers.",
+                "I am preparing project-local evidence before expanding to external sources.",
+            ]
+            pe_update_index = 0
+            while not project_evidence_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(project_evidence_task), timeout=4)
+                except TimeoutError:
+                    yield DeepSearchStreamEvent(
+                        "activity",
+                        _thinking_activity(
+                            event_type="stage_update",
+                            phase="project_evidence",
+                            stage="Reading selected sources",
+                            detail=project_evidence_updates[pe_update_index % len(project_evidence_updates)],
+                        ),
+                    )
+                    pe_update_index += 1
+                except Exception:
+                    break
+            project_candidates = await project_evidence_task
             candidates.extend(project_candidates)
             yield DeepSearchStreamEvent(
                 "activity",
@@ -399,10 +450,35 @@ class DeepSearchService:
                     else "I did not find source candidates, so I will produce a limited report with warnings.",
                 ),
             )
-            source_summaries, summarizer_warning = await self._summarize_sources(
-                question=normalized_question,
-                indexed_sources=indexed_sources,
+            summarizer_task = asyncio.create_task(
+                self._summarize_sources(
+                    question=normalized_question,
+                    indexed_sources=indexed_sources,
+                )
             )
+            summarizer_updates = [
+                "I am condensing the collected sources into compact evidence notes.",
+                "I am removing duplicate source signals and keeping the strongest evidence.",
+                "I am preparing source notes for the final synthesis.",
+            ]
+            sum_update_index = 0
+            while not summarizer_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(summarizer_task), timeout=4)
+                except TimeoutError:
+                    yield DeepSearchStreamEvent(
+                        "activity",
+                        _thinking_activity(
+                            event_type="stage_update",
+                            phase="summarizing_sources",
+                            stage="Condensing source evidence",
+                            detail=summarizer_updates[sum_update_index % len(summarizer_updates)],
+                        ),
+                    )
+                    sum_update_index += 1
+                except Exception:
+                    break
+            source_summaries, summarizer_warning = await summarizer_task
             if summarizer_warning:
                 warnings.append(summarizer_warning)
             for source_summary in source_summaries:
@@ -485,10 +561,35 @@ class DeepSearchService:
                     detail="I am scanning the drafted report for uncited claims and weak citation patterns.",
                 ),
             )
-            qa_flags, verifier_warning = await self._verify_report(
-                report_body=report_body,
-                source_summaries=source_summaries,
+            verifier_task = asyncio.create_task(
+                self._verify_report(
+                    report_body=report_body,
+                    source_summaries=source_summaries,
+                )
             )
+            verifier_updates = [
+                "I am checking whether key claims have citations.",
+                "I am scanning for unsupported claims and web-only evidence.",
+                "I am reviewing citation coverage before completing the report.",
+            ]
+            ver_update_index = 0
+            while not verifier_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(verifier_task), timeout=4)
+                except TimeoutError:
+                    yield DeepSearchStreamEvent(
+                        "activity",
+                        _thinking_activity(
+                            event_type="stage_update",
+                            phase="verifying",
+                            stage="Checking citation coverage",
+                            detail=verifier_updates[ver_update_index % len(verifier_updates)],
+                        ),
+                    )
+                    ver_update_index += 1
+                except Exception:
+                    break
+            qa_flags, verifier_warning = await verifier_task
             if verifier_warning:
                 warnings.append(verifier_warning)
             yield DeepSearchStreamEvent(
