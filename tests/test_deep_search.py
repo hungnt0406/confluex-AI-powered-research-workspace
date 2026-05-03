@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.api.dependencies import get_deep_search_service
+from backend.api.routers.projects import encode_sse_event
 from backend.db.models import AIUsageEvent, DeepSearchRun, Paper, PaperChunk, Summary, User
 from backend.security import create_access_token, hash_password
 from backend.services.deep_search import (
@@ -33,6 +34,14 @@ def parse_sse_events(body: str) -> list[tuple[str, dict]]:
         if data_lines:
             events.append((event_name, json.loads("\n".join(data_lines))))
     return events
+
+
+def test_deep_search_sse_padding_keeps_event_parseable() -> None:
+    frame = encode_sse_event("status", {"phase": "planning"}, pad=True)
+
+    assert frame.startswith(": ")
+    assert len(frame) > 1024
+    assert parse_sse_events(frame) == [("status", {"phase": "planning"})]
 
 
 async def no_academic_results(
