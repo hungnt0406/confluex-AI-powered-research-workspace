@@ -237,3 +237,32 @@ def test_frontend_deep_search_accepts_heartbeat_stage_update_events() -> None:
     assert "deepSearchActivityMessage(activity)" in chat_provider
     assert 'if (event.event === "activity")' in chat_provider
     assert "applyDeepSearchThinkingActivity(thinkingMessageId, event.data);" in chat_provider
+
+
+def test_frontend_citation_graph_caches_previews_and_imports() -> None:
+    citation_graph = (REPO_ROOT / "frontend/components/CitationGraph.tsx").read_text()
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "citationGraphCache" in chat_provider
+    assert "citationGraphRequestRefs" in chat_provider
+    assert "getCitationGraph" in chat_provider
+    assert "prefetchCitationGraphs" in chat_provider
+    assert "addCitationGraphPaperToProject" in chat_provider
+    assert "fetchPaperCitationGraph" in chat_provider
+    assert "importCitationGraphPaper" in api_client
+    assert "/papers/import-citation" in api_client
+
+    assert "NodePreviewCard" in citation_graph
+    assert "setSelectedNode(rawNode as GraphNode)" in citation_graph
+    assert "window.open" not in citation_graph
+    assert "Add to project" in citation_graph
+    assert "In project" in citation_graph
+    assert "PROJECT_NODE_STROKE" in citation_graph
+    assert "CitationGraphList" in citation_graph
+    assert "Seed Paper" in citation_graph
+    assert "References" in citation_graph
+    assert "Cited By" in citation_graph
+    assert "Resolving seed paper..." in citation_graph
+    assert "Fetching citation neighborhood..." in citation_graph
+    assert "Preparing graph layout..." in citation_graph
