@@ -14,6 +14,7 @@ import {
   type ChatMessage,
   type ChatMode,
   type ComposerNotice,
+  type DeepSearchDisplaySource,
   type DeepSearchPlanMessage,
   type DeepSearchThinkingState,
   useChat,
@@ -32,13 +33,22 @@ type PendingReferenceUpload = {
   topic: string;
 };
 
-type SourceCardData = {
-  id: string;
+type SourceReference = {
   title: string;
-  publisher: string;
   url: string;
-  snippet: string;
-  date: string;
+  publisher: string;
+  supports: string;
+};
+
+type InlineRenderOptions = {
+  citationLinks: boolean;
+  sourceReferences: Map<string, SourceReference>;
+};
+
+type MarkdownLinkToken = {
+  type: "markdown-link";
+  label: string;
+  url: string;
 };
 
 export default function ChatWorkspace() {
@@ -556,7 +566,7 @@ function AgentBubble({
         ) : isStatus ? (
           message.content
         ) : (
-          <MarkdownContent text={message.content} />
+          <MarkdownContent text={message.content} sources={message.sources ?? []} />
         )}
       </div>
     </div>
@@ -798,14 +808,26 @@ function getFaviconUrl(url: string) {
   }
 }
 
-function MarkdownContent({ text }: { text: string }) {
-  return <div className="space-y-3">{renderMarkdownBlocks(text)}</div>;
+function MarkdownContent({
+  text,
+  sources,
+}: {
+  text: string;
+  sources?: DeepSearchDisplaySource[];
+}) {
+  const sourceReferences = sourceReferencesFromDeepSearchSources(sources ?? []);
+  for (const [url, reference] of extractSourceReferences(text)) {
+    sourceReferences.set(url, reference);
+  }
+
+  return <div className="space-y-3">{renderMarkdownBlocks(text, sourceReferences)}</div>;
 }
 
-function renderMarkdownBlocks(text: string): ReactNode[] {
+function renderMarkdownBlocks(text: string, sourceReferences: Map<string, SourceReference>): ReactNode[] {
   const lines = normalizeMarkdownForDisplay(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
+  let inSourcesSection = false;
 
   while (index < lines.length) {
     const line = lines[index];
@@ -837,33 +859,12 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
       continue;
     }
 
-    if (isSourceCardStart(trimmed)) {
-      const cardLines = [line];
-      let divDepth = sourceCardDivDepthChange(line);
-      index += 1;
-      while (index < lines.length && divDepth > 0) {
-        cardLines.push(lines[index]);
-        divDepth += sourceCardDivDepthChange(lines[index]);
-        index += 1;
-      }
-
-      const sourceCard = parseSourceCardBlock(cardLines.join("\n"));
-      if (sourceCard) {
-        blocks.push(<SourceCardBlock key={`source-card-${index}`} source={sourceCard} />);
-      } else {
-        blocks.push(
-          <p key={`source-card-fallback-${index}`} className="whitespace-normal text-xs leading-relaxed">
-            {renderInlineMarkdown(stripHtml(cardLines.join(" ")))}
-          </p>,
-        );
-      }
-      continue;
-    }
-
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
       const content = headingMatch[2];
+      inSourcesSection = content.trim().toLowerCase() === "sources";
+      const options = { citationLinks: !inSourcesSection, sourceReferences };
       const className =
         level === 1
           ? "text-lg font-semibold"
@@ -872,7 +873,7 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
             : "text-sm font-semibold";
       blocks.push(
         <div key={`heading-${index}`} className={className}>
-          {renderInlineMarkdown(content)}
+          {renderInlineMarkdown(content, options)}
         </div>,
       );
       index += 1;
@@ -881,6 +882,7 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
 
     if (/^\d+\.\s+/.test(trimmed)) {
       const items: string[] = [];
+      const options = { citationLinks: !inSourcesSection, sourceReferences };
       while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
         items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
         index += 1;
@@ -889,7 +891,7 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
         <ol key={`ordered-${index}`} className="list-decimal space-y-1.5 pl-5 marker:text-hint">
           {items.map((item, itemIndex) => (
             <li key={`ordered-item-${itemIndex}`} className="pl-1">
-              {renderInlineMarkdown(item)}
+              {renderInlineMarkdown(item, options)}
             </li>
           ))}
         </ol>,
@@ -899,6 +901,7 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
 
     if (/^[-*+]\s+/.test(trimmed)) {
       const items: string[] = [];
+      const options = { citationLinks: !inSourcesSection, sourceReferences };
       while (index < lines.length && /^[-*+]\s+/.test(lines[index].trim())) {
         items.push(lines[index].trim().replace(/^[-*+]\s+/, ""));
         index += 1;
@@ -907,7 +910,7 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
         <ul key={`unordered-${index}`} className="list-disc space-y-1.5 pl-5 marker:text-hint">
           {items.map((item, itemIndex) => (
             <li key={`unordered-item-${itemIndex}`} className="pl-1">
-              {renderInlineMarkdown(item)}
+              {renderInlineMarkdown(item, options)}
             </li>
           ))}
         </ul>,
@@ -927,155 +930,15 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
       paragraphLines.push(lines[index].trim());
       index += 1;
     }
+    const options = { citationLinks: !inSourcesSection, sourceReferences };
     blocks.push(
       <p key={`paragraph-${index}`} className="whitespace-normal text-xs leading-relaxed">
-        {renderInlineMarkdown(paragraphLines.join(" "))}
+        {renderInlineMarkdown(paragraphLines.join(" "), options)}
       </p>,
     );
   }
 
   return blocks;
-}
-
-function isSourceCardStart(line: string) {
-  return /^<div\b/i.test(line) && /\bsource-card\b/i.test(line) && /\bdata-source-id=/i.test(line);
-}
-
-function sourceCardDivDepthChange(line: string) {
-  return (line.match(/<div\b/gi)?.length ?? 0) - (line.match(/<\/div>/gi)?.length ?? 0);
-}
-
-function parseSourceCardBlock(html: string): SourceCardData | null {
-  const id = getHtmlAttribute(html, "data-source-id");
-  const anchor = html.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
-  const url = getHtmlAttribute(html, "data-url") ?? anchor?.[1]?.trim() ?? "";
-  if (!id || !url) return null;
-
-  const title =
-    getHtmlAttribute(html, "data-title") ??
-    cleanHtmlText(anchor?.[2] ?? "") ??
-    labeledText(html, "Title") ??
-    id;
-  const publisher =
-    getHtmlAttribute(html, "data-publisher") ??
-    getHtmlAttribute(html, "data-domain") ??
-    labeledText(html, "Publisher/domain") ??
-    labeledText(html, "Publisher") ??
-    labeledText(html, "Domain") ??
-    domainFromUrl(url);
-  const snippet =
-    getHtmlAttribute(html, "data-snippet") ??
-    labeledText(html, "Snippet") ??
-    labeledText(html, "Why it supports the answer") ??
-    "";
-  const date =
-    getHtmlAttribute(html, "data-date") ??
-    getHtmlAttribute(html, "data-publication-date") ??
-    getHtmlAttribute(html, "data-access-date") ??
-    labeledText(html, "Access date") ??
-    labeledText(html, "Accessed") ??
-    labeledText(html, "Publication date") ??
-    "";
-
-  return {
-    id,
-    title,
-    publisher,
-    url,
-    snippet,
-    date,
-  };
-}
-
-function getHtmlAttribute(html: string, name: string) {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = html.match(new RegExp(`\\b${escapedName}=["']([^"']+)["']`, "i"));
-  return match?.[1]?.trim() || null;
-}
-
-function labeledText(html: string, label: string) {
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `<(?:p|div|span|li)\\b[^>]*>\\s*(?:<strong>\\s*)?${escapedLabel}\\s*:?(?:\\s*</strong>)?\\s*([\\s\\S]*?)</(?:p|div|span|li)>`,
-    "i",
-  );
-  const match = html.match(pattern);
-  return cleanHtmlText(match?.[1] ?? "");
-}
-
-function cleanHtmlText(value: string) {
-  const text = stripHtml(value)
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text || null;
-}
-
-function stripHtml(value: string) {
-  return value.replace(/<[^>]*>/g, " ");
-}
-
-function domainFromUrl(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
-function SourceCardBlock({ source }: { source: SourceCardData }) {
-  const body = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-primary">
-            {source.id}
-          </p>
-          <p className="mt-1 text-sm font-semibold leading-snug text-on-surface">
-            {source.title}
-          </p>
-        </div>
-        <span
-          className="material-symbols-outlined mt-0.5 flex-shrink-0 text-primary"
-          aria-hidden="true"
-          style={{ fontSize: "18px" }}
-        >
-          open_in_new
-        </span>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-on-surface-variant">
-        {source.publisher && (
-          <span className="rounded-full bg-surface-container-high px-2 py-1">
-            {source.publisher}
-          </span>
-        )}
-        {source.date && <span>{source.date}</span>}
-      </div>
-      {source.snippet && (
-        <p className="mt-3 text-xs leading-relaxed text-on-surface-variant">
-          {source.snippet}
-        </p>
-      )}
-    </>
-  );
-
-  return (
-    <div className="source-card" data-source-id={source.id}>
-      <a
-        href={source.url}
-        target="_blank"
-        rel="noreferrer"
-        className="block rounded-2xl border border-outline/20 bg-surface-container-lowest p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
-      >
-        {body}
-      </a>
-    </div>
-  );
 }
 
 function normalizeMarkdownForDisplay(text: string): string {
@@ -1084,54 +947,260 @@ function normalizeMarkdownForDisplay(text: string): string {
     .replace(/([^\n])([ \t]+)(#{1,6}\s+\S)/g, "$1\n\n$3");
 }
 
-function renderTextWithLinks(text: string, keyPrefix: string): ReactNode[] {
+function extractSourceReferences(text: string): Map<string, SourceReference> {
+  const references = new Map<string, SourceReference>();
+  const sourceBulletPattern =
+    /^[-*]\s+\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)\s+—\s+Publisher:\s*(.+?)\.\s+Supports:\s*(.+)$/i;
+
+  for (const line of normalizeMarkdownForDisplay(text).split("\n")) {
+    const match = line.trim().match(sourceBulletPattern);
+    if (!match) continue;
+    const [, title, url, publisher, supports] = match;
+    references.set(normalizeReferenceUrl(url), {
+      title: title.trim(),
+      url: url.trim(),
+      publisher: publisher.trim(),
+      supports: supports.trim(),
+    });
+  }
+
+  return references;
+}
+
+function sourceReferencesFromDeepSearchSources(
+  sources: DeepSearchDisplaySource[],
+): Map<string, SourceReference> {
+  const references = new Map<string, SourceReference>();
+
+  for (const source of sources) {
+    if (!source.url) continue;
+    references.set(normalizeReferenceUrl(source.url), {
+      title: source.title,
+      url: source.url,
+      publisher: displayDomainFromUrl(source.url),
+      supports: source.note ?? "",
+    });
+  }
+
+  return references;
+}
+
+function renderTextWithLinks(
+  text: string,
+  keyPrefix: string,
+  options: InlineRenderOptions,
+): ReactNode[] {
   const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
-  const markdownNodes: ReactNode[] = [];
+  const tokens: Array<string | MarkdownLinkToken> = [];
   let markdownCursor = 0;
-  let markdownIndex = 0;
 
   for (const match of text.matchAll(markdownLinkPattern)) {
     const start = match.index ?? 0;
     if (start > markdownCursor) {
-      markdownNodes.push(
-        ...renderBareUrls(text.slice(markdownCursor, start), `${keyPrefix}-pre-${markdownIndex}`),
-      );
+      tokens.push(text.slice(markdownCursor, start));
     }
 
-    const label = match[1].trim();
-    const url = match[2].trim();
-    const isSourceId = /^S\d+$/i.test(label);
-    markdownNodes.push(
-      <a
-        key={`${keyPrefix}-md-link-${markdownIndex}`}
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        data-source-id={isSourceId ? label : undefined}
-        className={
-          isSourceId
-            ? "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary-container px-1.5 align-baseline font-mono text-[10px] font-semibold leading-none text-primary ring-1 ring-primary/15 transition-colors hover:bg-primary hover:text-on-primary"
-            : "text-primary underline underline-offset-2 break-words hover:opacity-80"
-        }
-      >
-        {label}
-      </a>,
-    );
-
+    tokens.push({ type: "markdown-link", label: match[1].trim(), url: match[2].trim() });
     markdownCursor = start + match[0].length;
-    markdownIndex += 1;
   }
 
-  if (markdownIndex > 0) {
-    if (markdownCursor < text.length) {
-      markdownNodes.push(
-        ...renderBareUrls(text.slice(markdownCursor), `${keyPrefix}-tail`),
-      );
-    }
-    return markdownNodes;
+  if (tokens.length > 0) {
+    if (markdownCursor < text.length) tokens.push(text.slice(markdownCursor));
+    return renderMarkdownLinkTokens(tokens, keyPrefix, options);
   }
 
   return renderBareUrls(text, keyPrefix);
+}
+
+function renderMarkdownLinkTokens(
+  tokens: Array<string | MarkdownLinkToken>,
+  keyPrefix: string,
+  options: InlineRenderOptions,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let index = 0;
+  let groupIndex = 0;
+  let stripClosingParen = false;
+  let stripClosingAfterCitation = false;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+
+    if (typeof token === "string") {
+      let value = token;
+      if (stripClosingParen) {
+        value = value.replace(/^\)\s*/, "");
+        stripClosingParen = false;
+      }
+      if (options.citationLinks && isMarkdownLinkToken(tokens[index + 1])) {
+        const nextValue = value.replace(/\s*\($/, " ");
+        stripClosingAfterCitation = nextValue !== value;
+        value = nextValue;
+      }
+      nodes.push(...renderBareUrls(value, `${keyPrefix}-text-${index}`));
+      index += 1;
+      continue;
+    }
+
+    if (!options.citationLinks) {
+      nodes.push(
+        <a
+          key={`${keyPrefix}-md-link-${index}`}
+          href={token.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline underline-offset-2 break-words hover:opacity-80"
+        >
+          {token.label}
+        </a>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const citationLinks = [sourceReferenceFromMarkdownLink(token, options.sourceReferences)];
+    let nextIndex = index + 1;
+    while (
+      typeof tokens[nextIndex] === "string" &&
+      isCitationSeparator(String(tokens[nextIndex])) &&
+      isMarkdownLinkToken(tokens[nextIndex + 1])
+    ) {
+      const nextLink = tokens[nextIndex + 1];
+      if (!isMarkdownLinkToken(nextLink)) break;
+      citationLinks.push(sourceReferenceFromMarkdownLink(nextLink, options.sourceReferences));
+      nextIndex += 2;
+    }
+
+    nodes.push(
+      <CitationCluster
+        key={`${keyPrefix}-citation-${groupIndex}`}
+        references={citationLinks}
+      />,
+    );
+    stripClosingParen = stripClosingAfterCitation;
+    stripClosingAfterCitation = false;
+    groupIndex += 1;
+    index = nextIndex;
+  }
+
+  return nodes.length > 0 ? nodes : [""];
+}
+
+function isMarkdownLinkToken(token: string | MarkdownLinkToken | undefined): token is MarkdownLinkToken {
+  return typeof token === "object" && token !== null && token.type === "markdown-link";
+}
+
+function isCitationSeparator(value: string) {
+  return /^[\s,;]*(?:and\s*)?$/i.test(value);
+}
+
+function sourceReferenceFromMarkdownLink(
+  link: MarkdownLinkToken,
+  sourceReferences: Map<string, SourceReference>,
+): SourceReference {
+  return sourceReferences.get(normalizeReferenceUrl(link.url)) ?? {
+    title: link.label,
+    url: link.url,
+    publisher: displayDomainFromUrl(link.url),
+    supports: "",
+  };
+}
+
+function normalizeReferenceUrl(url: string) {
+  try {
+    const parsed = new URL(url.trim());
+    const path = parsed.pathname.replace(/\/$/, "");
+    return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${path}`;
+  } catch {
+    return url.trim();
+  }
+}
+
+function displayDomainFromUrl(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "source";
+  }
+}
+
+function CitationCluster({ references }: { references: SourceReference[] }) {
+  const firstReference = references[0];
+  const label = firstReference.publisher || displayDomainFromUrl(firstReference.url);
+  const overflowCount = references.length - 1;
+
+  return (
+    <span className="group/citation relative mx-1 inline-flex align-baseline">
+      <a
+        href={firstReference.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open source: ${firstReference.title} (${firstReference.url})`}
+        title={firstReference.url}
+        className="inline-flex h-6 max-w-[180px] items-center gap-1.5 rounded-lg bg-surface-container-low px-2 font-mono text-[11px] leading-none text-on-surface-variant ring-1 ring-outline/10 transition-colors hover:bg-surface-container-high hover:text-on-surface"
+      >
+        <span className="truncate">{label}</span>
+        {overflowCount > 0 && <span className="text-hint">+{overflowCount}</span>}
+      </a>
+      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[min(24rem,calc(100vw-4rem))] overflow-hidden rounded-2xl border border-outline/20 bg-surface-container-lowest text-left shadow-xl group-hover/citation:block group-focus-within/citation:block">
+        <span className="flex items-center justify-between border-b border-outline/15 px-4 py-3 text-[11px] text-on-surface-variant">
+          <span className="font-mono">{references.length > 1 ? `1/${references.length}` : "1/1"}</span>
+          <span>{references.length} {references.length === 1 ? "source" : "sources"}</span>
+        </span>
+        <span className="block max-h-80 overflow-y-auto p-4">
+          {references.map((reference) => (
+            <span key={`${reference.url}-${reference.title}`} className="mb-4 block last:mb-0">
+              <span className="mb-2 flex items-center gap-2 text-[11px] text-on-surface-variant">
+                <SourcePreviewFavicon url={reference.url} />
+                <span className="truncate">{reference.publisher || displayDomainFromUrl(reference.url)}</span>
+              </span>
+              <span className="block text-sm font-semibold leading-snug text-on-surface">
+                {reference.title}
+              </span>
+              {reference.supports && (
+                <span className="mt-2 block text-xs leading-relaxed text-on-surface-variant">
+                  {reference.supports}
+                </span>
+              )}
+            </span>
+          ))}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function SourcePreviewFavicon({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  const faviconUrl = getFaviconUrl(url);
+
+  if (!faviconUrl || failed) {
+    return (
+      <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high text-hint ring-1 ring-outline/20">
+        <span
+          className="material-symbols-outlined"
+          aria-hidden="true"
+          style={{ fontSize: "13px" }}
+        >
+          article
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-surface-container-high ring-1 ring-outline/20">
+      <img
+        src={faviconUrl}
+        alt=""
+        aria-hidden="true"
+        className="h-3.5 w-3.5 object-contain"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    </span>
+  );
 }
 
 function renderBareUrls(text: string, keyPrefix: string): ReactNode[] {
@@ -1194,10 +1263,10 @@ function renderBareUrls(text: string, keyPrefix: string): ReactNode[] {
   return nodes.length > 0 ? nodes : [text];
 }
 
-function renderInlineMarkdown(text: string): ReactNode[] {
+function renderInlineMarkdown(text: string, options: InlineRenderOptions): ReactNode[] {
   const matches = text.match(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
   if (!matches) {
-    return renderTextWithLinks(text, "plain");
+    return renderTextWithLinks(text, "plain", options);
   }
 
   const nodes: ReactNode[] = [];
@@ -1242,7 +1311,7 @@ function renderInlineMarkdown(text: string): ReactNode[] {
   }
 
   return nodes.flatMap((node, index) =>
-    typeof node === "string" ? renderTextWithLinks(node, `text-${index}`) : [node],
+    typeof node === "string" ? renderTextWithLinks(node, `text-${index}`, options) : [node],
   );
 }
 
