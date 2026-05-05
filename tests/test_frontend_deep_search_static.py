@@ -182,6 +182,11 @@ def test_frontend_chat_markdown_renders_citation_hover_previews_without_html_car
 
     assert "const markdownLinkPattern" in chat_workspace
     assert "CitationCluster" in chat_workspace
+    assert "createPortal" in chat_workspace
+    assert "document.body" in chat_workspace
+    assert "CitationPreview" in chat_workspace
+    assert "fixed z-[1000]" in chat_workspace
+    assert "getBoundingClientRect" in chat_workspace
     assert "SourcePreviewFavicon" in chat_workspace
     assert "extractSourceReferences" in chat_workspace
     assert "sourceReferencesFromDeepSearchSources" in chat_workspace
@@ -190,7 +195,6 @@ def test_frontend_chat_markdown_renders_citation_hover_previews_without_html_car
     assert "note: source.note" in chat_provider
     assert "note: source.note ??" in chat_provider
     assert "note: string;" in api_client
-    assert "group-hover/citation:block" in chat_workspace
     assert "+{overflowCount}" in chat_workspace
     assert "renderBareUrls" in chat_workspace
     assert "data-source-id" not in chat_workspace
