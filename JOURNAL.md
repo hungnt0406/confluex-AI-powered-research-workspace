@@ -47,6 +47,75 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 21:19
+- **done:**
+  - Removed untracked backup/failed-patch files, local Deep Search debug output logs, and one-off root debugging scripts requested for cleanup.
+  - Deleted `curl_output.txt`, which contained a local Bearer JWT in captured debug output.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: deleted untracked cleanup artifacts only.
+- **doing:**
+  - Verified the requested files are no longer present in the workspace.
+- **blocked:**
+  - None.
+
+### 2026-05-05 21:00
+- **done:**
+  - Implemented sentence-level Deep Search source buttons by tightening writer citation rules and feeding streamed/persisted source notes into the chat Markdown citation renderer.
+  - Added source `note` serialization for Deep Search run reads and frontend DTOs.
+  - Added focused backend and frontend static regressions for cited answer sentences, source note payloads, and source-aware citation rendering.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `backend/services/deep_search.py`, `backend/api/schemas/projects.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `README.md`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Targeted regressions, frontend type checking, focused backend mypy, focused Python lint, and whitespace verification passed with the local Python/Node tools.
+- **blocked:**
+  - `uv` is not installed in this shell, so `uv run ...` quality gates could not be executed directly.
+  - The broader focused pytest command still hits a pre-existing Deep Search slow-progress timeout outside this feature path.
+
+### 2026-05-05 20:39
+- **done:**
+  - Updated `AGENTS.md` with project-specific context, shipped capabilities, likely next work, code ownership pointers, and canonical docs.
+  - Kept the existing mandatory agent workflow and repository rules intact.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Documentation whitespace verification passed.
+- **blocked:**
+  - None.
+
+### 2026-05-05 17:05
+- **done:**
+  - Rendered named Markdown citations in answer bodies as compact source pills with hover/focus source previews.
+  - Kept final `## Sources` bullets as normal Markdown links.
+  - Added static frontend coverage for citation hover previews.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Frontend TypeScript, frontend static tests, and whitespace verification passed.
+- **blocked:**
+  - None.
+
+### 2026-05-05 16:47
+- **done:**
+  - Removed duplicate `Accept` header keys from the frontend SSE stream request helpers.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `frontend/lib/api.ts`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Frontend TypeScript and whitespace verification passed.
+- **blocked:**
+  - None.
+
+### 2026-05-05 16:38
+- **done:**
+  - Replaced the Deep Search final-answer citation contract with named Markdown links and clean Markdown `## Sources` bullets.
+  - Removed legacy source-card/data-source-id handling from the chat Markdown renderer.
+  - Updated deterministic citation verification to recognize named Markdown links by URL.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `backend/services/deep_search.py`, `frontend/components/ChatWorkspace.tsx`, `frontend/components/ChatProvider.tsx`, `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`, `README.md`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Focused citation-format tests, frontend static tests, Python Ruff, and whitespace verification passed.
+- **blocked:**
+  - Full frontend TypeScript is still blocked by pre-existing duplicate `Accept` header keys in `frontend/lib/api.ts`.
+
 ### 2026-05-05 16:10
 - **done:**
   - Added chat transcript rendering for grounded-source Markdown links as compact source chips.
