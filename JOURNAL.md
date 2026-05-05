@@ -47,6 +47,53 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 16:10
+- **done:**
+  - Added chat transcript rendering for grounded-source Markdown links as compact source chips.
+  - Added parsing and rendering for Perplexity-style `<div class="source-card" data-source-id="...">` source-card blocks.
+  - Updated Deep Search report-writing instructions and local fallback report formatting to emit clickable source citations and source-card blocks when source URLs are available.
+  - Added frontend/backend regression coverage and documented the chat citation rendering behavior.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `frontend/components/ChatWorkspace.tsx`, `backend/services/deep_search.py`, `tests/test_frontend_deep_search_static.py`, `tests/test_deep_search.py`, `frontend/README.md`, `docs/features/deep_search.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Focused citation/source-card regressions, frontend static checks, Ruff, and whitespace verification passed.
+- **blocked:**
+  - Full frontend TypeScript remains blocked by pre-existing duplicate `Accept` header keys in `frontend/lib/api.ts`; full Deep Search test coverage remains blocked by existing async timeout/type-check issues in the dirty Deep Search progress path.
+
+### 2026-05-05 15:57
+- **done:**
+  - Disabled default MCP server loading in `.codex/config.toml` by commenting out all configured MCP server sections.
+  - Updated Codex persistent instructions so MCP use is opt-in and only used when explicitly requested with the matching server enabled.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `.codex/config.toml`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the Codex config parses and whitespace is clean.
+- **blocked:**
+  - None.
+
+### 2026-05-05 15:52
+- **done:**
+  - Added a dedicated `frontend-qa-tester` sub-agent for Codex and Claude workflows.
+  - Registered the Codex role in `.codex/config.toml` and documented it in `.codex/AGENTS.md`.
+  - The agent focuses on frontend regression coverage, Playwright-style E2E flow testing, accessibility checks, and verification for the Next.js frontend.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `.codex/agents/frontend-qa-tester.toml`, `.claude/agents/frontend-qa-tester.md`, `.codex/config.toml`, `.codex/AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verified the agent configuration and whitespace.
+- **blocked:**
+  - None.
+
+### 2026-05-05 10:16
+- **done:**
+  - Added `WORKFLOW.md`, a repo-level checklist for AI agents handling prompts that change code.
+  - Covered prompt classification, required context, success criteria, surgical implementation, testing, verification, docs/log updates, PR rules, and final response expectations.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `WORKFLOW.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Verifying the documentation-only change with whitespace checks.
+- **blocked:**
+  - None.
+
 ### 2026-05-03 22:01
 - **done:**
   - Implemented heartbeat-driven `stage_update` streaming for Deep Search slow operations (planning, project evidence, summarization, verification).
@@ -914,3 +961,6 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Bắt đầu thực hiện Stage 1 & 2 của pipeline (Search & Filter).
 
 ---
+- [2026-05-03 15:33] Diagnosed and fixed the "stuck until finished" UI issue in Deep Search.
+  - Increased `SSE_FLUSH_PADDING` from 2048 to 8192 bytes. Discovered that 2048 bytes was insufficient to flush 4K/8K proxy buffers (like Nginx) which would hold the stream chunks hostage until the connection closed, creating the illusion of a frozen UI.
+  - Implemented the `asyncio.wait_for` + `asyncio.shield` heartbeat pattern in `academic_search` and `web_search` phases. Previously, these phases performed long-running network calls (10-20 seconds per query) without emitting heartbeats, causing genuine UI stalls. Now they yield heartbeat padding and status updates every 4 seconds.
