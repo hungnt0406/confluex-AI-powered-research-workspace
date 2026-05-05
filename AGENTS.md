@@ -50,7 +50,7 @@ Shipped frontend capabilities:
 - Related Papers context panel with uploaded-paper markers and selected-paper state.
 - Project chat over zero to five selected papers with streaming responses.
 - Citation graph panel for selected papers.
-- Deep Search mode toggle, plan approval card, visible thinking/progress panel, persisted run restore, source preview rendering, and right-panel source list.
+- Deep Search mode toggle, plan approval card, visible thinking/progress panel, persisted run restore, sentence-level source buttons with hover/click previews, and right-panel source list.
 - Admin usage dashboards.
 
 Current tests and quality gates:
@@ -86,6 +86,18 @@ When a user request conflicts with this backlog, follow the user request. Do not
 - Frontend context/citation graph panels: `frontend/components/ContextPanel.tsx`, `frontend/components/CitationGraph.tsx`.
 - Frontend API client and stream parsing: `frontend/lib/api.ts`.
 - Canonical feature traceability: `docs/feature-map.md`.
+
+## Current Deep Search Citation Notes
+
+Deep Search report citations currently use named Markdown links, not opaque source IDs or HTML source cards. The final answer renderer in `frontend/components/ChatWorkspace.tsx` converts answer-body Markdown links into compact source buttons, using streamed/persisted source notes from `frontend/components/ChatProvider.tsx` and `frontend/lib/api.ts` for hover previews. The previews are rendered through a `document.body` portal so they can overlay the right context panel and composer, and each source row inside a multi-source preview is clickable.
+
+When changing Deep Search citations, keep these files synchronized:
+
+- Backend report contract and verifier: `backend/services/deep_search.py`.
+- Source serialization: `backend/api/schemas/projects.py`, `frontend/lib/api.ts`.
+- Frontend source mapping and renderer: `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`.
+- Regression coverage: `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`.
+- Docs: `README.md`, `frontend/README.md`, `docs/features/deep_search.md`.
 
 ## Mandatory Rules When Using AI Coding Agents
 
