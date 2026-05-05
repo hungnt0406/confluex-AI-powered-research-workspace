@@ -75,7 +75,7 @@ from backend.services.reference_files import (
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-SSE_FLUSH_PADDING = ":" + (" " * 2048) + "\n"
+SSE_FLUSH_PADDING = ":" + (" " * 8192) + "\n"
 
 
 async def flush_project_usage_events(
