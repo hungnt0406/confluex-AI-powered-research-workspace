@@ -357,11 +357,13 @@ class DeepSearchSourceRead(BaseModel):
     url: str | None
     paper_id: str | None
     snippet: str
+    note: str
     metadata: dict[str, Any]
     created_at: datetime
 
     @classmethod
     def from_source(cls, source: "DeepSearchSource") -> "DeepSearchSourceRead":
+        metadata = dict(source.metadata_json)
         return cls(
             id=source.id,
             run_id=source.run_id,
@@ -373,7 +375,8 @@ class DeepSearchSourceRead(BaseModel):
             url=source.url,
             paper_id=source.paper_id,
             snippet=source.snippet,
-            metadata=dict(source.metadata_json),
+            note=str(metadata.get("note") or "").strip(),
+            metadata=metadata,
             created_at=source.created_at,
         )
 
