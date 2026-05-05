@@ -47,6 +47,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 23:21
+- **done:**
+  - Committed documentation for the paper citation graph feature.
+  - Changed files: `docs/features/paper_citation_graph.md`, `JOURNAL.md`.
+- **doing:**
+  - Verified document content matches the current feature implementation.
+- **blocked:**
+  - None.
+
 ### 2026-05-05 22:17
 - **done:**
   - Updated `AGENTS.md` with current Deep Search citation behavior and ownership notes for future agents.
@@ -1067,3 +1076,15 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - [2026-05-03 15:33] Diagnosed and fixed the "stuck until finished" UI issue in Deep Search.
   - Increased `SSE_FLUSH_PADDING` from 2048 to 8192 bytes. Discovered that 2048 bytes was insufficient to flush 4K/8K proxy buffers (like Nginx) which would hold the stream chunks hostage until the connection closed, creating the illusion of a frozen UI.
   - Implemented the `asyncio.wait_for` + `asyncio.shield` heartbeat pattern in `academic_search` and `web_search` phases. Previously, these phases performed long-running network calls (10-20 seconds per query) without emitting heartbeats, causing genuine UI stalls. Now they yield heartbeat padding and status updates every 4 seconds.
+- [2026-05-05 23:00] Implemented Citation Graph UX/UI improvements requested from browser inspection.
+  - Changed files: `backend/api/routers/projects.py`, `backend/api/schemas/projects.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/CitationGraph.tsx`, `tests/test_projects.py`, `tests/test_frontend_deep_search_static.py`, `README.md`, `frontend/README.md`, `docs/features/paper_citation_graph.md`, `JOURNAL.md`.
+  - Added project-library import for citation graph papers with dedupe, workspace graph caching/prefetch, in-app node previews, project membership badges, staged loading copy, and semantic list view fallback.
+  - Status: implementation complete; targeted pytest, Ruff, and frontend TypeScript verification passed.
+- [2026-05-05 23:08] Refined Citation Graph visual styling for the app's light UI.
+  - Changed files: `frontend/components/CitationGraph.tsx`, `JOURNAL.md`.
+  - Replaced the hardcoded dark graph surface with a semantic light surface, converted canvas label pills to frosted white with dark text, darkened reference/cited-by node hues, softened the seed glow, and changed graph links to neutral slate.
+  - Status: implementation complete; targeted static frontend test and TypeScript verification passed.
+- [2026-05-05 23:16] Improved Citation Graph force simulation spacing.
+  - Changed files: `frontend/components/CitationGraph.tsx`, `JOURNAL.md`.
+  - Added a D3 collision force, increased node repulsion, deferred custom force wiring to avoid initialization races, and moved zoom-to-fit to `onEngineStop`.
+  - Status: implementation complete; targeted static frontend test and TypeScript verification passed.
