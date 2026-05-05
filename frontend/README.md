@@ -62,7 +62,7 @@ npm run dev:reset
 - `components/AuthProvider.tsx` — token/user state.
 - `components/ChatProvider.tsx` — orchestrates project creation, composer PDF uploads, selected-paper persistence, grounded project conversations, and Deep Search streaming/source metadata.
 - `components/Sidebar.tsx`, `components/ChatWorkspace.tsx`, `components/ContextPanel.tsx` — workspace panels, composer upload UI, admin monitor navigation, uploaded-paper markers, sentence-level Deep Search source buttons, and the Papers / Graph tab switcher in the right context panel.
-- `components/CitationGraph.tsx` — Connected-Papers-style force-directed citation neighborhood for one selected seed paper, dynamically imported (`ssr: false`) and backed by `GET /projects/{id}/papers/{paper_id}/citation-graph`.
+- `components/CitationGraph.tsx` — Connected-Papers-style force-directed citation neighborhood for one selected seed paper, dynamically imported (`ssr: false`) and backed by `GET /projects/{id}/papers/{paper_id}/citation-graph`; node clicks open in-app previews, existing project papers are marked, missing related papers can be imported, graph payloads are cached in workspace state, and a List view exposes the same data as semantic HTML.
 - `lib/api.ts` — typed `fetch` wrapper, SSE stream parsers, and backend DTO types.
 
 ## Current limitations
