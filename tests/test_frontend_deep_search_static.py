@@ -175,21 +175,26 @@ def test_frontend_deep_search_sources_render_in_context_panel() -> None:
     assert context_panel.count("overflow-y-auto pr-1 custom-scrollbar") >= 2
 
 
-def test_frontend_chat_markdown_renders_source_chips_and_cards() -> None:
+def test_frontend_chat_markdown_renders_citation_hover_previews_without_html_cards() -> None:
     chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
 
-    assert "SourceCardData" in chat_workspace
-    assert "isSourceCardStart" in chat_workspace
-    assert "parseSourceCardBlock" in chat_workspace
-    assert "SourceCardBlock" in chat_workspace
-    assert "data-source-id={source.id}" in chat_workspace
-    assert "sourceCardDivDepthChange" in chat_workspace
-    assert 'className="source-card"' in chat_workspace
     assert "const markdownLinkPattern" in chat_workspace
-    assert "/^S\\d+$/i.test(label)" in chat_workspace
-    assert "data-source-id={isSourceId ? label : undefined}" in chat_workspace
-    assert "bg-secondary-container px-1.5" in chat_workspace
+    assert "CitationCluster" in chat_workspace
+    assert "SourcePreviewFavicon" in chat_workspace
+    assert "extractSourceReferences" in chat_workspace
+    assert "sourceReferencesFromDeepSearchSources" in chat_workspace
+    assert "<MarkdownContent text={message.content} sources={message.sources ?? []}" in chat_workspace
+    assert "note?: string" in chat_provider
+    assert "note: source.note" in chat_provider
+    assert "note: source.note ??" in chat_provider
+    assert "note: string;" in api_client
+    assert "group-hover/citation:block" in chat_workspace
+    assert "+{overflowCount}" in chat_workspace
     assert "renderBareUrls" in chat_workspace
+    assert "data-source-id" not in chat_workspace
+    assert "source-card" not in chat_workspace
 
 
 def test_frontend_deep_search_primes_related_papers() -> None:
