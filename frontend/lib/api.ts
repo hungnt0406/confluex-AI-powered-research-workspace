@@ -354,6 +354,7 @@ export type DeepSearchSource = {
   url: string | null;
   paper_id: string | null;
   snippet: string;
+  note: string;
   metadata: Record<string, unknown>;
   created_at: string;
 };
@@ -475,7 +476,7 @@ export async function streamProjectConversation(
       if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
     }
     if (!dataLines.length) return;
-    const data = JSON.parse(dataLines.join("\n"));
+    const data = JSON.parse(dataLines.join("\n")); console.log("SSE EVENT:", eventName, data);
     options.onEvent({ event: eventName, data } as ProjectConversationStreamEvent);
   };
 
@@ -540,7 +541,7 @@ export async function streamDeepSearchRun(
       if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
     }
     if (!dataLines.length) return;
-    const data = JSON.parse(dataLines.join("\n"));
+    const data = JSON.parse(dataLines.join("\n")); console.log("SSE EVENT:", eventName, data);
     options.onEvent({ event: eventName, data } as DeepSearchStreamEvent);
   };
 
