@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 21:40
+- **done:**
+  - Fixed Deep Search citation previews so they render through a body-level portal with fixed viewport positioning and a high z-index.
+  - Added static regression coverage that citation previews use `createPortal`, `document.body`, fixed overlay positioning, and viewport measurement.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Frontend TypeScript and frontend static tests passed.
+- **blocked:**
+  - Full `git diff --check` is blocked by an unrelated `.gitignore` blank-line change already present in the worktree.
+
 ### 2026-05-05 21:19
 - **done:**
   - Removed untracked backup/failed-patch files, local Deep Search debug output logs, and one-off root debugging scripts requested for cleanup.
