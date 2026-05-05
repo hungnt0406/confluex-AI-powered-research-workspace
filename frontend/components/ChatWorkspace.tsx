@@ -4,12 +4,14 @@ import {
   ChangeEvent,
   FormEvent,
   Fragment,
+  forwardRef,
   KeyboardEvent,
   ReactNode,
   useEffect,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   type ChatMessage,
   type ChatMode,
@@ -1128,21 +1130,91 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
   const firstReference = references[0];
   const label = firstReference.publisher || displayDomainFromUrl(firstReference.url);
   const overflowCount = references.length - 1;
+  const anchorRef = useRef<HTMLAnchorElement | null>(null);
+  const previewRef = useRef<HTMLSpanElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!open || !anchorRef.current) return;
+
+    const updatePosition = () => {
+      const anchorRect = anchorRef.current?.getBoundingClientRect();
+      if (!anchorRect) return;
+
+      const margin = 16;
+      const width = Math.min(384, window.innerWidth - margin * 2);
+      const previewHeight = previewRef.current?.getBoundingClientRect().height ?? 260;
+      const availableBelow = window.innerHeight - anchorRect.bottom - margin;
+      const top = availableBelow >= previewHeight
+        ? anchorRect.bottom + 8
+        : Math.max(margin, anchorRect.top - previewHeight - 8);
+      const left = Math.min(
+        Math.max(anchorRect.left, margin),
+        Math.max(margin, window.innerWidth - width - margin),
+      );
+
+      setPosition({ left, top, width });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
 
   return (
-    <span className="group/citation relative mx-1 inline-flex align-baseline">
+    <span className="relative mx-1 inline-flex align-baseline">
       <a
+        ref={anchorRef}
         href={firstReference.url}
         target="_blank"
         rel="noreferrer"
         aria-label={`Open source: ${firstReference.title} (${firstReference.url})`}
         title={firstReference.url}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
         className="inline-flex h-6 max-w-[180px] items-center gap-1.5 rounded-lg bg-surface-container-low px-2 font-mono text-[11px] leading-none text-on-surface-variant ring-1 ring-outline/10 transition-colors hover:bg-surface-container-high hover:text-on-surface"
       >
         <span className="truncate">{label}</span>
         {overflowCount > 0 && <span className="text-hint">+{overflowCount}</span>}
       </a>
-      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden w-[min(24rem,calc(100vw-4rem))] overflow-hidden rounded-2xl border border-outline/20 bg-surface-container-lowest text-left shadow-xl group-hover/citation:block group-focus-within/citation:block">
+      {open && position && createPortal(
+        <CitationPreview
+          ref={previewRef}
+          references={references}
+          position={position}
+        />,
+        document.body,
+      )}
+    </span>
+  );
+}
+
+const CitationPreview = forwardRef<
+  HTMLSpanElement,
+  {
+    references: SourceReference[];
+    position: { left: number; top: number; width: number };
+  }
+>(function CitationPreview({ references, position }, ref) {
+  return (
+    <span
+      ref={ref}
+      className="pointer-events-none fixed z-[1000] overflow-hidden rounded-2xl border border-outline/20 bg-surface-container-lowest text-left shadow-2xl"
+      style={{
+        left: `${position.left}px`,
+        top: `${position.top}px`,
+        width: `${position.width}px`,
+      }}
+    >
         <span className="flex items-center justify-between border-b border-outline/15 px-4 py-3 text-[11px] text-on-surface-variant">
           <span className="font-mono">{references.length > 1 ? `1/${references.length}` : "1/1"}</span>
           <span>{references.length} {references.length === 1 ? "source" : "sources"}</span>
@@ -1165,10 +1237,9 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
             </span>
           ))}
         </span>
-      </span>
     </span>
   );
-}
+});
 
 function SourcePreviewFavicon({ url }: { url: string }) {
   const [failed, setFailed] = useState(false);
