@@ -56,6 +56,7 @@ export type DeepSearchDisplaySource = {
   title: string;
   url: string | null;
   sourceType: DeepSearchSource["source_type"] | DeepSearchActivityChipType;
+  note?: string;
 };
 
 export type DeepSearchPlanStep = {
@@ -306,6 +307,7 @@ function deepSearchSourceEventToDisplaySource(
     title: source.title,
     url: source.url,
     sourceType: source.source_type,
+    note: source.note,
   };
 }
 
@@ -337,6 +339,7 @@ function deepSearchSourceToDisplaySource(source: DeepSearchSource): DeepSearchDi
     title: source.title,
     url: source.url,
     sourceType: source.source_type,
+    note: source.note ?? (typeof source.metadata?.note === "string" ? source.metadata.note : undefined),
   };
 }
 
@@ -391,7 +394,7 @@ function buildDeepSearchPlanSteps(question: string): DeepSearchPlanStep[] {
     {
       title: "Create Report",
       items: [
-        "Write a concise synthesis with source IDs for factual claims.",
+        "Write a concise synthesis with named source links for factual claims.",
         "Run citation checks and preserve the final sources in the context panel.",
       ],
     },
@@ -456,7 +459,7 @@ function deepSearchThinkingDefinition(phase: string, question: string) {
     },
     writing: {
       title: "Synthesizing the report",
-      detail: "I am drafting the final answer and attaching source IDs to factual claims.",
+      detail: "I am drafting the final answer and attaching named source links to factual claims.",
     },
     verifying: {
       title: "Resolving verification and citation gaps",
