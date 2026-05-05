@@ -1,5 +1,92 @@
 # Agent Guidelines
 
+This file is the first stop for AI coding agents working in this repository. It combines repository rules with the product context needed to make safe, project-aware changes.
+
+## Project Context
+
+This repository is an **Automated Literature Review** application for researchers. The product helps a user move from a fuzzy research topic to:
+
+- a persisted project workspace,
+- ranked and summarized academic papers,
+- uploaded reference PDFs that seed and ground the project,
+- grounded paper/project conversations,
+- Deep Search research reports with visible progress and source capture,
+- grounded writer outputs with citation/reference formatting and QA validation,
+- token usage visibility for users and admins.
+
+The backend is an async FastAPI app with SQLAlchemy 2.0, Alembic migrations, PostgreSQL-compatible models, external academic/web search clients, OpenRouter-backed LLM services, and pytest coverage. The frontend is a Next.js App Router chat workspace with login, sidebar projects, related-paper context, selected-paper Q&A, reference PDF upload, Deep Search plan approval, thinking/progress display, source previews, and admin usage pages.
+
+Canonical project docs:
+
+- `README.md` — current product scope, setup, API surface, and quality gates.
+- `docs/feature-map.md` — canonical feature-to-code/test/doc/config ownership map.
+- `docs/user-journey.md` — shipped vs planned product journey and UX gaps.
+- `docs/backend-diagram.md` — backend routing and service wiring.
+- `docs/features/*.md` — feature-specific implementation notes.
+- `frontend/README.md` — frontend behavior and local setup.
+
+## What Is Already Done
+
+Shipped backend/product capabilities:
+
+- JWT auth with register/login and authenticated project ownership.
+- Project CRUD, rename/delete, project defaults, and persisted project state.
+- Discovery pipeline: query expansion, Semantic Scholar/arXiv search, deduplication, ranking, structured summaries, and low-result warnings.
+- Reference PDF upload: validation, storage, text extraction, uploaded-paper seeding, and grounding context.
+- Ranked paper list APIs with filtering/pagination.
+- Exact-paper citation graph lookup using Semantic Scholar metadata.
+- Grounded paper conversations and project-scoped multi-paper conversations, including streaming SSE variants for the main chat UI.
+- Deep Search mode: plan approval, persisted runs, selected-paper/project evidence, academic search, Tavily web fallback, activity/progress events, report streaming, persisted sources, warnings, and QA flags.
+- Writer generation: selected-paper grounded outputs, citation/reference formatting, BibTeX/reference support, warnings, QA validation, and persisted output retrieval.
+- OpenRouter token usage telemetry for projects and admin-only global monitoring.
+- AI prompt logging hooks and pre-push submission support.
+
+Shipped frontend capabilities:
+
+- Login/register shell and authenticated chat workspace.
+- Sidebar project list with recent project restore, rename/delete actions, and admin usage navigation.
+- First-message project creation and discovery trigger.
+- Composer reference PDF upload, including upload-before-project flow.
+- Related Papers context panel with uploaded-paper markers and selected-paper state.
+- Project chat over zero to five selected papers with streaming responses.
+- Citation graph panel for selected papers.
+- Deep Search mode toggle, plan approval card, visible thinking/progress panel, persisted run restore, source preview rendering, and right-panel source list.
+- Admin usage dashboards.
+
+Current tests and quality gates:
+
+- Backend pytest coverage for auth, projects, pipeline, services, graph flow, paper conversations, Deep Search, writer outputs, admin usage, and static frontend wiring.
+- Frontend static regression tests live in `tests/test_frontend_deep_search_static.py`; full component/E2E coverage is still limited.
+- Standard checks are `uv run ruff check .`, `uv run mypy backend/`, `uv run pytest tests/ -x`, and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+## What Will Be Built Next
+
+Treat this as the current likely backlog, not a substitute for user instructions:
+
+- Full frontend paper-library and paper drill-down workflows beyond the right-side context panel.
+- Dedicated writer workspace UI for selecting papers, entering instructions, choosing output/citation formats, viewing QA flags, and restoring prior outputs.
+- Export/download flows for `.bib`, `.tex`, `.docx`, Markdown, and plain-text artifacts.
+- Stronger frontend coverage for composer uploads, selected-paper persistence, Deep Search interactions, writer UI, accessibility, and responsive behavior.
+- Better progress and recovery UX for slow/failed provider calls, scanned PDFs, extraction fallback, and grounding-quality badges.
+- Cross-project library features such as search, tags, annotations, saved outputs, gap analysis, and richer history management.
+- Keeping `database_schema.sql`, SQLAlchemy models, Alembic migrations, docs, and tests synchronized whenever schema or API contracts change.
+
+When a user request conflicts with this backlog, follow the user request. Do not implement planned features opportunistically while fixing unrelated bugs.
+
+## Code Ownership Pointers
+
+- Backend API routes: `backend/api/routers/`.
+- Backend schemas: `backend/api/schemas/`.
+- Database models/migrations: `backend/db/models.py`, `backend/db/migrations/versions/`, `database_schema.sql`.
+- Discovery graph and agents: `backend/agents/`.
+- Search, extraction, chat, Deep Search, writer, telemetry services: `backend/services/`.
+- Frontend app routes: `frontend/app/`.
+- Frontend workspace state and orchestration: `frontend/components/ChatProvider.tsx`.
+- Frontend chat UI: `frontend/components/ChatWorkspace.tsx`.
+- Frontend context/citation graph panels: `frontend/components/ContextPanel.tsx`, `frontend/components/CitationGraph.tsx`.
+- Frontend API client and stream parsing: `frontend/lib/api.ts`.
+- Canonical feature traceability: `docs/feature-map.md`.
+
 ## Mandatory Rules When Using AI Coding Agents
 
 ### 1. AI Prompt Logging (Automatic)

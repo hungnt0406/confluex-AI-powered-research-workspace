@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
@@ -627,6 +628,7 @@ class DeepSearchService:
         project_topic: str,
         question: str,
     ) -> list[str]:
+        await asyncio.sleep(10)
         if self.use_live_llm:
             parsed = await self._generate_json(
                 model=self.planner_model,
@@ -774,7 +776,25 @@ class DeepSearchService:
                     ),
                 )
                 try:
-                    papers = await search(query, project.year_start, self.max_results_per_query)
+                    search_task = asyncio.create_task(
+                        search(query, project.year_start, self.max_results_per_query)
+                    )
+                    while not search_task.done():
+                        try:
+                            await asyncio.wait_for(asyncio.shield(search_task), timeout=4)
+                        except TimeoutError:
+                            yield (
+                                "activity",
+                                _thinking_activity(
+                                    event_type="stage_update",
+                                    phase="academic_search",
+                                    stage=provider_stage,
+                                    detail=f"Waiting for {provider_stage} to respond...",
+                                ),
+                            )
+                        except Exception:
+                            break
+                    papers = await search_task
                 except Exception:
                     warnings.append(f"{provider_name} search failed for query '{query}'.")
                     continue
@@ -860,10 +880,28 @@ class DeepSearchService:
                 ),
             )
             metadata["tavily_search_count"] += 1
-            response = await self.tavily_service.search(
-                query,
-                max_results=self.max_results_per_query,
+            search_task = asyncio.create_task(
+                self.tavily_service.search(
+                    query,
+                    max_results=self.max_results_per_query,
+                )
             )
+            while not search_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(search_task), timeout=4)
+                except TimeoutError:
+                    yield (
+                        "activity",
+                        _thinking_activity(
+                            event_type="stage_update",
+                            phase="web_search",
+                            stage="Searching web",
+                            detail="Waiting for Tavily search results...",
+                        ),
+                    )
+                except Exception:
+                    break
+            response = await search_task
             warnings.extend(response.warnings)
             query_candidates: list[DeepSearchSourceCandidate] = []
             for result in response.results:
@@ -987,6 +1025,7 @@ class DeepSearchService:
         source_summaries: list[dict[str, Any]],
         warnings: list[str],
     ) -> AsyncGenerator[str, None]:
+        await asyncio.sleep(10)
         if self.use_live_llm:
             async for token in self._stream_live_report(
                 question=question,
@@ -1032,7 +1071,11 @@ class DeepSearchService:
                     "role": "system",
                     "content": (
                         "You are a deep research report writer. Write a concise, evidence-grounded "
-                        "report. Cite every factual claim with source ids like [S1]."
+                        "report. Cite every factual claim with clickable source IDs like "
+                        "[S1](https://example.com) when a source URL is available, and use plain "
+                        "[S1] only for project evidence without a URL. End with a Sources section "
+                        "containing one source-card div per URL-backed source, preserving the exact "
+                        "data-source-id values and never inventing titles, publishers, dates, or URLs."
                     ),
                 },
                 {
@@ -1326,7 +1369,8 @@ class DeepSearchService:
                 *[
                     (
                         f"- [{summary['id']}] {summary['source_type']} | "
-                        f"{summary['title']} | {summary['note']}"
+                        f"{summary['title']} | URL: {summary.get('url') or 'none'} | "
+                        f"{summary['note']}"
                     )
                     for summary in source_summaries
                 ],
@@ -1369,7 +1413,7 @@ class DeepSearchService:
             )
         ]
         for summary in top_sources[:3]:
-            answer_lines.append(f"- {summary['note']} [{summary['id']}]")
+            answer_lines.append(f"- {summary['note']} {_source_citation(summary)}")
 
         return "\n\n".join(
             [
@@ -1382,10 +1426,12 @@ class DeepSearchService:
                 "\n".join(
                     (
                         f"- [{summary['id']}] **{summary['title']}** "
-                        f"({summary['source_type']}): {summary['note']}"
+                        f"({summary['source_type']}): {summary['note']} {_source_citation(summary)}"
                     )
                     for summary in source_summaries
                 ),
+                "## Sources",
+                "\n\n".join(_source_card_markdown(summary) for summary in source_summaries),
                 "## Warnings",
                 "\n".join(f"- {warning}" for warning in warnings) if warnings else "- None",
             ]
@@ -1463,6 +1509,51 @@ def _paper_evidence_snippet(paper: Paper) -> str:
             ]
         )
     return _compact_text(" ".join(part for part in parts if part))
+
+
+def _source_citation(summary: dict[str, Any]) -> str:
+    source_id = str(summary.get("id", "")).strip()
+    url = str(summary.get("url") or "").strip()
+    if source_id and url:
+        return f"[{source_id}]({url})"
+    if source_id:
+        return f"[{source_id}]"
+    return ""
+
+
+def _source_card_markdown(summary: dict[str, Any]) -> str:
+    source_id = str(summary.get("id", "")).strip()
+    title = str(summary.get("title") or source_id).strip()
+    url = str(summary.get("url") or "").strip()
+    note = str(summary.get("note") or "").strip()
+    publisher = _source_domain(url)
+    if not source_id or not url:
+        return f"- [{source_id}] **{title}**: {note}".strip()
+
+    return "\n".join(
+        [
+            (
+                f'<div class="source-card" data-source-id="{html.escape(source_id, quote=True)}" '
+                f'data-title="{html.escape(title, quote=True)}" '
+                f'data-publisher="{html.escape(publisher, quote=True)}" '
+                f'data-url="{html.escape(url, quote=True)}" '
+                f'data-snippet="{html.escape(note, quote=True)}">'
+            ),
+            f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>',
+            f"<p><strong>Publisher/domain:</strong> {html.escape(publisher)}</p>",
+            f"<p><strong>Snippet:</strong> {html.escape(note)}</p>",
+            "</div>",
+        ]
+    )
+
+
+def _source_domain(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        return urlsplit(url).netloc.lower().removeprefix("www.")
+    except ValueError:
+        return ""
 
 
 def _source_summary(

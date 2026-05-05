@@ -32,6 +32,15 @@ type PendingReferenceUpload = {
   topic: string;
 };
 
+type SourceCardData = {
+  id: string;
+  title: string;
+  publisher: string;
+  url: string;
+  snippet: string;
+  date: string;
+};
+
 export default function ChatWorkspace() {
   const {
     messages,
@@ -828,6 +837,29 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
       continue;
     }
 
+    if (isSourceCardStart(trimmed)) {
+      const cardLines = [line];
+      let divDepth = sourceCardDivDepthChange(line);
+      index += 1;
+      while (index < lines.length && divDepth > 0) {
+        cardLines.push(lines[index]);
+        divDepth += sourceCardDivDepthChange(lines[index]);
+        index += 1;
+      }
+
+      const sourceCard = parseSourceCardBlock(cardLines.join("\n"));
+      if (sourceCard) {
+        blocks.push(<SourceCardBlock key={`source-card-${index}`} source={sourceCard} />);
+      } else {
+        blocks.push(
+          <p key={`source-card-fallback-${index}`} className="whitespace-normal text-xs leading-relaxed">
+            {renderInlineMarkdown(stripHtml(cardLines.join(" ")))}
+          </p>,
+        );
+      }
+      continue;
+    }
+
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
@@ -905,6 +937,147 @@ function renderMarkdownBlocks(text: string): ReactNode[] {
   return blocks;
 }
 
+function isSourceCardStart(line: string) {
+  return /^<div\b/i.test(line) && /\bsource-card\b/i.test(line) && /\bdata-source-id=/i.test(line);
+}
+
+function sourceCardDivDepthChange(line: string) {
+  return (line.match(/<div\b/gi)?.length ?? 0) - (line.match(/<\/div>/gi)?.length ?? 0);
+}
+
+function parseSourceCardBlock(html: string): SourceCardData | null {
+  const id = getHtmlAttribute(html, "data-source-id");
+  const anchor = html.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  const url = getHtmlAttribute(html, "data-url") ?? anchor?.[1]?.trim() ?? "";
+  if (!id || !url) return null;
+
+  const title =
+    getHtmlAttribute(html, "data-title") ??
+    cleanHtmlText(anchor?.[2] ?? "") ??
+    labeledText(html, "Title") ??
+    id;
+  const publisher =
+    getHtmlAttribute(html, "data-publisher") ??
+    getHtmlAttribute(html, "data-domain") ??
+    labeledText(html, "Publisher/domain") ??
+    labeledText(html, "Publisher") ??
+    labeledText(html, "Domain") ??
+    domainFromUrl(url);
+  const snippet =
+    getHtmlAttribute(html, "data-snippet") ??
+    labeledText(html, "Snippet") ??
+    labeledText(html, "Why it supports the answer") ??
+    "";
+  const date =
+    getHtmlAttribute(html, "data-date") ??
+    getHtmlAttribute(html, "data-publication-date") ??
+    getHtmlAttribute(html, "data-access-date") ??
+    labeledText(html, "Access date") ??
+    labeledText(html, "Accessed") ??
+    labeledText(html, "Publication date") ??
+    "";
+
+  return {
+    id,
+    title,
+    publisher,
+    url,
+    snippet,
+    date,
+  };
+}
+
+function getHtmlAttribute(html: string, name: string) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp(`\\b${escapedName}=["']([^"']+)["']`, "i"));
+  return match?.[1]?.trim() || null;
+}
+
+function labeledText(html: string, label: string) {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `<(?:p|div|span|li)\\b[^>]*>\\s*(?:<strong>\\s*)?${escapedLabel}\\s*:?(?:\\s*</strong>)?\\s*([\\s\\S]*?)</(?:p|div|span|li)>`,
+    "i",
+  );
+  const match = html.match(pattern);
+  return cleanHtmlText(match?.[1] ?? "");
+}
+
+function cleanHtmlText(value: string) {
+  const text = stripHtml(value)
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text || null;
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]*>/g, " ");
+}
+
+function domainFromUrl(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function SourceCardBlock({ source }: { source: SourceCardData }) {
+  const body = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-primary">
+            {source.id}
+          </p>
+          <p className="mt-1 text-sm font-semibold leading-snug text-on-surface">
+            {source.title}
+          </p>
+        </div>
+        <span
+          className="material-symbols-outlined mt-0.5 flex-shrink-0 text-primary"
+          aria-hidden="true"
+          style={{ fontSize: "18px" }}
+        >
+          open_in_new
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-on-surface-variant">
+        {source.publisher && (
+          <span className="rounded-full bg-surface-container-high px-2 py-1">
+            {source.publisher}
+          </span>
+        )}
+        {source.date && <span>{source.date}</span>}
+      </div>
+      {source.snippet && (
+        <p className="mt-3 text-xs leading-relaxed text-on-surface-variant">
+          {source.snippet}
+        </p>
+      )}
+    </>
+  );
+
+  return (
+    <div className="source-card" data-source-id={source.id}>
+      <a
+        href={source.url}
+        target="_blank"
+        rel="noreferrer"
+        className="block rounded-2xl border border-outline/20 bg-surface-container-lowest p-4 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-md"
+      >
+        {body}
+      </a>
+    </div>
+  );
+}
+
 function normalizeMarkdownForDisplay(text: string): string {
   return text
     .replace(/\r\n/g, "\n")
@@ -912,6 +1085,56 @@ function normalizeMarkdownForDisplay(text: string): string {
 }
 
 function renderTextWithLinks(text: string, keyPrefix: string): ReactNode[] {
+  const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+  const markdownNodes: ReactNode[] = [];
+  let markdownCursor = 0;
+  let markdownIndex = 0;
+
+  for (const match of text.matchAll(markdownLinkPattern)) {
+    const start = match.index ?? 0;
+    if (start > markdownCursor) {
+      markdownNodes.push(
+        ...renderBareUrls(text.slice(markdownCursor, start), `${keyPrefix}-pre-${markdownIndex}`),
+      );
+    }
+
+    const label = match[1].trim();
+    const url = match[2].trim();
+    const isSourceId = /^S\d+$/i.test(label);
+    markdownNodes.push(
+      <a
+        key={`${keyPrefix}-md-link-${markdownIndex}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        data-source-id={isSourceId ? label : undefined}
+        className={
+          isSourceId
+            ? "mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary-container px-1.5 align-baseline font-mono text-[10px] font-semibold leading-none text-primary ring-1 ring-primary/15 transition-colors hover:bg-primary hover:text-on-primary"
+            : "text-primary underline underline-offset-2 break-words hover:opacity-80"
+        }
+      >
+        {label}
+      </a>,
+    );
+
+    markdownCursor = start + match[0].length;
+    markdownIndex += 1;
+  }
+
+  if (markdownIndex > 0) {
+    if (markdownCursor < text.length) {
+      markdownNodes.push(
+        ...renderBareUrls(text.slice(markdownCursor), `${keyPrefix}-tail`),
+      );
+    }
+    return markdownNodes;
+  }
+
+  return renderBareUrls(text, keyPrefix);
+}
+
+function renderBareUrls(text: string, keyPrefix: string): ReactNode[] {
   const urlPattern = /https?:\/\/[^\s<]+/g;
   const nodes: ReactNode[] = [];
   let cursor = 0;

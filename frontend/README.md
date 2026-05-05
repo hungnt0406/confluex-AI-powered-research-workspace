@@ -42,6 +42,7 @@ npm run dev:reset
   4. `POST /projects/{id}/conversations/stream` — starts a project-scoped chat with `paper_ids: []` for a streamed general answer until papers are selected.
 - Admin usage monitor: `/admin/usage` checks `GET /admin/access`, then reads `GET /admin/token-usage` as a global dashboard for allowlisted admins with preset or custom date ranges and a full-range recent activity table. `/admin/usage/users` reuses the same endpoint for selected-user analysis with a searchable user picker, a `user_id` query string deep link, and a user log that shows project chat prompts when available.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
+- Assistant answers render grounded-source Markdown directly in the chat transcript: inline source links such as `[S1](https://example.com)` become compact source chips, and final `<div class="source-card" data-source-id="S1">...</div>` blocks become visible clickable source cards.
 - Composer mode toggle:
   1. `Standard` keeps the existing project conversation behavior.
   2. `Deep Search` first shows a pending research plan card with `Edit plan` and `Start research` actions instead of starting the stream immediately.
