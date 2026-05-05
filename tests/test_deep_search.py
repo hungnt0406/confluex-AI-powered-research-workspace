@@ -16,8 +16,8 @@ from backend.services.deep_search import (
     DeepSearchService,
     DeepSearchSourceCandidate,
     _source_activity_sources,
-    _source_card_markdown,
-    _source_citation,
+    _source_bullet_markdown,
+    _source_markdown_link,
     deduplicate_source_candidates,
     verify_report_claims,
 )
@@ -66,22 +66,58 @@ def test_deep_search_sse_padding_keeps_event_parseable() -> None:
     assert parse_sse_events(frame) == [("status", {"phase": "planning"})]
 
 
-def test_deep_search_formats_clickable_source_citations_and_cards() -> None:
+def test_deep_search_formats_named_markdown_source_references() -> None:
     source_summary = {
-        "id": "S1",
+        "id": "internal-1",
         "source_type": "web",
         "title": "Lakehouse overview",
         "url": "https://example.com/lakehouse",
         "note": "Lakehouse systems combine warehouse and data lake patterns.",
     }
 
-    assert _source_citation(source_summary) == "[S1](https://example.com/lakehouse)"
+    assert _source_markdown_link(source_summary) == "[Lakehouse overview](https://example.com/lakehouse)"
 
-    source_card = _source_card_markdown(source_summary)
-    assert 'class="source-card"' in source_card
-    assert 'data-source-id="S1"' in source_card
-    assert 'data-url="https://example.com/lakehouse"' in source_card
-    assert "<strong>Publisher/domain:</strong> example.com" in source_card
+    source_bullet = _source_bullet_markdown(source_summary)
+    assert source_bullet == (
+        "- [Lakehouse overview](https://example.com/lakehouse) — Publisher: example.com. "
+        "Supports: Lakehouse systems combine warehouse and data lake patterns."
+    )
+
+
+def test_deep_search_local_report_cites_answer_sentences() -> None:
+    service = local_deep_search_service()
+    project = Project(
+        id="project-local-citations",
+        user_id="user-local-citations",
+        title="TrackNet",
+        topic_description="TrackNet object tracking methods",
+    )
+    report = service._generate_local_report(
+        question="What is TrackNet?",
+        project=project,
+        plan_questions=["What methods support TrackNet?"],
+        source_summaries=[
+            {
+                "id": "S1",
+                "source_type": "paper",
+                "title": "TrackNet paper",
+                "url": "https://example.com/tracknet",
+                "paper_id": None,
+                "note": "TrackNet uses heatmap regression across consecutive frames.",
+            }
+        ],
+        warnings=[],
+    )
+
+    answer_section = report.split("## Answer", 1)[1].split("## Search Plan", 1)[0]
+    assert (
+        "where project papers, academic sources, and web results converge "
+        "([TrackNet paper](https://example.com/tracknet))."
+    ) in answer_section
+    assert (
+        "- TrackNet uses heatmap regression across consecutive frames. "
+        "([TrackNet paper](https://example.com/tracknet))."
+    ) in answer_section
 
 
 async def no_academic_results(
@@ -245,6 +281,8 @@ async def test_stream_deep_search_creates_run_streams_sources_and_persists(
     assert done_payload["selected_paper_ids"] == [paper.id]
     assert done_payload["report_body"].startswith("# Deep Search Report")
     assert done_payload["sources"]
+    assert all("note" in source for source in done_payload["sources"])
+    assert any(source["note"] for source in done_payload["sources"])
     assert any("Tavily API key is not configured" in warning for warning in done_payload["warnings"])
 
     async with session_factory() as session:
@@ -553,7 +591,7 @@ async def test_deep_search_openrouter_usage_events_are_flushed(
         if payload.get("stream") is True:
             body = "\n\n".join(
                 [
-                    'data: {"choices":[{"delta":{"content":"# Live Report\\n\\nEvidence [S1]."}}]}',
+                    'data: {"choices":[{"delta":{"content":"# Live Report\\n\\nEvidence ([Lakehouse overview](https://example.com/lakehouse))."}}]}',
                     'data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}',
                     "data: [DONE]",
                     "",
@@ -628,7 +666,7 @@ async def test_deep_search_structured_output_truncation_falls_back_without_faili
         if payload.get("stream") is True:
             body = "\n\n".join(
                 [
-                    'data: {"choices":[{"delta":{"content":"# Fallback Report\\n\\nEvidence [S1]."}}]}',
+                    'data: {"choices":[{"delta":{"content":"# Fallback Report\\n\\nEvidence ([Lakehouse overview](https://example.com/lakehouse))."}}]}',
                     'data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}',
                     "data: [DONE]",
                     "",
@@ -760,11 +798,11 @@ def test_deep_search_source_deduplication_and_local_verifier_flags() -> None:
     deduped = deduplicate_source_candidates(candidates)
     flags = verify_report_claims(
         "This claim has no source citation.",
-        [{"id": "S1", "source_type": "paper"}],
+        [{"title": "Paper source", "url": "https://example.com/paper", "source_type": "paper"}],
     )
     web_only_flags = verify_report_claims(
-        "This claim relies on the web only [S1].",
-        [{"id": "S1", "source_type": "web"}],
+        "This claim relies on the web only [Lakehouse overview](https://example.com/lakehouse).",
+        [{"title": "Lakehouse overview", "url": "https://example.com/lakehouse", "source_type": "web"}],
     )
 
     assert len(deduped) == 2
