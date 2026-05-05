@@ -1132,10 +1132,30 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
   const overflowCount = references.length - 1;
   const anchorRef = useRef<HTMLAnchorElement | null>(null);
   const previewRef = useRef<HTMLSpanElement | null>(null);
+  const closeTimeoutRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(
     null,
   );
+
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current === null) return;
+    window.clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = null;
+  };
+
+  const showPreview = () => {
+    clearCloseTimeout();
+    setOpen(true);
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setOpen(false);
+      closeTimeoutRef.current = null;
+    }, 120);
+  };
 
   useEffect(() => {
     if (!open || !anchorRef.current) return;
@@ -1168,6 +1188,12 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
     };
   }, [open]);
 
+  useEffect(() => {
+    return () => {
+      clearCloseTimeout();
+    };
+  }, []);
+
   return (
     <span className="relative mx-1 inline-flex align-baseline">
       <a
@@ -1177,10 +1203,10 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
         rel="noreferrer"
         aria-label={`Open source: ${firstReference.title} (${firstReference.url})`}
         title={firstReference.url}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onMouseEnter={showPreview}
+        onMouseLeave={scheduleClose}
+        onFocus={showPreview}
+        onBlur={scheduleClose}
         className="inline-flex h-6 max-w-[180px] items-center gap-1.5 rounded-lg bg-surface-container-low px-2 font-mono text-[11px] leading-none text-on-surface-variant ring-1 ring-outline/10 transition-colors hover:bg-surface-container-high hover:text-on-surface"
       >
         <span className="truncate">{label}</span>
@@ -1191,6 +1217,8 @@ function CitationCluster({ references }: { references: SourceReference[] }) {
           ref={previewRef}
           references={references}
           position={position}
+          onMouseEnter={showPreview}
+          onMouseLeave={scheduleClose}
         />,
         document.body,
       )}
@@ -1203,12 +1231,16 @@ const CitationPreview = forwardRef<
   {
     references: SourceReference[];
     position: { left: number; top: number; width: number };
+    onMouseEnter: () => void;
+    onMouseLeave: () => void;
   }
->(function CitationPreview({ references, position }, ref) {
+>(function CitationPreview({ references, position, onMouseEnter, onMouseLeave }, ref) {
   return (
     <span
       ref={ref}
-      className="pointer-events-none fixed z-[1000] overflow-hidden rounded-2xl border border-outline/20 bg-surface-container-lowest text-left shadow-2xl"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="pointer-events-auto fixed z-[1000] overflow-hidden rounded-2xl border border-outline/20 bg-surface-container-lowest text-left shadow-2xl"
       style={{
         left: `${position.left}px`,
         top: `${position.top}px`,
@@ -1221,7 +1253,13 @@ const CitationPreview = forwardRef<
         </span>
         <span className="block max-h-80 overflow-y-auto p-4">
           {references.map((reference) => (
-            <span key={`${reference.url}-${reference.title}`} className="mb-4 block last:mb-0">
+            <a
+              key={`${reference.url}-${reference.title}`}
+              href={reference.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mb-2 block rounded-xl px-3 py-2 transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none last:mb-0"
+            >
               <span className="mb-2 flex items-center gap-2 text-[11px] text-on-surface-variant">
                 <SourcePreviewFavicon url={reference.url} />
                 <span className="truncate">{reference.publisher || displayDomainFromUrl(reference.url)}</span>
@@ -1234,7 +1272,7 @@ const CitationPreview = forwardRef<
                   {reference.supports}
                 </span>
               )}
-            </span>
+            </a>
           ))}
         </span>
     </span>
