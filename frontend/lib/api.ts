@@ -274,6 +274,11 @@ export type CitationGraph = {
   references: CitationGraphPaper[];
 };
 
+export type CitationGraphPaperImportResponse = {
+  paper: ProjectPaper;
+  created: boolean;
+};
+
 export async function fetchPaperCitationGraph(
   projectId: string,
   paperId: string,
@@ -284,6 +289,21 @@ export async function fetchPaperCitationGraph(
   return api<CitationGraph>(
     `/projects/${projectId}/papers/${paperId}/citation-graph?limit=${limit}`,
     { token },
+  );
+}
+
+export async function importCitationGraphPaper(
+  projectId: string,
+  paper: CitationGraphPaper,
+  token: string,
+): Promise<CitationGraphPaperImportResponse> {
+  return api<CitationGraphPaperImportResponse>(
+    `/projects/${projectId}/papers/import-citation`,
+    {
+      method: "POST",
+      token,
+      json: paper,
+    },
   );
 }
 
