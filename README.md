@@ -14,6 +14,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Discovery pipeline with `searcher -> reader` plus a warning branch when ranking returns too few papers
 - Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
 - On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
+- `POST /projects/{id}/papers/import-citation` for adding missing citation-graph papers to a project with project-scoped dedupe
 - Grounded paper conversations with persisted first-turn and follow-up Q&A
 - Project-scoped multi-paper grounded conversations for the main chat workspace
 - Project-scoped Deep Search mode with plan approval, visible thinking/progress, persisted runs, Tavily web search fallback, academic/project evidence, report streaming, source capture, and QA flags
@@ -105,6 +106,7 @@ npm run dev
 - `POST /projects/{id}/run`
 - `GET /projects/{id}/papers`
 - `GET /projects/{id}/papers/{paper_id}/citation-graph`
+- `POST /projects/{id}/papers/import-citation`
 - `POST /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations`
 - `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
@@ -128,7 +130,7 @@ npm run dev
 `GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist.
 `GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and all matching user log rows for the selected range with optional `date_from`, `date_to`, `user_id`, and `project_id` filters. Project chat usage rows include the persisted user prompt that produced the chat answer.
 `GET /projects/{id}/token-usage` returns provider-reported token totals plus breakdowns by feature, model, and day for the authenticated user's project.
-`GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references; each related paper now includes its own `citation_count` so the frontend can render a Connected-Papers-style citation neighborhood graph in the right-hand context panel.
+`GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references; each related paper includes its own `citation_count` so the frontend can render a Connected-Papers-style citation neighborhood graph in the right-hand context panel. The frontend caches graph payloads while the workspace is open, shows in-app node previews, marks nodes already in the project, offers an accessible list view, and can import missing related papers through `POST /projects/{id}/papers/import-citation`.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
 `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
 `GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
