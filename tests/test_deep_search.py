@@ -16,6 +16,8 @@ from backend.services.deep_search import (
     DeepSearchService,
     DeepSearchSourceCandidate,
     _source_activity_sources,
+    _source_card_markdown,
+    _source_citation,
     deduplicate_source_candidates,
     verify_report_claims,
 )
@@ -62,6 +64,24 @@ def test_deep_search_sse_padding_keeps_event_parseable() -> None:
     assert frame.startswith(": ")
     assert len(frame) > 1024
     assert parse_sse_events(frame) == [("status", {"phase": "planning"})]
+
+
+def test_deep_search_formats_clickable_source_citations_and_cards() -> None:
+    source_summary = {
+        "id": "S1",
+        "source_type": "web",
+        "title": "Lakehouse overview",
+        "url": "https://example.com/lakehouse",
+        "note": "Lakehouse systems combine warehouse and data lake patterns.",
+    }
+
+    assert _source_citation(source_summary) == "[S1](https://example.com/lakehouse)"
+
+    source_card = _source_card_markdown(source_summary)
+    assert 'class="source-card"' in source_card
+    assert 'data-source-id="S1"' in source_card
+    assert 'data-url="https://example.com/lakehouse"' in source_card
+    assert "<strong>Publisher/domain:</strong> example.com" in source_card
 
 
 async def no_academic_results(
