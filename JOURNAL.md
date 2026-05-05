@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 22:17
+- **done:**
+  - Updated `AGENTS.md` with current Deep Search citation behavior and ownership notes for future agents.
+  - Documented that sentence-level source buttons use named Markdown links, source notes, a body-level preview portal, and clickable multi-source preview rows.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Session handoff guidance is up to date.
+- **blocked:**
+  - None.
+
 ### 2026-05-05 22:00
 - **done:**
   - Made Deep Search citation previews stay open during cursor handoff from the chip to the preview.
