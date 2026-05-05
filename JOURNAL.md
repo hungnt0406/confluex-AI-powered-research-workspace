@@ -47,6 +47,18 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 22:00
+- **done:**
+  - Made Deep Search citation previews stay open during cursor handoff from the chip to the preview.
+  - Enabled clicking individual source rows inside multi-source citation previews.
+  - Added static regression coverage for the interactive portal preview behavior.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Frontend TypeScript, targeted frontend static tests, and touched-file whitespace verification passed.
+- **blocked:**
+  - None.
+
 ### 2026-05-05 21:40
 - **done:**
   - Fixed Deep Search citation previews so they render through a body-level portal with fixed viewport positioning and a high z-index.
