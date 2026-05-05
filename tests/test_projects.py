@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.agents.state import AgentState
 from backend.api.dependencies import get_paper_citation_service, get_pipeline_service
@@ -500,6 +500,64 @@ async def test_get_project_paper_citation_graph_returns_related_papers(
     assert payload["reference_count"] == 8
     assert payload["cited_by"][0]["title"] == "Citing Paper"
     assert payload["references"][0]["title"] == "Referenced Paper"
+
+
+@pytest.mark.asyncio
+async def test_import_project_citation_graph_paper_creates_and_deduplicates(
+    client,
+    auth_headers,
+    sample_project,
+    session_factory,
+) -> None:
+    payload = {
+        "title": "Citing Paper",
+        "authors": ["Alice"],
+        "year": 2025,
+        "abstract": "Cites the target paper.",
+        "doi": "10.1000/citing",
+        "source": "semantic_scholar",
+        "source_paper_id": "semantic-100",
+        "source_url": "https://www.semanticscholar.org/paper/semantic-100",
+        "pdf_url": "https://pdf.example.com/semantic-100.pdf",
+        "citation_count": 42,
+    }
+
+    response = await client.post(
+        f"/projects/{sample_project['id']}/papers/import-citation",
+        headers=auth_headers,
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] is True
+    assert body["paper"]["title"] == "Citing Paper"
+    assert body["paper"]["status"] == "candidate"
+    assert body["paper"]["relevance_score"] is None
+    assert body["paper"]["reference_count"] is None
+    created_paper_id = body["paper"]["id"]
+
+    duplicate_response = await client.post(
+        f"/projects/{sample_project['id']}/papers/import-citation",
+        headers=auth_headers,
+        json={**payload, "title": "Citing Paper With Updated Title"},
+    )
+
+    assert duplicate_response.status_code == 200
+    duplicate_body = duplicate_response.json()
+    assert duplicate_body["created"] is False
+    assert duplicate_body["paper"]["id"] == created_paper_id
+
+    async with session_factory() as session:
+        count = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Paper).where(Paper.project_id == sample_project["id"])
+                )
+            ).scalar_one()
+        )
+
+    assert count == 1
 
 
 @pytest.mark.asyncio
