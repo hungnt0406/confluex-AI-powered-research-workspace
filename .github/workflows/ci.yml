@@ -12,7 +12,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: literature_review
+          POSTGRES_DB: literature_review_test
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
         ports:
@@ -25,9 +25,10 @@ jobs:
 
     env:
       ANTHROPIC_API_KEY: test-anthropic-key
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/literature_review
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/literature_review_test
       JWT_SECRET_KEY: ci-secret-key
       SEMANTIC_SCHOLAR_API_KEY: ""
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/literature_review_test
 
     steps:
       - name: Checkout repository

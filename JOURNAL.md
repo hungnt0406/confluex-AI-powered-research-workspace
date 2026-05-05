@@ -47,6 +47,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-05 23:45
+- **done:**
+  - Updated CI workflow to use a dedicated test database name and added `TEST_DATABASE_URL` for reliable Postgres testing in GitHub Actions.
+  - Verified backend integration and static frontend regressions for the new citation graph paper import feature.
+  - Detail reference: `AI_WORKLOG.md`.
+  - Changed files: `.github/workflows/ci.yml`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **doing:**
+  - Pushing final changes to the remote branch.
+- **blocked:**
+  - None.
+
 ### 2026-05-05 22:17
 - **done:**
   - Updated `AGENTS.md` with current Deep Search citation behavior and ownership notes for future agents.
