@@ -11,6 +11,8 @@ import {
 } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
+  CitationGraph,
+  CitationGraphPaper,
   DeepSearchRun,
   DeepSearchActivityEventData,
   DeepSearchActivityChipType,
@@ -27,6 +29,8 @@ import {
   ProjectTitleUpdate,
   RunPipelineResponse,
   api,
+  fetchPaperCitationGraph,
+  importCitationGraphPaper,
   streamDeepSearchRun,
   streamProjectConversation,
   uploadProjectReferenceFile,
@@ -37,6 +41,10 @@ const SELECTED_PAPERS_STORAGE_PREFIX = "a20.selected_papers";
 const GENERATED_OVERVIEW_PROMPT_PREFIX = "Give me a structured overview of this paper relative to: ";
 const MAX_SELECTED_PAPERS = 5;
 const DEFAULT_CITATION_FORMAT = "APA";
+
+function citationGraphCacheKey(projectId: string, paperId: string, limit: number) {
+  return `${projectId}:${paperId}:${limit}`;
+}
 
 export type ChatMessage = {
   id: string;
@@ -125,6 +133,21 @@ type ChatState = {
   editDeepSearchPlan: (planId: string) => string | null;
   uploadReferenceFile: (file: File, options?: UploadReferenceFileOptions) => Promise<void>;
   togglePaperSelection: (paperId: string) => void;
+  citationGraphCache: Record<string, CitationGraph>;
+  getCitationGraph: (
+    projectId: string,
+    paperId: string,
+    options?: { limit?: number; force?: boolean },
+  ) => Promise<CitationGraph>;
+  prefetchCitationGraphs: (
+    projectId: string,
+    paperIds: string[],
+    options?: { limit?: number },
+  ) => Promise<void>;
+  addCitationGraphPaperToProject: (
+    projectId: string,
+    paper: CitationGraphPaper,
+  ) => Promise<{ paper: ProjectPaper; created: boolean }>;
   clearComposerNotice: () => void;
   refreshProjects: () => Promise<void>;
 };
@@ -671,12 +694,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const activeProjectIdRef = useRef<string | null>(null);
   const restoreAttemptedRef = useRef(false);
   const deepSearchStatusMessageIds = useRef<Set<string>>(new Set());
+  const citationGraphRequestRefs = useRef<Map<string, Promise<CitationGraph>>>(new Map());
   authedRef.current = token;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [papers, setPapers] = useState<ProjectPaper[]>([]);
+  const [citationGraphCache, setCitationGraphCache] = useState<Record<string, CitationGraph>>({});
   const [selectedPaperIds, setSelectedPaperIds] = useState<string[]>([]);
   const [queries, setQueries] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ProjectConversation | null>(null);
@@ -710,6 +735,69 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     );
     return papersResponse.data;
   }, []);
+
+  const getCitationGraph = useCallback(
+    async (
+      projectId: string,
+      paperId: string,
+      options?: { limit?: number; force?: boolean },
+    ) => {
+      if (!authedRef.current) {
+        throw new Error("You must be signed in to load a citation graph.");
+      }
+      const limit = options?.limit ?? 20;
+      const key = citationGraphCacheKey(projectId, paperId, limit);
+      if (!options?.force && citationGraphCache[key]) {
+        return citationGraphCache[key];
+      }
+
+      const inFlight = citationGraphRequestRefs.current.get(key);
+      if (!options?.force && inFlight) {
+        return inFlight;
+      }
+
+      const request = fetchPaperCitationGraph(projectId, paperId, authedRef.current, { limit })
+        .then((payload) => {
+          setCitationGraphCache((current) => ({ ...current, [key]: payload }));
+          return payload;
+        })
+        .finally(() => {
+          citationGraphRequestRefs.current.delete(key);
+        });
+      citationGraphRequestRefs.current.set(key, request);
+      return request;
+    },
+    [citationGraphCache],
+  );
+
+  const prefetchCitationGraphs = useCallback(
+    async (projectId: string, paperIds: string[], options?: { limit?: number }) => {
+      const limit = options?.limit ?? 20;
+      for (const paperId of paperIds) {
+        const key = citationGraphCacheKey(projectId, paperId, limit);
+        if (citationGraphCache[key] || citationGraphRequestRefs.current.has(key)) continue;
+        try {
+          await getCitationGraph(projectId, paperId, { limit });
+        } catch {
+          /* Prefetch failures should not interrupt the foreground graph. */
+        }
+      }
+    },
+    [citationGraphCache, getCitationGraph],
+  );
+
+  const addCitationGraphPaperToProject = useCallback(
+    async (projectId: string, paper: CitationGraphPaper) => {
+      if (!authedRef.current) {
+        throw new Error("You must be signed in to add a paper.");
+      }
+      const result = await importCitationGraphPaper(projectId, paper, authedRef.current);
+      const nextPapers = await fetchProjectPapers(projectId);
+      setPapers(nextPapers);
+      return result;
+    },
+    [fetchProjectPapers],
+  );
 
   const clearComposerNotice = useCallback(() => {
     setComposerNotice(null);
@@ -1738,6 +1826,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       editDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
+      citationGraphCache,
+      getCitationGraph,
+      prefetchCitationGraphs,
+      addCitationGraphPaperToProject,
       clearComposerNotice,
       refreshProjects,
     }),
@@ -1768,6 +1860,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       editDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
+      citationGraphCache,
+      getCitationGraph,
+      prefetchCitationGraphs,
+      addCitationGraphPaperToProject,
       clearComposerNotice,
       refreshProjects,
     ],
