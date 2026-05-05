@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
@@ -31,7 +30,7 @@ MAX_SOURCE_SNIPPET_CHARS = 900
 MAX_SOURCE_TITLE_CHARS = 500
 MAX_CHUNKS_PER_SELECTED_PAPER = 2
 MAX_REPORT_TOKENS = 1_800
-SOURCE_CITATION_PATTERN = re.compile(r"\[S(\d+)\]")
+MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 
 SourceType = Literal["paper", "paper_chunk", "citation_graph", "web"]
 DeepSearchEventName = Literal["run", "status", "activity", "source", "token", "done", "error"]
@@ -119,14 +118,19 @@ def verify_report_claims(
 ) -> list[dict[str, str]]:
     """Run a small deterministic QA pass for missing and web-only citations."""
 
-    source_type_by_id = {
-        str(summary.get("id", "")).strip(): str(summary.get("source_type", "")).strip()
+    source_type_by_url = {
+        normalized_url: str(summary.get("source_type", "")).strip()
         for summary in source_summaries
+        if (normalized_url := _normalize_url(str(summary.get("url") or ""))) is not None
     }
     flags: list[dict[str, str]] = []
     for sentence in _iter_claim_sentences(report_body):
-        citation_ids = [f"S{match}" for match in SOURCE_CITATION_PATTERN.findall(sentence)]
-        if not citation_ids:
+        citation_urls = [
+            normalized_url
+            for _, url in MARKDOWN_LINK_PATTERN.findall(sentence)
+            if (normalized_url := _normalize_url(url)) is not None
+        ]
+        if not citation_urls:
             flags.append(
                 {
                     "issue": "Claim appears without a source citation.",
@@ -137,9 +141,9 @@ def verify_report_claims(
             continue
 
         citation_types = [
-            source_type_by_id[source_id]
-            for source_id in citation_ids
-            if source_id in source_type_by_id
+            source_type_by_url[source_url]
+            for source_url in citation_urls
+            if source_url in source_type_by_url
         ]
         if citation_types and all(source_type == "web" for source_type in citation_types):
             flags.append(
@@ -515,7 +519,7 @@ class DeepSearchService:
                     phase="writing",
                     stage="Synthesizing the answer",
                     detail=(
-                        "I am organizing the evidence into a report and attaching source IDs "
+                        "I am organizing the evidence into a report and attaching named source links "
                         "to factual claims."
                     ),
                 ),
@@ -776,7 +780,7 @@ class DeepSearchService:
                     ),
                 )
                 try:
-                    search_task = asyncio.create_task(
+                    search_task: asyncio.Future[list[PaperRecord]] = asyncio.ensure_future(
                         search(query, project.year_start, self.max_results_per_query)
                     )
                     while not search_task.done():
@@ -1071,11 +1075,16 @@ class DeepSearchService:
                     "role": "system",
                     "content": (
                         "You are a deep research report writer. Write a concise, evidence-grounded "
-                        "report. Cite every factual claim with clickable source IDs like "
-                        "[S1](https://example.com) when a source URL is available, and use plain "
-                        "[S1] only for project evidence without a URL. End with a Sources section "
-                        "containing one source-card div per URL-backed source, preserving the exact "
-                        "data-source-id values and never inventing titles, publishers, dates, or URLs."
+                        "report. Cite factual claims with normal Markdown links whose visible text is "
+                        "the source title, for example [Databricks Lakehouse](https://example.com). "
+                        "Every factual sentence and every bullet key point in the answer body must "
+                        "end with one or more URL-backed Markdown source links. "
+                        "Never use opaque bracketed citation IDs or numeric citation labels. Never "
+                        "output HTML. Never show raw URLs in the prose. End with a '## Sources' "
+                        "section containing Markdown bullets "
+                        "formatted as '- [Title](URL) — Publisher: domain. Supports: relevance note.' "
+                        "Use only URL-backed sources for citations and final source bullets. Do not "
+                        "cite headings, warnings, or the final Sources section itself."
                     ),
                 },
                 {
@@ -1368,9 +1377,9 @@ class DeepSearchService:
                 "Evidence notes:",
                 *[
                     (
-                        f"- [{summary['id']}] {summary['source_type']} | "
-                        f"{summary['title']} | URL: {summary.get('url') or 'none'} | "
-                        f"{summary['note']}"
+                        f"- Title: {summary['title']} | Publisher/domain: "
+                        f"{_source_domain(str(summary.get('url') or '')) or 'internal project evidence'} | "
+                        f"URL: {summary.get('url') or 'none'} | Supports: {summary['note']}"
                     )
                     for summary in source_summaries
                 ],
@@ -1405,15 +1414,22 @@ class DeepSearchService:
                 ]
             )
 
-        top_sources = source_summaries[:5]
+        url_sources = [summary for summary in source_summaries if str(summary.get("url") or "").strip()]
+        top_sources = url_sources[:5]
+        first_source_link = _source_markdown_link(top_sources[0]) if top_sources else ""
+        first_source_citation = f" ({first_source_link})" if first_source_link else ""
         answer_lines = [
             (
                 f"For **{project.title}**, the available evidence for \"{question}\" is strongest "
-                f"where project papers, academic sources, and web results converge."
+                f"where project papers, academic sources, and web results converge"
+                f"{first_source_citation}."
             )
         ]
         for summary in top_sources[:3]:
-            answer_lines.append(f"- {summary['note']} {_source_citation(summary)}")
+            answer_lines.append(
+                f"- {_trim_terminal_punctuation(str(summary['note']))}. "
+                f"({_source_markdown_link(summary)})."
+            )
 
         return "\n\n".join(
             [
@@ -1425,13 +1441,13 @@ class DeepSearchService:
                 "## Evidence Notes",
                 "\n".join(
                     (
-                        f"- [{summary['id']}] **{summary['title']}** "
-                        f"({summary['source_type']}): {summary['note']} {_source_citation(summary)}"
+                        f"- **{summary['title']}** ({summary['source_type']}): "
+                        f"{summary['note']} ({_source_markdown_link(summary)})."
                     )
-                    for summary in source_summaries
+                    for summary in url_sources
                 ),
                 "## Sources",
-                "\n\n".join(_source_card_markdown(summary) for summary in source_summaries),
+                "\n".join(_source_bullet_markdown(summary) for summary in url_sources),
                 "## Warnings",
                 "\n".join(f"- {warning}" for warning in warnings) if warnings else "- None",
             ]
@@ -1486,7 +1502,12 @@ def _skip_verifier_line(line: str) -> bool:
         return True
     if line.startswith("#"):
         return True
-    if line.startswith(("-", "*")) and SOURCE_CITATION_PATTERN.search(line):
+    if (
+        line.startswith(("-", "*"))
+        and "— Publisher:" in line
+        and "Supports:" in line
+        and MARKDOWN_LINK_PATTERN.search(line)
+    ):
         return True
     normalized = line.lower()
     return normalized in {"none", "- none"} or normalized.startswith("warnings:")
@@ -1511,40 +1532,20 @@ def _paper_evidence_snippet(paper: Paper) -> str:
     return _compact_text(" ".join(part for part in parts if part))
 
 
-def _source_citation(summary: dict[str, Any]) -> str:
-    source_id = str(summary.get("id", "")).strip()
+def _source_markdown_link(summary: dict[str, Any]) -> str:
+    title = str(summary.get("title") or "Untitled source").strip()
     url = str(summary.get("url") or "").strip()
-    if source_id and url:
-        return f"[{source_id}]({url})"
-    if source_id:
-        return f"[{source_id}]"
-    return ""
+    return f"[{title}]({url})" if url else title
 
 
-def _source_card_markdown(summary: dict[str, Any]) -> str:
-    source_id = str(summary.get("id", "")).strip()
-    title = str(summary.get("title") or source_id).strip()
-    url = str(summary.get("url") or "").strip()
+def _trim_terminal_punctuation(value: str) -> str:
+    return value.strip().rstrip(".!?")
+
+
+def _source_bullet_markdown(summary: dict[str, Any]) -> str:
     note = str(summary.get("note") or "").strip()
-    publisher = _source_domain(url)
-    if not source_id or not url:
-        return f"- [{source_id}] **{title}**: {note}".strip()
-
-    return "\n".join(
-        [
-            (
-                f'<div class="source-card" data-source-id="{html.escape(source_id, quote=True)}" '
-                f'data-title="{html.escape(title, quote=True)}" '
-                f'data-publisher="{html.escape(publisher, quote=True)}" '
-                f'data-url="{html.escape(url, quote=True)}" '
-                f'data-snippet="{html.escape(note, quote=True)}">'
-            ),
-            f'<a href="{html.escape(url, quote=True)}">{html.escape(title)}</a>',
-            f"<p><strong>Publisher/domain:</strong> {html.escape(publisher)}</p>",
-            f"<p><strong>Snippet:</strong> {html.escape(note)}</p>",
-            "</div>",
-        ]
-    )
+    publisher = _source_domain(str(summary.get("url") or ""))
+    return f"- {_source_markdown_link(summary)} — Publisher: {publisher}. Supports: {note}"
 
 
 def _source_domain(url: str) -> str:
