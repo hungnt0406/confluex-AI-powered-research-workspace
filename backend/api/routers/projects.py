@@ -21,6 +21,8 @@ from backend.api.dependencies import (
     WriterOutputServiceDependency,
 )
 from backend.api.schemas.projects import (
+    CitationGraphPaperImport,
+    CitationGraphPaperImportResponse,
     CitationGraphPaperRead,
     DeepSearchCreate,
     DeepSearchRunRead,
@@ -73,6 +75,7 @@ from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
 )
+from backend.services.research_utils import normalize_title
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 SSE_FLUSH_PADDING = ":" + (" " * 8192) + "\n"
@@ -718,6 +721,82 @@ async def get_project_paper_citation_graph(
             CitationGraphPaperRead.model_validate(related_paper)
             for related_paper in citation_graph.references
         ],
+    )
+
+
+@router.post(
+    "/{project_id}/papers/import-citation",
+    response_model=CitationGraphPaperImportResponse,
+)
+async def import_project_citation_graph_paper(
+    project_id: str,
+    payload: CitationGraphPaperImport,
+    session: DbSession,
+    current_user: CurrentUser,
+) -> CitationGraphPaperImportResponse:
+    """Import a paper discovered through the citation graph into the project library."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    result = await session.execute(
+        select(Paper).options(selectinload(Paper.summary)).where(Paper.project_id == project.id)
+    )
+    project_papers = list(result.scalars().all())
+
+    normalized_source = payload.source.strip().lower()
+    normalized_source_paper_id = (
+        payload.source_paper_id.strip().lower() if payload.source_paper_id else None
+    )
+    normalized_doi = payload.doi.strip().lower() if payload.doi else None
+    normalized_payload_title = normalize_title(payload.title)
+
+    for paper in project_papers:
+        if (
+            normalized_source_paper_id
+            and paper.source.strip().lower() == normalized_source
+            and paper.source_paper_id
+            and paper.source_paper_id.strip().lower() == normalized_source_paper_id
+        ):
+            return CitationGraphPaperImportResponse(
+                paper=ProjectPaperRead.model_validate(paper),
+                created=False,
+            )
+        if normalized_doi and paper.doi and paper.doi.strip().lower() == normalized_doi:
+            return CitationGraphPaperImportResponse(
+                paper=ProjectPaperRead.model_validate(paper),
+                created=False,
+            )
+        if paper.title.strip() and normalize_title(paper.title) == normalized_payload_title:
+            return CitationGraphPaperImportResponse(
+                paper=ProjectPaperRead.model_validate(paper),
+                created=False,
+            )
+
+    paper = Paper(
+        project_id=project.id,
+        title=payload.title,
+        authors=list(payload.authors),
+        year=payload.year,
+        abstract=payload.abstract,
+        doi=payload.doi,
+        source=payload.source,
+        source_paper_id=payload.source_paper_id,
+        source_url=payload.source_url,
+        pdf_url=payload.pdf_url,
+        citation_count=payload.citation_count,
+        reference_count=None,
+        status="candidate",
+        relevance_score=None,
+    )
+    session.add(paper)
+    await session.commit()
+    created_result = await session.execute(
+        select(Paper).options(selectinload(Paper.summary)).where(Paper.id == paper.id)
+    )
+    created_paper = created_result.scalar_one()
+
+    return CitationGraphPaperImportResponse(
+        paper=ProjectPaperRead.model_validate(created_paper),
+        created=True,
     )
 
 
