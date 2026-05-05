@@ -47,15 +47,6 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
-### 2026-05-05 23:21
-- **done:**
-  - Committed documentation for the paper citation graph feature.
-  - Changed files: `docs/features/paper_citation_graph.md`, `JOURNAL.md`.
-- **doing:**
-  - Verified document content matches the current feature implementation.
-- **blocked:**
-  - None.
-
 ### 2026-05-05 22:17
 - **done:**
   - Updated `AGENTS.md` with current Deep Search citation behavior and ownership notes for future agents.
