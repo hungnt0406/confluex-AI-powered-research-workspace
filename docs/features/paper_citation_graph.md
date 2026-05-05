@@ -12,6 +12,7 @@ It is an on-demand read-through over Semantic Scholar. The backend does not pers
 | Purpose | Method | Path |
 |---|---|---|
 | Read cited-by and references for one project paper | `GET` | `/projects/{project_id}/papers/{paper_id}/citation-graph` |
+| Import a citation-graph paper into the project | `POST` | `/projects/{project_id}/papers/import-citation` |
 
 Query params:
 
@@ -30,15 +31,21 @@ Query params:
    - `GET /graph/v1/paper/{paper_id}/references`
 5. The response returns `citation_count`, `reference_count`, `cited_by`, and `references`. Each related-paper item also includes its own `citation_count` (when Semantic Scholar provides one), used by the frontend to size graph nodes.
 
+`POST /projects/{project_id}/papers/import-citation` accepts the same related-paper metadata shape returned in `cited_by` and `references`. It creates a project paper with `status="candidate"` and no relevance score, or returns the existing project paper when it matches by provider id, DOI, or normalized title.
+
 ## Frontend visualization
 
 The Confluex frontend renders a Connected-Papers-style citation neighborhood inline in the right-hand `ContextPanel` under a "Graph" tab.
 
 - The seed paper is picked from a dropdown of the project's papers; only papers with a Semantic Scholar id, arXiv id, or DOI are selectable.
 - Up to 10 cited-by nodes and 20 reference nodes are rendered around the seed (capped client-side from a `limit=20` request).
-- Node size scales with `citation_count` (logarithmic), node color encodes recency (older publications fade toward background), and clicking a node opens its `source_url` in a new tab.
+- Node size scales with `citation_count` (logarithmic), node color encodes recency (older publications fade toward background), and clicking a node opens an in-app preview with metadata, abstract snippet, project-library status, and a Semantic Scholar link.
+- Related papers already present in the project are marked with a distinct checked border. Missing related papers can be imported from the preview with "Add to project".
+- The Graph tab caches citation payloads in the chat workspace state by project, seed paper, and limit. Reopening the tab or switching back to a previously loaded seed renders from cache.
+- After a foreground graph load, the frontend quietly prefetches the next few resolvable seed papers so seed switching is faster without eagerly fetching every project paper.
+- A List view renders the same seed, reference, and cited-by data as semantic HTML lists for keyboard and screen-reader access.
 - The graph is rendered with `react-force-graph-2d`, dynamically imported with `ssr: false` so it never executes during server-side rendering.
-- v1 does not persist the graph; each tab open issues a fresh `GET /citation-graph` call.
+- The backend still does not persist graph payloads; caching is frontend session state only.
 
 ## Error Mapping
 
