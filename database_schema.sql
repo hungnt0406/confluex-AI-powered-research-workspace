@@ -158,6 +158,40 @@ CREATE TABLE IF NOT EXISTS project_messages (
 
 CREATE INDEX IF NOT EXISTS ix_project_messages_conversation_id ON project_messages (conversation_id);
 
+CREATE TABLE IF NOT EXISTS deep_search_runs (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_prompt TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'running',
+    selected_paper_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    report_body TEXT NOT NULL DEFAULT '',
+    source_summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    qa_flags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS ix_deep_search_runs_project_id ON deep_search_runs (project_id);
+CREATE INDEX IF NOT EXISTS ix_deep_search_runs_project_created_at ON deep_search_runs (project_id, created_at);
+
+CREATE TABLE IF NOT EXISTS deep_search_sources (
+    id VARCHAR(36) PRIMARY KEY,
+    run_id VARCHAR(36) NOT NULL REFERENCES deep_search_runs(id) ON DELETE CASCADE,
+    source_type VARCHAR(32) NOT NULL,
+    title VARCHAR(500) NOT NULL,
+    url TEXT,
+    paper_id VARCHAR(36) REFERENCES papers(id) ON DELETE SET NULL,
+    snippet TEXT NOT NULL DEFAULT '',
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_deep_search_sources_run_id ON deep_search_sources (run_id);
+CREATE INDEX IF NOT EXISTS ix_deep_search_sources_paper_id ON deep_search_sources (paper_id);
+
 CREATE TABLE IF NOT EXISTS summaries (
     id VARCHAR(36) PRIMARY KEY,
     paper_id VARCHAR(36) NOT NULL UNIQUE REFERENCES papers(id) ON DELETE CASCADE,
