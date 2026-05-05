@@ -187,6 +187,10 @@ def test_frontend_chat_markdown_renders_citation_hover_previews_without_html_car
     assert "CitationPreview" in chat_workspace
     assert "fixed z-[1000]" in chat_workspace
     assert "getBoundingClientRect" in chat_workspace
+    assert "pointer-events-auto fixed z-[1000]" in chat_workspace
+    assert "closeTimeoutRef" in chat_workspace
+    assert "window.setTimeout" in chat_workspace
+    assert 'className="mb-2 block rounded-xl px-3 py-2 transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none last:mb-0"' in chat_workspace
     assert "SourcePreviewFavicon" in chat_workspace
     assert "extractSourceReferences" in chat_workspace
     assert "sourceReferencesFromDeepSearchSources" in chat_workspace
