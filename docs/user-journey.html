@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Journey — Confluex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #faf9f7;
+  --surface: #faf9f7;
+  --surface-container: #efeeec;
+  --surface-container-low: #f4f3f1;
+  --surface-container-lowest: #ffffff;
+  --surface-container-high: #e9e8e6;
+  --on-surface: #1a1c1b;
+  --on-surface-variant: #444841;
+  --primary: #1d2d18;
+  --primary-container: #32432c;
+  --on-primary-container: #9cb092;
+  --secondary: #596154;
+  --secondary-container: #dee5d5;
+  --outline: #747870;
+  --outline-variant: #c4c8be;
+  --hint: #8C8375;
+  --accent: #5D4037;
+  --error: #ba1a1a;
+  --shipped: #2e7d32;
+  --shipped-bg: #e8f5e9;
+  --partial: #e65100;
+  --partial-bg: #fff3e0;
+  --planned: #757575;
+  --planned-bg: #f5f5f5;
+  --font-headline: 'Noto Serif', serif;
+  --font-body: 'Inter', sans-serif;
+  --radius: 0.75rem;
+  --radius-sm: 0.5rem;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--on-surface);
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar matching project */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1d2d1840; border-radius: 10px; }
+
+/* Sticky Emotional Curve */
+.curve-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  background: var(--surface-container-lowest);
+  border-bottom: 1px solid var(--outline-variant);
+  padding: 0.75rem 1rem 0.5rem;
+  backdrop-filter: blur(8px);
+  transition: box-shadow 0.3s;
+}
+.curve-sticky.scrolled { box-shadow: 0 2px 8px rgba(29,45,24,0.06); }
+.curve-inner { max-width: 800px; margin: 0 auto; position: relative; }
+.curve-svg { width: 100%; height: 72px; display: block; }
+.curve-path { fill: none; stroke: var(--outline-variant); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: stroke 0.3s; }
+.curve-path-active { fill: none; stroke: var(--primary-container); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.curve-area { fill: var(--primary); opacity: 0.04; }
+.curve-area-active { fill: var(--primary); opacity: 0.08; }
+.curve-dot {
+  fill: var(--outline-variant);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.curve-dot.active {
+  fill: var(--primary-container);
+  r: 7;
+}
+.curve-dot.past { fill: var(--primary); }
+.curve-stage-label {
+  font-size: 9px;
+  fill: var(--hint);
+  text-anchor: middle;
+  font-family: var(--font-body);
+  font-weight: 500;
+  transition: fill 0.3s, font-weight 0.3s;
+}
+.curve-stage-label.active { fill: var(--primary); font-weight: 700; font-size: 10px; }
+.curve-emotion-label {
+  font-size: 11px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  fill: var(--primary-container);
+  text-anchor: middle;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.curve-emotion-label.visible { opacity: 1; }
+
+/* Header */
+.header {
+  padding: 3.5rem 1.5rem 2.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--outline-variant);
+  background: var(--surface-container-lowest);
+}
+.header h1 {
+  font-family: var(--font-headline);
+  font-size: 2.2rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.01em;
+}
+.header p {
+  color: var(--on-surface-variant);
+  font-size: 1rem;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.header .subtitle {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Container */
+.container { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.5rem; }
+
+/* Persona */
+.persona {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 3rem;
+}
+.persona-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: var(--font-headline);
+  font-size: 1.1rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.persona-info { font-size: 0.88rem; }
+.persona-info strong { color: var(--primary); }
+.persona-info .secondary { color: var(--hint); font-size: 0.82rem; margin-top: 0.2rem; }
+
+/* Flow */
+.flow-section { margin-bottom: 3rem; }
+.section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hint);
+  margin-bottom: 0.6rem;
+}
+.section-title {
+  font-family: var(--font-headline);
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 1.25rem;
+}
+.flow-track {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+}
+.flow-step {
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.flow-step:hover { background: var(--secondary-container); color: var(--primary); }
+.flow-arrow { color: var(--outline); font-size: 0.75rem; opacity: 0.5; }
+
+/* Timeline */
+.timeline-section { margin-bottom: 3rem; }
+.timeline { position: relative; padding-left: 2rem; }
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--outline-variant);
+  border-radius: 1px;
+}
+.stage-card {
+  position: relative;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem 1.1rem;
+  margin-bottom: 1.25rem;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.3s, box-shadow 0.3s;
+}
+.stage-card.visible { opacity: 1; transform: translateY(0); }
+.stage-card.active-stage { border-color: var(--primary-container); box-shadow: 0 0 0 1px var(--on-primary-container); }
+.stage-card::before {
+  content: '';
+  position: absolute;
+  left: -1.65rem;
+  top: 1.5rem;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--outline-variant);
+  border: 2px solid var(--bg);
+  z-index: 1;
+  transition: background 0.3s;
+}
+.stage-card.active-stage::before { background: var(--primary-container); box-shadow: 0 0 0 3px rgba(50,67,44,0.15); }
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.stage-number {
+  background: var(--primary);
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.stage-title {
+  font-family: var(--font-headline);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+.badge {
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+.badge-shipped { background: var(--shipped-bg); color: var(--shipped); }
+.badge-partial { background: var(--partial-bg); color: var(--partial); }
+.badge-planned { background: var(--planned-bg); color: var(--planned); }
+.stage-body { display: grid; gap: 0.4rem; font-size: 0.85rem; }
+.stage-row { display: flex; gap: 0.6rem; align-items: baseline; }
+.stage-label {
+  font-weight: 600;
+  min-width: 70px;
+  flex-shrink: 0;
+  color: var(--hint);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-top: 2px;
+}
+.stage-value { color: var(--on-surface-variant); line-height: 1.5; }
+.stage-value.gap-text { color: var(--partial); font-size: 0.82rem; }
+.emotion-tag {
+  display: inline-block;
+  background: var(--secondary-container);
+  color: var(--primary-container);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* Critical Moments */
+.moments-section { margin-bottom: 3rem; }
+.moments-list { display: grid; gap: 0.75rem; }
+.moment-card {
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-left: 3px solid var(--primary-container);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 0.9rem 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.moment-card .moment-stage {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary-container);
+  margin-bottom: 0.25rem;
+}
+.moment-card .moment-text { color: var(--on-surface-variant); }
+
+/* Legend */
+.legend {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--hint);
+  font-weight: 500;
+}
+.legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+.legend-dot.shipped { background: var(--shipped); }
+.legend-dot.partial { background: var(--partial); }
+.legend-dot.planned { background: var(--planned); }
+
+footer {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--hint);
+  font-size: 0.78rem;
+  border-top: 1px solid var(--outline-variant);
+}
+footer code {
+  background: var(--surface-container);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .header { padding: 2.5rem 1rem 2rem; }
+  .header h1 { font-size: 1.6rem; }
+  .container { padding: 1.5rem 1rem; }
+  .persona { flex-direction: column; text-align: center; gap: 0.75rem; }
+  .flow-track { padding: 0.75rem; }
+  .flow-step { font-size: 0.65rem; padding: 0.3rem 0.5rem; }
+  .timeline { padding-left: 1.75rem; }
+  .stage-card { padding: 1rem 1.1rem; }
+  .stage-card::before { left: -1.4rem; width: 9px; height: 9px; }
+  .badge { margin-left: 0; }
+  .curve-sticky { padding: 0.5rem 0.75rem 0.35rem; }
+  .curve-svg { height: 56px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="subtitle">Confluex &mdash; AI Research Agent</div>
+  <h1>User Journey Map</h1>
+  <p>From a fuzzy research topic to ranked papers, grounded conversations, and copy-ready writing artifacts.</p>
+</div>
+
+<div class="curve-sticky" id="curveStickyBar">
+  <div class="curve-inner">
+    <svg class="curve-svg" id="curveSvg" viewBox="0 0 800 72" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+      <!-- Area under curve (inactive) -->
+      <path class="curve-area" id="curveAreaBg" d=""/>
+      <!-- Area under curve (active portion) -->
+      <path class="curve-area-active" id="curveAreaActive" d=""/>
+      <!-- Line (inactive) -->
+      <path class="curve-path" id="curveLineBg" d=""/>
+      <!-- Line (active portion) -->
+      <path class="curve-path-active" id="curveLineActive" d=""/>
+      <!-- Dots -->
+      <g id="curveDots"></g>
+      <!-- Stage labels -->
+      <g id="curveLabels"></g>
+      <!-- Active emotion label -->
+      <text class="curve-emotion-label" id="curveEmotionLabel" x="400" y="14"></text>
+    </svg>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="persona">
+    <div class="persona-avatar">M</div>
+    <div class="persona-info">
+      <strong>Minh</strong> &mdash; PhD candidate writing a thesis-related literature review.
+      <div class="secondary">Secondary: Lecturer / Researcher preparing a grant proposal.</div>
+    </div>
+  </div>
+
+  <section class="flow-section">
+    <div class="section-label">Overview</div>
+    <div class="section-title">High-Level Flow</div>
+    <div class="flow-track">
+      <span class="flow-step">Discover</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Sign Up</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Create Project</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Upload PDFs</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Discovery</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Browse Papers</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Paper Q&amp;A</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Select + Write</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">QA Review</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Iterate</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Export</span><span class="flow-arrow">&rarr;</span>
+      <span class="flow-step">Return</span>
+    </div>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-dot shipped"></span> Shipped</span>
+      <span class="legend-item"><span class="legend-dot partial"></span> Partial</span>
+      <span class="legend-item"><span class="legend-dot planned"></span> Planned</span>
+    </div>
+  </section>
+
+  <section class="timeline-section">
+    <div class="section-label">Stages</div>
+    <div class="section-title">Stage-by-Stage Journey</div>
+    <div class="timeline">
+
+      <div class="stage-card" data-stage="1">
+        <div class="stage-header">
+          <span class="stage-number">1</span>
+          <span class="stage-title">Discover &amp; Decide to Try</span>
+          <span class="badge badge-planned">Planned</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Find a faster alternative to 2-4 months of manual literature review.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Lands on the app, reads pitch, clicks "Try it."</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">Public landing page + live demo URL (Phase 4/5).</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Skeptical but curious</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="2">
+        <div class="stage-header">
+          <span class="stage-number">2</span>
+          <span class="stage-title">Sign Up / Log In</span>
+          <span class="badge badge-shipped">Shipped</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Get access quickly with minimal friction.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Register with email/password, or log in.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">POST /auth/register, POST /auth/login &rarr; JWT token.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Neutral</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="3">
+        <div class="stage-header">
+          <span class="stage-number">3</span>
+          <span class="stage-title">Create Project &amp; Define Topic</span>
+          <span class="badge badge-shipped">Shipped</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Translate a vague research idea into a runnable project.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Enter title, topic description, year range, candidate/summary limits.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">POST /projects persists project defaults. First chat message creates project.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Uncertain</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="4">
+        <div class="stage-header">
+          <span class="stage-number">4</span>
+          <span class="stage-title">Upload Seed Reference PDFs</span>
+          <span class="badge badge-shipped">Shipped</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Bring existing reading into the system so results are anchored.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Drag-and-drop PDFs into the project composer.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">POST /projects/{id}/reference-files &rarr; validate, store, parse, create linked Paper.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Reassured</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="5">
+        <div class="stage-header">
+          <span class="stage-number">5</span>
+          <span class="stage-title">Run Discovery Pipeline</span>
+          <span class="badge badge-partial">Partial</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Turn the topic into a ranked, summarized paper shortlist (~90s).</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Clicks "Run" &mdash; Searcher expands queries, Reader ranks + summarizes.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">POST /projects/{id}/run &rarr; LangGraph discovery graph (searcher &rarr; reader).</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Anxious + excited</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">No SSE progress stream yet.</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="6">
+        <div class="stage-header">
+          <span class="stage-number">6</span>
+          <span class="stage-title">Browse Ranked Paper List</span>
+          <span class="badge badge-shipped">Shipped</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Quickly decide which papers matter &mdash; triage 30 papers in minutes.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Sort by relevance, filter, expand summaries, view citation graphs, multi-select.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">GET /projects/{id}/papers with filtering, pagination, joined citation counts.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Empowered</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="7">
+        <div class="stage-header">
+          <span class="stage-number">7</span>
+          <span class="stage-title">Deep-Dive Paper Q&amp;A</span>
+          <span class="badge badge-shipped">Shipped</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Understand papers without reading every PDF end-to-end.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Select 0-5 papers, ask grounded questions, follow up in persisted conversations.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">Project-scoped chat with streaming SSE, on-demand PDF extraction, top-k retrieval.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Confident</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="8">
+        <div class="stage-header">
+          <span class="stage-number">8</span>
+          <span class="stage-title">Select Papers &amp; Request Writing</span>
+          <span class="badge badge-partial">Partial</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Get a ready-to-paste writing artifact grounded in chosen papers.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Multi-select papers, enter instruction, choose output + citation + reference format.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">POST /projects/{id}/writer/generate &rarr; grounded Writer agent + QA validator.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">In control</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">Writer workspace UI not yet exposed in frontend.</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="9">
+        <div class="stage-header">
+          <span class="stage-number">9</span>
+          <span class="stage-title">Review Output + QA Flags</span>
+          <span class="badge badge-partial">Partial</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Confirm the generated artifact is academically defensible.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Read body, inspect citations, review QA flags with severity and location.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">QA enforces: unsupported claims, missing references, malformed LaTeX, incomplete metadata.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Critical &rarr; Trusted</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">Output review UI still planned; backend/API only.</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="10">
+        <div class="stage-header">
+          <span class="stage-number">10</span>
+          <span class="stage-title">Iterate / Regenerate</span>
+          <span class="badge badge-partial">Partial</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Improve the artifact without starting from scratch.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Adjust instruction, swap papers, change format, regenerate.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">New writer requests produce new persisted outputs; prior outputs remain accessible.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Productive</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">No diff view or partial regeneration yet.</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="11">
+        <div class="stage-header">
+          <span class="stage-number">11</span>
+          <span class="stage-title">Copy / Export</span>
+          <span class="badge badge-planned">Planned</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Take the artifact into LaTeX, Google Docs, Word, or Markdown.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">Copy body + references, or download in chosen format.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">Deterministic formatter emits LaTeX \cite{} + BibTeX, numbered [1], or author-year.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Satisfied</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">.bib, .tex, .docx download endpoints not yet implemented.</span></div>
+        </div>
+      </div>
+
+      <div class="stage-card" data-stage="12">
+        <div class="stage-header">
+          <span class="stage-number">12</span>
+          <span class="stage-title">Return &amp; Manage Library</span>
+          <span class="badge badge-partial">Partial</span>
+        </div>
+        <div class="stage-body">
+          <div class="stage-row"><span class="stage-label">Goal</span><span class="stage-value">Run more projects, revisit prior outputs, keep an organized research library.</span></div>
+          <div class="stage-row"><span class="stage-label">Actions</span><span class="stage-value">View project list, revisit outputs, upload more PDFs, rename/delete projects.</span></div>
+          <div class="stage-row"><span class="stage-label">System</span><span class="stage-value">GET /projects, PATCH, DELETE, per-project library, persisted conversations + outputs.</span></div>
+          <div class="stage-row"><span class="stage-label">Feeling</span><span class="emotion-tag">Invested / Loyal</span></div>
+          <div class="stage-row"><span class="stage-label">Gap</span><span class="stage-value gap-text">No tagging, annotations, or cross-project search yet.</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="moments-section">
+    <div class="section-label">Key Risks</div>
+    <div class="section-title">Critical Moments of Truth</div>
+    <div class="moments-list">
+      <div class="moment-card">
+        <div class="moment-stage">Stage 5 &mdash; First 10 seconds</div>
+        <div class="moment-text">Discovery must feel alive with progress feedback and SSE streaming.</div>
+      </div>
+      <div class="moment-card">
+        <div class="moment-stage">Stage 6 &mdash; Paper list quality</div>
+        <div class="moment-text">If the top 5 papers look irrelevant, the user churns immediately.</div>
+      </div>
+      <div class="moment-card">
+        <div class="moment-stage">Stage 7 &mdash; First grounded answer</div>
+        <div class="moment-text">Must reference the actual paper text, not a generic abstract restatement.</div>
+      </div>
+      <div class="moment-card">
+        <div class="moment-stage">Stage 8 &mdash; First writer output</div>
+        <div class="moment-text">Must obey the instruction exactly, citing only selected papers.</div>
+      </div>
+      <div class="moment-card">
+        <div class="moment-stage">Stage 9 &mdash; QA-flag clarity</div>
+        <div class="moment-text">Each flag must explain <em>why</em> and be actionable &mdash; the demo-defining moment.</div>
+      </div>
+      <div class="moment-card">
+        <div class="moment-stage">Stage 11 &mdash; Copy fidelity</div>
+        <div class="moment-text">\cite{} keys and BibTeX must paste cleanly into Overleaf / Word without fixes.</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>Source: <code>docs/user-journey.md</code> &middot; Confluex &mdash; Automated Literature Review</p>
+</footer>
+
+<script>
+(function() {
+  var STAGES = [
+    { emotion: 'Skeptical but curious', valence: 0.4 },
+    { emotion: 'Neutral',              valence: 0.35 },
+    { emotion: 'Uncertain',            valence: 0.5 },
+    { emotion: 'Reassured',            valence: 0.65 },
+    { emotion: 'Anxious + excited',    valence: 0.72 },
+    { emotion: 'Empowered',            valence: 0.6 },
+    { emotion: 'Confident',            valence: 0.78 },
+    { emotion: 'In control',           valence: 0.88 },
+    { emotion: 'Critical \u2192 Trusted', valence: 0.82 },
+    { emotion: 'Productive',           valence: 0.75 },
+    { emotion: 'Satisfied',            valence: 0.7 },
+    { emotion: 'Invested / Loyal',     valence: 0.92 }
+  ];
+
+  var PAD_LEFT = 50, PAD_RIGHT = 50, HEIGHT = 72, TOP_PAD = 22, BOT_PAD = 16;
+  var W = 800;
+  var usableW = W - PAD_LEFT - PAD_RIGHT;
+  var usableH = HEIGHT - TOP_PAD - BOT_PAD;
+
+  function stageX(i) { return PAD_LEFT + (i / (STAGES.length - 1)) * usableW; }
+  function stageY(i) { return TOP_PAD + (1 - STAGES[i].valence) * usableH; }
+
+  function buildPath(startIdx, endIdx) {
+    if (endIdx < startIdx) return '';
+    var d = 'M' + stageX(startIdx).toFixed(1) + ',' + stageY(startIdx).toFixed(1);
+    for (var i = startIdx; i < endIdx; i++) {
+      var x1 = stageX(i), y1 = stageY(i);
+      var x2 = stageX(i + 1), y2 = stageY(i + 1);
+      var cpx = (x2 - x1) * 0.4;
+      d += ' C' + (x1 + cpx).toFixed(1) + ',' + y1.toFixed(1) + ' ' +
+           (x2 - cpx).toFixed(1) + ',' + y2.toFixed(1) + ' ' +
+           x2.toFixed(1) + ',' + y2.toFixed(1);
+    }
+    return d;
+  }
+
+  function buildAreaPath(startIdx, endIdx) {
+    var linePath = buildPath(startIdx, endIdx);
+    if (!linePath) return '';
+    var bottom = HEIGHT - 4;
+    return linePath + ' L' + stageX(endIdx).toFixed(1) + ',' + bottom + ' L' + stageX(startIdx).toFixed(1) + ',' + bottom + ' Z';
+  }
+
+  // Render initial curve
+  var dotsG = document.getElementById('curveDots');
+  var labelsG = document.getElementById('curveLabels');
+  var bgLine = document.getElementById('curveLineBg');
+  var bgArea = document.getElementById('curveAreaBg');
+  var activeLine = document.getElementById('curveLineActive');
+  var activeArea = document.getElementById('curveAreaActive');
+  var emotionLabel = document.getElementById('curveEmotionLabel');
+
+  bgLine.setAttribute('d', buildPath(0, STAGES.length - 1));
+  bgArea.setAttribute('d', buildAreaPath(0, STAGES.length - 1));
+
+  for (var i = 0; i < STAGES.length; i++) {
+    var cx = stageX(i), cy = stageY(i);
+    var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx.toFixed(1));
+    circle.setAttribute('cy', cy.toFixed(1));
+    circle.setAttribute('r', '4.5');
+    circle.setAttribute('class', 'curve-dot');
+    circle.setAttribute('data-idx', i);
+    dotsG.appendChild(circle);
+
+    var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', cx.toFixed(1));
+    text.setAttribute('y', (HEIGHT - 1).toFixed(1));
+    text.setAttribute('class', 'curve-stage-label');
+    text.setAttribute('data-idx', i);
+    text.textContent = (i + 1).toString();
+    labelsG.appendChild(text);
+  }
+
+  // Scroll tracking
+  var stageCards = document.querySelectorAll('.stage-card');
+  var currentActiveStage = -1;
+  var stickyBar = document.getElementById('curveStickyBar');
+
+  function updateCurve(activeIdx) {
+    if (activeIdx === currentActiveStage) return;
+    currentActiveStage = activeIdx;
+
+    // Update active line
+    if (activeIdx >= 0) {
+      activeLine.setAttribute('d', buildPath(0, activeIdx));
+      activeArea.setAttribute('d', buildAreaPath(0, activeIdx));
+    } else {
+      activeLine.setAttribute('d', '');
+      activeArea.setAttribute('d', '');
+    }
+
+    // Update dots
+    var dots = dotsG.querySelectorAll('circle');
+    var labels = labelsG.querySelectorAll('text');
+    for (var i = 0; i < dots.length; i++) {
+      dots[i].classList.remove('active', 'past');
+      labels[i].classList.remove('active');
+      if (i === activeIdx) {
+        dots[i].classList.add('active');
+        labels[i].classList.add('active');
+      } else if (i < activeIdx) {
+        dots[i].classList.add('past');
+      }
+    }
+
+    // Update emotion label
+    if (activeIdx >= 0) {
+      emotionLabel.textContent = STAGES[activeIdx].emotion;
+      emotionLabel.setAttribute('x', stageX(activeIdx).toFixed(1));
+      emotionLabel.setAttribute('y', Math.max(12, stageY(activeIdx) - 12).toFixed(1));
+      emotionLabel.classList.add('visible');
+    } else {
+      emotionLabel.classList.remove('visible');
+    }
+
+    // Highlight active card
+    stageCards.forEach(function(card, idx) {
+      card.classList.toggle('active-stage', idx === activeIdx);
+    });
+  }
+
+  // IntersectionObserver for visibility animation
+  var visObserver = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) entry.target.classList.add('visible');
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -30px 0px' });
+
+  stageCards.forEach(function(card) { visObserver.observe(card); });
+
+  // Scroll-based stage detection
+  function onScroll() {
+    var scrolled = window.scrollY > 60;
+    stickyBar.classList.toggle('scrolled', scrolled);
+
+    var viewMid = window.innerHeight * 0.45;
+    var activeIdx = -1;
+    for (var i = stageCards.length - 1; i >= 0; i--) {
+      var rect = stageCards[i].getBoundingClientRect();
+      if (rect.top < viewMid && rect.bottom > 0) {
+        activeIdx = i;
+        break;
+      }
+    }
+    updateCurve(activeIdx);
+  }
+
+  var ticking = false;
+  window.addEventListener('scroll', function() {
+    if (!ticking) {
+      requestAnimationFrame(function() { onScroll(); ticking = false; });
+      ticking = true;
+    }
+  }, { passive: true });
+
+  // Click on dot scrolls to stage
+  dotsG.addEventListener('click', function(e) {
+    var target = e.target;
+    if (target.tagName === 'circle') {
+      var idx = parseInt(target.getAttribute('data-idx'), 10);
+      if (stageCards[idx]) stageCards[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+
+  onScroll();
+})();
+</script>
+</body>
+</html>
