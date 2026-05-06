@@ -101,6 +101,13 @@ flowchart TB
 
 ```mermaid
 flowchart TB
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
+    classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
+
     App["backend/main.py<br/>create_app"] --> Health["GET /healthz<br/>returns status ok"]
     App --> Auth["/auth router"]
     App --> Admin["/admin router"]
@@ -193,6 +200,12 @@ flowchart TB
     OwnedProjectG --> ProjectModel
     OwnedProjectH --> ProjectModel
     OwnedProjectI --> ProjectModel
+
+    class App,Health entry;
+    class Auth,Admin,Projects,Pipeline,Register,Login,AdminAccess,AdminTokenUsage,CreateProject,ListProjects,GetProject,DeleteProject,RunProject,TokenUsage,UploadReference,ListReferences,DeleteReference,ListPapers,PaperCitationGraph,ImportCitation,PipelineHealth,AuthResponse api;
+    class AuthRequiredAdminAccess,AdminRequired,AuthRequiredA,AuthRequiredB,OwnedProjectA,OwnedProjectB,OwnedProjectC,OwnedProjectUsage,OwnedProjectD,OwnedProjectE,OwnedProjectF,OwnedProjectG,OwnedProjectH,OwnedProjectI dependency;
+    class CheckExistingUser,InsertUser,LoadLoginUser,DeleteProjectRows,DeleteProjectStoredPdfs,DeleteLinkedPaper,DeleteReferenceRow,DeleteStoredPdf,InsertPaper,UserModel,ProjectModel persistence;
+    class HashPassword,RegisterToken,VerifyPassword,LoginToken,GlobalUsage,LiteraturePipelineService,ReferenceFileService,ReferenceFileRead,PaperFilters,Pagination,CitationService,ImportValidation,CitationResolver,CitationEdges,NodeNames service;
 ```
 
 ## Authentication And Dependency Flow
@@ -292,6 +305,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef state fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+
     Start([START]) --> SearcherNode["searcher_node<br/>SearcherAgent.run"]
     SearcherNode --> ReaderNode["reader_node<br/>ReaderAgent.run"]
     ReaderNode --> Decision{"Fewer than 5 ranked papers?"}
@@ -320,12 +337,22 @@ flowchart TB
     ReaderNode -. updates .-> StateErrors
     WarningNode -. updates .-> StateFlags
     WriterNode -. reads .-> StateDraft
+
+    class Start,End,Decision entry;
+    class SearcherNode,ReaderNode,WarningNode,WriterNode service;
+    class StateProject,StateTopic,StateLimits,StateQueries,StateRaw,StateRanked,StateSummaries,StateDraft,StateFlags,StateErrors state;
 ```
 
 ## SearcherAgent Internals
 
 ```mermaid
 flowchart TB
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
+    classDef state fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+
     Run["SearcherAgent.run"] --> Prepare["prepare existing project papers"]
     Prepare --> DeleteSummaries["delete Summary rows for project papers"]
     Prepare --> DeleteStalePapers["delete non-user_upload Paper rows"]
@@ -362,12 +389,24 @@ flowchart TB
     Deduplicate --> Limit["take project.candidate_limit"]
     Limit --> Persist["insert Paper rows<br/>status candidate<br/>source semantic_scholar or arxiv"]
     Persist --> SearcherResult["state update<br/>queries<br/>raw_papers<br/>errors"]
+
+    class Run,NamedEntityDecision,LLMConfigured entry;
+    class Prepare,ReferenceContext,Collect,Expand,NamedEntityQueries,FallbackQueries,QueryPrompt,CoerceQueries,SearchFanout,NormalizeSemantic,NormalizeArxiv,CandidatePool,Filter,Prioritize,Deduplicate,Limit service;
+    class DeleteSummaries,DeleteStalePapers,PreserveUploads,Persist persistence;
+    class OpenRouterChat,SemanticScholar,Arxiv external;
+    class QueryStrings,SearcherResult state;
 ```
 
 ## ReaderAgent Internals
 
 ```mermaid
 flowchart TB
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
+    classDef state fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+
     Run["ReaderAgent.run"] --> LoadCandidates["select Paper rows by project_id"]
     LoadCandidates --> HasCandidates{"Any candidates?"}
     HasCandidates -- no --> NoCandidates["return empty ranked_papers and summaries<br/>append error"]
@@ -404,6 +443,12 @@ flowchart TB
     MarkSummarized --> Commit["commit transaction"]
     MarkSummaryError --> Commit
     Commit --> ReaderResult["state update<br/>ranked_papers<br/>summaries<br/>errors"]
+
+    class Run,HasCandidates,LiveConfigured,Retry entry;
+    class NoCandidates,Rank,BuildEmbeddingInputs,EmbedLive,LocalEmbeddings,LocalFallback,Score,Sort,TopPapers,Summarize,SummaryConfigured,FallbackSummary,SummaryError,ParsedSummary service;
+    class LoadCandidates,MarkRanked,PersistSummary,PersistSummaryError,MarkSummarized,MarkSummaryError,Commit persistence;
+    class OpenRouterEmbeddings,SummaryLLM external;
+    class ReaderResult state;
 ```
 
 ## Reference File Upload Flow
@@ -463,6 +508,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
+    classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
+    classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+
     DeleteRoute["DELETE /projects/{project_id}/reference-files/{reference_file_id}"] --> CurrentUser["CurrentUser dependency"]
     DeleteRoute --> OwnedProject["get_owned_project_or_404"]
     OwnedProject --> LoadReference["get_project_reference_file_or_404<br/>select ReferenceFile with linked Paper"]
@@ -474,6 +525,12 @@ flowchart TB
     Commit --> Unlink["anyio.to_thread.run_sync<br/>Path(storage_path).unlink(missing_ok=True)"]
     Unlink --> IgnoreOSError["OSError ignored"]
     IgnoreOSError --> NoContent["204 No Content"]
+
+    class DeleteRoute,NoContent api;
+    class CurrentUser,OwnedProject dependency;
+    class LoadReference,DeletePaper,DeleteReference,Commit persistence;
+    class HasPaper entry;
+    class Unlink,IgnoreOSError service;
 ```
 
 ## Database Relationships
@@ -585,6 +642,11 @@ flowchart TB
 
 ```mermaid
 flowchart LR
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+
     Env["Environment variables<br/>.env supported by pydantic-settings"] --> Settings["Settings<br/>backend/config.py<br/>get_settings cached by lru_cache"]
 
     Settings --> AppName["APP_NAME"]
@@ -606,12 +668,22 @@ flowchart LR
     RuntimeTuning --> Reader["ReaderAgent and HTTP clients"]
     UploadTuning --> ReferenceFileService["ReferenceFileService"]
     SemanticScholarKey --> SemanticScholar["Semantic Scholar API headers"]
+
+    class Env,AppName,DatabaseUrl,Jwt,OpenRouter,DeclaredProjectDefaults,SearchTuning,RuntimeTuning,UploadTuning,SemanticScholarKey entry;
+    class Settings dependency;
+    class SessionManager,Security,LLM,Embeddings,ProjectDefaultsNote,Searcher,Reader,ReferenceFileService service;
+    class SemanticScholar external;
 ```
 
 ## External Integration Boundaries
 
 ```mermaid
 flowchart TB
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+
     Backend["Backend process"] --> OpenRouterChat["OpenRouter chat completions<br/>query expansion<br/>structured summaries"]
     Backend --> OpenRouterEmbeddings["OpenRouter embeddings<br/>ranking vectors"]
     Backend --> SemanticScholar["Semantic Scholar Graph API<br/>paper search"]
@@ -624,6 +696,11 @@ flowchart TB
     SemanticScholar --> SearchErrorHandling["Provider exceptions are collected<br/>into pipeline errors"]
     Arxiv --> SearchErrorHandling
     LocalDisk --> UploadCleanup["Reference/project delete attempts to unlink PDFs<br/>OSError is ignored"]
+
+    class Backend entry;
+    class OpenRouterChat,OpenRouterEmbeddings,SemanticScholar,Arxiv external;
+    class LocalDisk,Database persistence;
+    class ChatFallback,EmbeddingFallback,SearchErrorHandling,UploadCleanup service;
 ```
 
 ## File-To-Responsibility Map
