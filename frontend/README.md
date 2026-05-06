@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with CORS allowing `http://localhost:3000` (already configured in `backend/main.py`).
+Backend must be running on `NEXT_PUBLIC_API_BASE_URL` with `CORS_ALLOWED_ORIGINS` including the frontend origin. Local defaults allow `http://localhost:3000`; production should set the backend env var to the Vercel production URL.
 
 On Linux machines with user systemd available, prefer the bounded dev server when testing Turbopack compiles:
 
