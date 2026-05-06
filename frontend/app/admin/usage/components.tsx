@@ -253,7 +253,7 @@ export function DateRangeSelect({
         <div
           role="dialog"
           aria-labelledby={labelId}
-          className="absolute right-0 z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-outline/25 bg-surface-container-lowest p-3 shadow-lg"
+          className="absolute left-0 z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-outline/25 bg-surface-container-lowest p-3 shadow-lg"
         >
           <div className="grid grid-cols-3 gap-2">
             {RANGE_OPTIONS.map((option) => {
@@ -263,11 +263,10 @@ export function DateRangeSelect({
                   key={option.key}
                   type="button"
                   onClick={() => applyPreset(option.key)}
-                  className={`h-8 rounded-lg border px-2 text-xs font-medium transition-colors ${
-                    active
+                  className={`h-8 rounded-lg border px-2 text-xs font-medium transition-colors ${active
                       ? "border-primary/35 bg-primary/10 text-primary"
                       : "border-outline/20 text-on-surface-variant hover:border-primary/35 hover:bg-primary/5"
-                  }`}
+                    }`}
                 >
                   {option.label}
                 </button>
@@ -321,15 +320,14 @@ export function DateRangeSelect({
                   onClick={() => handleDayClick(dayKey)}
                   onDoubleClick={() => applySingleDay(dayKey)}
                   aria-label={formatDate(dayKey)}
-                  className={`aspect-square rounded-lg text-xs tabular-nums transition-colors ${
-                    pending
+                  className={`aspect-square rounded-lg text-xs tabular-nums transition-colors ${pending
                       ? "bg-accent text-on-primary"
                       : selected
                         ? "bg-primary/10 font-semibold text-primary"
-                      : inMonth
-                        ? "text-on-surface hover:bg-primary/5"
-                        : "text-hint/55 hover:bg-primary/5"
-                  }`}
+                        : inMonth
+                          ? "text-on-surface hover:bg-primary/5"
+                          : "text-hint/55 hover:bg-primary/5"
+                    }`}
                   aria-pressed={selected || pending}
                 >
                   {day.getDate()}
@@ -537,13 +535,12 @@ export function UserSelect({
                     selectUser(user);
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
-                  className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs transition-colors ${
-                    selected
+                  className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs transition-colors ${selected
                       ? "bg-primary/10 text-primary"
                       : active
                         ? "bg-primary/5 text-on-surface"
-                      : "text-on-surface hover:bg-primary/5"
-                  }`}
+                        : "text-on-surface hover:bg-primary/5"
+                    }`}
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{user.user_email}</span>
@@ -1042,11 +1039,10 @@ function AdminSidebar({ activeHref }: { activeHref: string }) {
             <Link
               key={section.href}
               href={section.href}
-              className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-                active
+              className={`flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${active
                   ? "bg-primary/10 text-primary"
                   : "text-on-surface-variant hover:bg-primary/10 hover:text-primary"
-              }`}
+                }`}
             >
               <span
                 className="material-symbols-outlined text-primary"
@@ -1085,11 +1081,10 @@ function MobileAdminNav({ activeHref }: { activeHref: string }) {
             <Link
               key={section.href}
               href={section.href}
-              className={`inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-                active
+              className={`inline-flex h-9 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors ${active
                   ? "bg-primary/10 text-primary"
                   : "text-on-surface-variant hover:bg-primary/10 hover:text-primary"
-              }`}
+                }`}
             >
               <span className="material-symbols-outlined text-primary" style={{ fontSize: "17px" }}>
                 {section.icon}
