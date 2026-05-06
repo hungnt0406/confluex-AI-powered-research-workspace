@@ -95,7 +95,7 @@ flowchart LR
 ### Stage 6 — Browse ranked paper list
 
 - **User goal:** Quickly decide which papers matter.
-- **User actions:** Sort by relevance, filter by year or relevance slider, expand cards to see structured summary, check papers to select for Q&A or writing.
+- **User actions:** Sort by relevance, filter by year or relevance slider, expand cards to see structured summary, view citation graphs to find and import related papers, check papers to select for Q&A or writing.
 - **System:** `GET /projects/{id}/papers?status=...&min_relevance=...` paginated; summaries plus persisted citation/reference counts joined.
 - **Touchpoint:** The current frontend shows ranked and uploaded papers in the right-side context panel, with uploaded references visibly marked and available for the same multi-select flow. A fuller paper-library screen remains planned.
 - **Feeling:** Empowered — "I can triage 30 papers in minutes."
