@@ -47,6 +47,21 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-06T12:58:00+07:00
+- **Request:** Help me improve the diagrams that will be rendered by mermaid in docs/backend-diagram.md and check the rendered markdown visually.
+- **Files changed:** `docs/backend-diagram.md`
+- **Current status:** Implemented global stylistic changes to the mermaid flowcharts by defining and applying semantic classDefs. Addressed layout clutter by splitting the monolithic API Routes diagram into two independent flowcharts (Auth/Admin and Projects/Pipeline), converting layout to LR (Left-to-Right), and deduplicating shared dependency nodes.
+
+###  2026-05-06T11:47:29+07:00
+- **Request:** Review and update stale documentations for this project to match the current implementation (citation graph import).
+- **Files changed:** `docs/backend-diagram.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md`
+- **Current status:** Updated the backend architecture diagram to include the `POST /projects/{project_id}/papers/import-citation` endpoint. Added a test case for importing citation graph papers in the Postman API guide. Updated the user journey to reflect the new feature in the frontend where users can view and import papers from the citation graph.
+
+### 2026-05-06T08:46:19+07:00
+- **Request:** Fix UI bug where the date range popover is partially hidden by the left sidebar in the admin usage dashboard.
+- **Files changed:** `frontend/app/admin/usage/components.tsx`
+- **Current status:** Investigated with the browser agent, reproducing the clipped popover bug. The underlying cause was the popover's `right-0` absolute positioning making it overflow the left edge of the `overflow-y-auto` container `div.flex-1`, causing it to be visually clipped right where the sidebar is located. Fixed by changing `right-0` to `left-0` to keep the popover bounded correctly on the right within its scrollable container.
+
 ### 2026-05-05 23:45
 - **done:**
   - Updated CI workflow to use a dedicated test database name and added `TEST_DATABASE_URL` for reliable Postgres testing in GitHub Actions.
@@ -1091,12 +1106,4 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
   - Added a D3 collision force, increased node repulsion, deferred custom force wiring to avoid initialization races, and moved zoom-to-fit to `onEngineStop`.
   - Status: implementation complete; targeted static frontend test and TypeScript verification passed.
 
-## 2026-05-06T08:46:19+07:00
-- **Request:** Fix UI bug where the date range popover is partially hidden by the left sidebar in the admin usage dashboard.
-- **Files changed:** `frontend/app/admin/usage/components.tsx`
-- **Current status:** Investigated with the browser agent, reproducing the clipped popover bug. The underlying cause was the popover's `right-0` absolute positioning making it overflow the left edge of the `overflow-y-auto` container `div.flex-1`, causing it to be visually clipped right where the sidebar is located. Fixed by changing `right-0` to `left-0` to keep the popover bounded correctly on the right within its scrollable container.
 
-## 2026-05-06T11:47:29+07:00
-- **Request:** Review and update stale documentations for this project to match the current implementation (citation graph import).
-- **Files changed:** `docs/backend-diagram.md`, `docs/TEST_POSTMAN.md`, `docs/user-journey.md`
-- **Current status:** Updated the backend architecture diagram to include the `POST /projects/{project_id}/papers/import-citation` endpoint. Added a test case for importing citation graph papers in the Postman API guide. Updated the user journey to reflect the new feature in the frontend where users can view and import papers from the citation graph.
