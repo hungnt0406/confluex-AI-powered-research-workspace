@@ -97,29 +97,26 @@ flowchart TB
     class OpenRouterChat,OpenRouterEmbeddings,SemanticScholarApi,ArxivApi external;
 ```
 
-## API Routes And Main Backend Responsibilities
+## Auth And Admin API Routes
 
 ```mermaid
-flowchart TB
+flowchart LR
     classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
     classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
     classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
     classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
     classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
-    classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
 
-    App["backend/main.py<br/>create_app"] --> Health["GET /healthz<br/>returns status ok"]
-    App --> Auth["/auth router"]
+    App["backend/main.py"] --> Auth["/auth router"]
     App --> Admin["/admin router"]
-    App --> Projects["/projects router"]
-    App --> Pipeline["/pipeline router"]
 
     subgraph AuthEndpoints["Auth endpoints"]
-        Auth --> Register["POST /auth/register"]
-        Auth --> Login["POST /auth/login"]
+        direction TB
+        Auth --> Register["POST /register"]
+        Auth --> Login["POST /login"]
 
         Register --> CheckExistingUser["select User by email"]
-        Register --> HashPassword["hash_password<br/>PBKDF2 SHA-256"]
+        Register --> HashPassword["hash_password"]
         Register --> InsertUser["insert User"]
         Register --> RegisterToken["create_access_token"]
 
@@ -127,85 +124,101 @@ flowchart TB
         Login --> VerifyPassword["verify_password"]
         Login --> LoginToken["create_access_token"]
 
-        RegisterToken --> AuthResponse["AuthResponse<br/>access_token<br/>token_type<br/>user"]
+        RegisterToken --> AuthResponse["AuthResponse"]
         LoginToken --> AuthResponse
     end
 
     subgraph AdminEndpoints["Admin endpoints"]
-        Admin --> AdminAccess["GET /admin/access"]
-        Admin --> AdminTokenUsage["GET /admin/token-usage"]
+        direction TB
+        Admin --> AdminAccess["GET /access"]
+        Admin --> AdminTokenUsage["GET /token-usage"]
 
         AdminAccess --> AuthRequiredAdminAccess["CurrentUser"]
         AdminTokenUsage --> AdminRequired["AdminUser"]
         AdminTokenUsage --> GlobalUsage["summarize_admin_usage"]
     end
 
-    subgraph ProjectEndpoints["Project endpoints"]
-        Projects --> CreateProject["POST /projects"]
-        Projects --> ListProjects["GET /projects"]
-        Projects --> GetProject["GET /projects/{project_id}"]
-        Projects --> DeleteProject["DELETE /projects/{project_id}"]
-        Projects --> RunProject["POST /projects/{project_id}/run"]
-        Projects --> TokenUsage["GET /projects/{project_id}/token-usage"]
-        Projects --> UploadReference["POST /projects/{project_id}/reference-files"]
-        Projects --> ListReferences["GET /projects/{project_id}/reference-files"]
-        Projects --> DeleteReference["DELETE /projects/{project_id}/reference-files/{reference_file_id}"]
-        Projects --> ListPapers["GET /projects/{project_id}/papers"]
-        Projects --> PaperCitationGraph["GET /projects/{project_id}/papers/{paper_id}/citation-graph"]
-        Projects --> ImportCitation["POST /projects/{project_id}/papers/import-citation"]
+    class App entry;
+    class Auth,Admin,Register,Login,AdminAccess,AdminTokenUsage,AuthResponse api;
+    class AuthRequiredAdminAccess,AdminRequired dependency;
+    class CheckExistingUser,InsertUser,LoadLoginUser persistence;
+    class HashPassword,RegisterToken,VerifyPassword,LoginToken,GlobalUsage service;
+```
 
-        CreateProject --> AuthRequiredA["CurrentUser"]
-        ListProjects --> AuthRequiredB["CurrentUser"]
-        GetProject --> OwnedProjectA["get_owned_project_or_404"]
-        DeleteProject --> OwnedProjectB["get_owned_project_or_404"]
-        RunProject --> OwnedProjectC["get_owned_project_or_404"]
-        TokenUsage --> OwnedProjectUsage["get_owned_project_or_404"]
-        UploadReference --> OwnedProjectD["get_owned_project_or_404"]
-        ListReferences --> OwnedProjectE["get_owned_project_or_404"]
-        DeleteReference --> OwnedProjectF["get_owned_project_or_404"]
-        ListPapers --> OwnedProjectG["get_owned_project_or_404"]
-        PaperCitationGraph --> OwnedProjectH["get_owned_project_or_404"]
-        ImportCitation --> OwnedProjectI["get_owned_project_or_404"]
+## Project And Pipeline API Routes
 
-        DeleteProject --> DeleteProjectRows["session.delete(project)<br/>ORM + FK cascades"]
-        DeleteProject --> DeleteProjectStoredPdfs["best-effort unlink of stored project PDFs"]
-        RunProject --> LiteraturePipelineService["LiteraturePipelineService.run_project"]
-        UploadReference --> ReferenceFileService["ReferenceFileService.create_reference_file"]
-        ListReferences --> ReferenceFileRead["ReferenceFileRead.from_reference"]
-        DeleteReference --> DeleteLinkedPaper["delete linked Paper if present"]
-        DeleteReference --> DeleteReferenceRow["delete ReferenceFile row"]
-        DeleteReference --> DeleteStoredPdf["unlink stored PDF with anyio.to_thread"]
-        ListPapers --> PaperFilters["apply_paper_filters<br/>status<br/>min_relevance"]
-        ListPapers --> Pagination["PaginationMeta.from_totals"]
-        PaperCitationGraph --> CitationService["PaperCitationService.get_citation_graph"]
-        ImportCitation --> ImportValidation["prevent duplicates by ID, DOI, or title"]
-        ImportCitation --> InsertPaper["insert Paper row with status candidate"]
-        CitationService --> CitationResolver["Semantic Scholar exact paper resolution<br/>paper id · ARXIV: · DOI: · URL:"]
-        CitationService --> CitationEdges["GET /graph/v1/paper/{paper_id}/citations<br/>GET /graph/v1/paper/{paper_id}/references"]
+```mermaid
+flowchart LR
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
+    classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+
+    App["backend/main.py"] --> Projects["/projects router"]
+    App --> Pipeline["/pipeline router"]
+
+    subgraph Dependency["Shared Dependencies"]
+        AuthRequired["CurrentUser"] --> UserModel["User"]
+        OwnedProject["get_owned_project_or_404"] --> ProjectModel["Project"]
     end
+
+    subgraph ProjectEndpoints["Project endpoints"]
+        direction TB
+        Projects --> CreateProject["POST /"]
+        Projects --> ListProjects["GET /"]
+        Projects --> GetProject["GET /{id}"]
+        Projects --> DeleteProject["DELETE /{id}"]
+        Projects --> RunProject["POST /{id}/run"]
+        Projects --> TokenUsage["GET /{id}/token-usage"]
+        Projects --> UploadReference["POST /{id}/reference-files"]
+        Projects --> ListReferences["GET /{id}/reference-files"]
+        Projects --> DeleteReference["DELETE /{id}/reference-files/{ref_id}"]
+        Projects --> ListPapers["GET /{id}/papers"]
+        Projects --> PaperCitationGraph["GET /{id}/papers/{paper_id}/citation-graph"]
+        Projects --> ImportCitation["POST /{id}/papers/import-citation"]
+    end
+
+    CreateProject --> AuthRequired
+    ListProjects --> AuthRequired
+    GetProject --> OwnedProject
+    DeleteProject --> OwnedProject
+    RunProject --> OwnedProject
+    TokenUsage --> OwnedProject
+    UploadReference --> OwnedProject
+    ListReferences --> OwnedProject
+    DeleteReference --> OwnedProject
+    ListPapers --> OwnedProject
+    PaperCitationGraph --> OwnedProject
+    ImportCitation --> OwnedProject
+
+    DeleteProject --> DeleteProjectRows["session.delete(project)"]
+    DeleteProject --> DeleteProjectStoredPdfs["unlink stored project PDFs"]
+    RunProject --> LiteraturePipelineService["LiteraturePipelineService.run_project"]
+    UploadReference --> ReferenceFileService["ReferenceFileService.create_reference_file"]
+    ListReferences --> ReferenceFileRead["ReferenceFileRead.from_reference"]
+    DeleteReference --> DeleteLinkedPaper["delete linked Paper"]
+    DeleteReference --> DeleteReferenceRow["delete ReferenceFile row"]
+    DeleteReference --> DeleteStoredPdf["unlink stored PDF"]
+    ListPapers --> PaperFilters["apply_paper_filters"]
+    PaperCitationGraph --> CitationService["PaperCitationService.get_citation_graph"]
+    ImportCitation --> ImportValidation["prevent duplicates"]
+    ImportCitation --> InsertPaper["insert Paper row"]
+    
+    CitationService --> CitationResolver["Semantic Scholar exact paper resolution"]
+    CitationService --> CitationEdges["GET /graph/v1/paper/{paper_id}/citations"]
 
     subgraph PipelineEndpoints["Pipeline endpoints"]
-        Pipeline --> PipelineHealth["GET /pipeline/health"]
-        PipelineHealth --> NodeNames["PIPELINE_NODE_NAMES<br/>searcher_node<br/>reader_node<br/>reader_warning_node"]
+        direction TB
+        Pipeline --> PipelineHealth["GET /health"]
+        PipelineHealth --> NodeNames["PIPELINE_NODE_NAMES"]
     end
 
-    AuthRequiredA --> UserModel["User"]
-    AuthRequiredB --> UserModel
-    OwnedProjectA --> ProjectModel["Project"]
-    OwnedProjectB --> ProjectModel
-    OwnedProjectC --> ProjectModel
-    OwnedProjectD --> ProjectModel
-    OwnedProjectE --> ProjectModel
-    OwnedProjectF --> ProjectModel
-    OwnedProjectG --> ProjectModel
-    OwnedProjectH --> ProjectModel
-    OwnedProjectI --> ProjectModel
-
-    class App,Health entry;
-    class Auth,Admin,Projects,Pipeline,Register,Login,AdminAccess,AdminTokenUsage,CreateProject,ListProjects,GetProject,DeleteProject,RunProject,TokenUsage,UploadReference,ListReferences,DeleteReference,ListPapers,PaperCitationGraph,ImportCitation,PipelineHealth,AuthResponse api;
-    class AuthRequiredAdminAccess,AdminRequired,AuthRequiredA,AuthRequiredB,OwnedProjectA,OwnedProjectB,OwnedProjectC,OwnedProjectUsage,OwnedProjectD,OwnedProjectE,OwnedProjectF,OwnedProjectG,OwnedProjectH,OwnedProjectI dependency;
-    class CheckExistingUser,InsertUser,LoadLoginUser,DeleteProjectRows,DeleteProjectStoredPdfs,DeleteLinkedPaper,DeleteReferenceRow,DeleteStoredPdf,InsertPaper,UserModel,ProjectModel persistence;
-    class HashPassword,RegisterToken,VerifyPassword,LoginToken,GlobalUsage,LiteraturePipelineService,ReferenceFileService,ReferenceFileRead,PaperFilters,Pagination,CitationService,ImportValidation,CitationResolver,CitationEdges,NodeNames service;
+    class App entry;
+    class Projects,Pipeline,CreateProject,ListProjects,GetProject,DeleteProject,RunProject,TokenUsage,UploadReference,ListReferences,DeleteReference,ListPapers,PaperCitationGraph,ImportCitation,PipelineHealth api;
+    class AuthRequired,OwnedProject dependency;
+    class DeleteProjectRows,DeleteLinkedPaper,DeleteReferenceRow,InsertPaper,UserModel,ProjectModel persistence;
+    class DeleteProjectStoredPdfs,LiteraturePipelineService,ReferenceFileService,ReferenceFileRead,DeleteStoredPdf,PaperFilters,CitationService,ImportValidation,CitationResolver,CitationEdges,NodeNames service;
 ```
 
 ## Authentication And Dependency Flow
