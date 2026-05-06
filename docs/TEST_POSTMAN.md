@@ -504,6 +504,45 @@ Note:
 - Uploaded papers without a DOI and papers that cannot be resolved exactly in Semantic Scholar return `400 Bad Request`.
 - Exact upstream misses return `404 Not Found`.
 
+### POST Import Citation Graph Paper
+
+```text
+POST {{base_url}}/projects/{{project_id}}/papers/import-citation
+```
+
+Headers:
+
+```text
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "title": "A New Multi-Agent Architecture",
+  "authors": ["Jane Doe", "John Smith"],
+  "year": 2023,
+  "abstract": "We present a new architecture...",
+  "doi": "10.1234/example.2023",
+  "source": "semantic_scholar",
+  "source_paper_id": "abc123def456",
+  "source_url": "https://semanticscholar.org/paper/abc123def456",
+  "pdf_url": null,
+  "citation_count": 15,
+  "reference_count": 42
+}
+```
+
+Expected status: `200 OK`
+
+Verify:
+
+- `created` is boolean
+- `paper.id` is present
+- `paper.status` is `"candidate"`
+
 ## 10. Delete A Reference File
 
 This removes the reference metadata and its linked uploaded paper.
