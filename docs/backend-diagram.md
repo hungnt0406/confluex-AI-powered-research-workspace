@@ -663,6 +663,7 @@ flowchart LR
     Env["Environment variables<br/>.env supported by pydantic-settings"] --> Settings["Settings<br/>backend/config.py<br/>get_settings cached by lru_cache"]
 
     Settings --> AppName["APP_NAME"]
+    Settings --> Cors["CORS_ALLOWED_ORIGINS"]
     Settings --> DatabaseUrl["DATABASE_URL"]
     Settings --> Jwt["JWT_SECRET_KEY<br/>JWT_ALGORITHM<br/>ACCESS_TOKEN_EXPIRE_MINUTES"]
     Settings --> OpenRouter["OPENROUTER_API_KEY<br/>OPENROUTER_BASE_URL<br/>OPENROUTER_MODEL<br/>OPENROUTER_EMBEDDING_MODEL"]
@@ -673,6 +674,7 @@ flowchart LR
     Settings --> SemanticScholarKey["SEMANTIC_SCHOLAR_API_KEY"]
 
     DatabaseUrl --> SessionManager["DatabaseSessionManager"]
+    Cors --> App["FastAPI CORS middleware"]
     Jwt --> Security["backend/security.py"]
     OpenRouter --> LLM["OpenRouterStructuredOutputService"]
     OpenRouter --> Embeddings["EmbeddingService"]
@@ -720,8 +722,8 @@ flowchart TB
 
 | Area | Files | Responsibility |
 | --- | --- | --- |
-| App entrypoint | `backend/main.py` | Creates the FastAPI app, registers routers, exposes `/healthz`, and closes the default database engine during shutdown. |
-| Configuration | `backend/config.py` | Loads cached runtime settings from environment variables and `.env`. |
+| App entrypoint | `backend/main.py` | Creates the FastAPI app, registers configurable CORS middleware and routers, exposes `/healthz`, and closes the default database engine during shutdown. |
+| Configuration | `backend/config.py` | Loads cached runtime settings from environment variables and `.env`, including comma-separated CORS origins. |
 | Security | `backend/security.py` | Password hashing and verification, JWT creation, and JWT decoding. |
 | API dependencies | `backend/api/dependencies.py` | Provides `DbSession`, authenticated `CurrentUser`, allowlisted `AdminUser`, `LiteraturePipelineService`, and `ReferenceFileService`. |
 | Routers | `backend/api/routers/auth.py`, `backend/api/routers/admin.py`, `backend/api/routers/projects.py`, `backend/api/routers/pipeline.py` | Own HTTP endpoint behavior and convert service/domain errors into HTTP responses. |
