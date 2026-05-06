@@ -63,6 +63,7 @@ cp .env.example .env
 ```
 
 Fill in the values you need locally, especially `DATABASE_URL`, `JWT_SECRET_KEY`, and `OPENROUTER_API_KEY`.
+`CORS_ALLOWED_ORIGINS` is comma-separated and defaults to local frontend origins; set it to the Vercel production URL for the deployed backend.
 
 ### 3. Install Python dependencies
 
@@ -161,6 +162,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literatu
 
 ## Notes
 
+- The intended split deployment is Vercel for `frontend/`, Render Web Service for the FastAPI backend, Render Postgres for `DATABASE_URL`, and a Render persistent disk mounted at `/var/data` with `REFERENCE_UPLOAD_DIR=/var/data/reference_uploads`. See `plans/vercel-render-deployment-plan.md` for the provider-dashboard steps and smoke tests.
 - Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
 - Deep Search uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. The stream also emits user-facing `activity` events so the thinking panel can show planned research paths, source counts, and source references while the run is in progress. Final reports ask the writer to attach URL-backed Markdown citations to factual sentences, and the chat UI renders those links as compact source buttons with hover previews. If `TAVILY_API_KEY` is missing, web search is skipped with a persisted warning while academic/project evidence still runs.
 - Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.

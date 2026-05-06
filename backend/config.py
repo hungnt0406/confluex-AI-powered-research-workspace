@@ -3,11 +3,21 @@ from functools import lru_cache
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://172.18.64.1:3000",
+)
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     app_name: str = Field(default="Literature Review API", alias="APP_NAME")
+    cors_allowed_origins: str = Field(
+        default=",".join(DEFAULT_CORS_ALLOWED_ORIGINS),
+        alias="CORS_ALLOWED_ORIGINS",
+    )
     admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
     openrouter_api_key: str | None = Field(
         default=None,
@@ -95,6 +105,17 @@ class Settings(BaseSettings):
             for email in self.admin_emails.split(",")
             if email.strip()
         )
+
+    @property
+    def cors_allowed_origin_list(self) -> tuple[str, ...]:
+        """Return normalized CORS origins, falling back to local frontend defaults."""
+
+        configured_origins = tuple(
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        )
+        return configured_origins or DEFAULT_CORS_ALLOWED_ORIGINS
 
 
 @lru_cache(maxsize=1)
