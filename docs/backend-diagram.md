@@ -145,6 +145,7 @@ flowchart TB
         Projects --> DeleteReference["DELETE /projects/{project_id}/reference-files/{reference_file_id}"]
         Projects --> ListPapers["GET /projects/{project_id}/papers"]
         Projects --> PaperCitationGraph["GET /projects/{project_id}/papers/{paper_id}/citation-graph"]
+        Projects --> ImportCitation["POST /projects/{project_id}/papers/import-citation"]
 
         CreateProject --> AuthRequiredA["CurrentUser"]
         ListProjects --> AuthRequiredB["CurrentUser"]
@@ -157,6 +158,7 @@ flowchart TB
         DeleteReference --> OwnedProjectF["get_owned_project_or_404"]
         ListPapers --> OwnedProjectG["get_owned_project_or_404"]
         PaperCitationGraph --> OwnedProjectH["get_owned_project_or_404"]
+        ImportCitation --> OwnedProjectI["get_owned_project_or_404"]
 
         DeleteProject --> DeleteProjectRows["session.delete(project)<br/>ORM + FK cascades"]
         DeleteProject --> DeleteProjectStoredPdfs["best-effort unlink of stored project PDFs"]
@@ -169,6 +171,8 @@ flowchart TB
         ListPapers --> PaperFilters["apply_paper_filters<br/>status<br/>min_relevance"]
         ListPapers --> Pagination["PaginationMeta.from_totals"]
         PaperCitationGraph --> CitationService["PaperCitationService.get_citation_graph"]
+        ImportCitation --> ImportValidation["prevent duplicates by ID, DOI, or title"]
+        ImportCitation --> InsertPaper["insert Paper row with status candidate"]
         CitationService --> CitationResolver["Semantic Scholar exact paper resolution<br/>paper id · ARXIV: · DOI: · URL:"]
         CitationService --> CitationEdges["GET /graph/v1/paper/{paper_id}/citations<br/>GET /graph/v1/paper/{paper_id}/references"]
     end
@@ -188,6 +192,7 @@ flowchart TB
     OwnedProjectF --> ProjectModel
     OwnedProjectG --> ProjectModel
     OwnedProjectH --> ProjectModel
+    OwnedProjectI --> ProjectModel
 ```
 
 ## Authentication And Dependency Flow
