@@ -1106,4 +1106,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
   - Added a D3 collision force, increased node repulsion, deferred custom force wiring to avoid initialization races, and moved zoom-to-fit to `onEngineStop`.
   - Status: implementation complete; targeted static frontend test and TypeScript verification passed.
 
+## 2026-05-06T08:46:19+07:00
+- **Request:** Fix UI bug where the date range popover is partially hidden by the left sidebar in the admin usage dashboard.
+- **Files changed:** `frontend/app/admin/usage/components.tsx`
+- **Current status:** Investigated with the browser agent, reproducing the clipped popover bug. The underlying cause was the popover's `right-0` absolute positioning making it overflow the left edge of the `overflow-y-auto` container `div.flex-1`, causing it to be visually clipped right where the sidebar is located. Fixed by changing `right-0` to `left-0` to keep the popover bounded correctly on the right within its scrollable container.
 
+## 2026-05-06T16:43:00+07:00
+- **Request:** Save the deployment plan for the Vercel frontend, Render backend, and Render Postgres setup.
+- **Files changed:** `plans/vercel-render-deployment-plan.md`, `JOURNAL.md`
+- **Current status:** Added a dashboard-first deployment plan covering Render Postgres, Render FastAPI service settings, persistent upload disk, Vercel frontend settings, environment variables, CORS finalization, and production smoke tests.
+
+## 2026-05-06T16:54:27+07:00
+- **Request:** Implement `plans/vercel-render-deployment-plan.md`.
+- **Files changed:** `backend/config.py`, `backend/main.py`, `.env.example`, `README.md`, `frontend/README.md`, `docs/backend-diagram.md`, `docs/feature-map.md`, `tests/test_app_config.py`, `JOURNAL.md`
+- **Current status:** Added `CORS_ALLOWED_ORIGINS` as the backend deployment config surface, kept local frontend origins as defaults, wired FastAPI CORS middleware to parsed settings, documented the Render/Vercel deployment env expectations, and added focused CORS regression coverage. Verification passed for focused pytest, Ruff, touched-file mypy, frontend TypeScript, and frontend production build. Full backend pytest and full backend mypy are blocked by existing unrelated failures in `tests/test_deep_search.py::test_deep_search_streams_academic_stage_start_before_slow_search_completes` and `backend/api/routers/auth.py`.
