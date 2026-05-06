@@ -1090,3 +1090,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
   - Changed files: `frontend/components/CitationGraph.tsx`, `JOURNAL.md`.
   - Added a D3 collision force, increased node repulsion, deferred custom force wiring to avoid initialization races, and moved zoom-to-fit to `onEngineStop`.
   - Status: implementation complete; targeted static frontend test and TypeScript verification passed.
+
+## 2026-05-06T08:46:19+07:00
+- **Request:** Fix UI bug where the date range popover is partially hidden by the left sidebar in the admin usage dashboard.
+- **Files changed:** `frontend/app/admin/usage/components.tsx`
+- **Current status:** Investigated with the browser agent, reproducing the clipped popover bug. The underlying cause was the popover's `right-0` absolute positioning making it overflow the left edge of the `overflow-y-auto` container `div.flex-1`, causing it to be visually clipped right where the sidebar is located. Fixed by changing `right-0` to `left-0` to keep the popover bounded correctly on the right within its scrollable container.
