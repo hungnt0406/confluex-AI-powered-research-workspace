@@ -39,3 +39,9 @@ data/reference_uploads/
 package-lock.json
 frontend/.next/
 frontend/node_modules/
+
+#pull request note
+PULL_REQUEST.md
+
+#ai worklog
+AI_WORKLOG.md
