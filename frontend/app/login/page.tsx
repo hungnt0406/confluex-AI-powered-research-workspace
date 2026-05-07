@@ -15,6 +15,12 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function safeNextPath() {
+    if (typeof window === "undefined") return "/chat";
+    const next = new URLSearchParams(window.location.search).get("next");
+    return next && next.startsWith("/") && !next.startsWith("//") ? next : "/chat";
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -22,7 +28,7 @@ export default function LoginPage() {
     try {
       if (mode === "login") await login(email, password);
       else await register(email, password);
-      router.replace("/chat");
+      router.replace(safeNextPath());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {
@@ -36,7 +42,7 @@ export default function LoginPage() {
       setError(null);
       try {
         await loginWithGoogle(credential);
-        router.replace("/chat");
+        router.replace(safeNextPath());
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Google sign-in failed.");
       } finally {
