@@ -1,6 +1,8 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export const CREDIT_BALANCE_REFRESH_EVENT = "a20.credit_balance.refresh";
+
 const TOKEN_KEY = "a20.token";
 const USER_KEY = "a20.user";
 
@@ -29,10 +31,81 @@ export function clearSession() {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  required?: number;
+  balance?: number;
+  payload?: unknown;
+
+  constructor(
+    status: number,
+    message: string,
+    options: { required?: number; balance?: number; payload?: unknown } = {},
+  ) {
     super(message);
     this.status = status;
+    this.required = options.required;
+    this.balance = options.balance;
+    this.payload = options.payload;
   }
+}
+
+export type InsufficientCreditsError = ApiError & {
+  status: 402;
+};
+
+function numberFromUnknown(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function fieldFromPayload(payload: unknown, field: "required" | "balance"): number | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const record = payload as Record<string, unknown>;
+  const direct = numberFromUnknown(record[field]);
+  if (direct !== undefined) return direct;
+  const detail = record.detail;
+  if (!detail || typeof detail !== "object") return undefined;
+  return numberFromUnknown((detail as Record<string, unknown>)[field]);
+}
+
+function messageFromPayload(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") return fallback;
+  const record = payload as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  if (Array.isArray(record.detail)) {
+    return record.detail
+      .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).msg : null))
+      .filter((item): item is string => typeof item === "string")
+      .join("; ");
+  }
+  if (record.detail && typeof record.detail === "object") {
+    const detail = record.detail as Record<string, unknown>;
+    if (typeof detail.detail === "string") return detail.detail;
+    if (typeof detail.message === "string") return detail.message;
+  }
+  if (typeof record.message === "string") return record.message;
+  return fallback;
+}
+
+async function apiErrorFromResponse(response: Response): Promise<ApiError> {
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    /* ignore */
+  }
+  return new ApiError(response.status, messageFromPayload(payload, response.statusText), {
+    required: fieldFromPayload(payload, "required"),
+    balance: fieldFromPayload(payload, "balance"),
+    payload,
+  });
+}
+
+export function isInsufficientCreditsError(error: unknown): error is InsufficientCreditsError {
+  return error instanceof ApiError && error.status === 402;
+}
+
+export function notifyCreditBalanceChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(CREDIT_BALANCE_REFRESH_EVENT));
 }
 
 export async function api<T>(
@@ -57,15 +130,7 @@ export async function api<T>(
   });
 
   if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string") detail = data.detail;
-      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: any) => d.msg).join("; ");
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -131,6 +196,81 @@ export type ProjectTokenUsage = {
   by_model: TokenUsageBreakdownRow[];
   by_day: TokenUsageDailyRow[];
 };
+
+export type CreditPack = {
+  id: string;
+  name: string;
+  credits: number;
+  usd_cents: number;
+  vnd_amount?: number;
+  badge?: string | null;
+};
+
+export type CreditTransaction = {
+  id: string;
+  user_id?: string;
+  delta: number;
+  balance_after: number;
+  kind: "topup" | "consume" | "grant" | "refund" | "adjust" | string;
+  feature: string | null;
+  reference_id: string | null;
+  metadata_json?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type CreditBalance = {
+  credit_balance: number;
+  recent_transactions: CreditTransaction[];
+};
+
+export type PaymentOrderStatus = "pending" | "paid" | "expired" | "cancelled";
+
+export type PaymentOrder = {
+  order_id?: string;
+  id?: string;
+  pack_id?: string;
+  credits?: number;
+  usd_amount?: number;
+  usd_cents?: number;
+  vnd_amount: number;
+  fx_rate_usd_to_vnd?: number;
+  reference_code: string;
+  qr_url?: string | null;
+  qr_payload?: string | null;
+  status: PaymentOrderStatus;
+  sepay_va_account?: string | null;
+  sepay_va_bank_bin?: string | null;
+  account_number?: string | null;
+  bank_account?: string | null;
+  bank_bin?: string | null;
+  created_at?: string;
+  paid_at?: string | null;
+  expires_at: string;
+};
+
+export function paymentOrderId(order: PaymentOrder) {
+  return order.order_id ?? order.id ?? "";
+}
+
+export async function fetchCreditPacks(token?: string | null): Promise<CreditPack[]> {
+  return api<CreditPack[]>("/payments/packs", { token });
+}
+
+export async function createPaymentOrder(packId: string, token: string): Promise<PaymentOrder> {
+  return api<PaymentOrder>("/payments/orders", {
+    method: "POST",
+    token,
+    json: { pack_id: packId },
+  });
+}
+
+export async function fetchPaymentOrder(orderId: string, token: string): Promise<PaymentOrder> {
+  return api<PaymentOrder>(`/payments/orders/${orderId}`, { token });
+}
+
+export async function fetchCreditBalance(token: string): Promise<CreditBalance> {
+  return api<CreditBalance>("/payments/balance", { token });
+}
 
 export type AdminAccess = {
   is_admin: boolean;
@@ -467,15 +607,7 @@ export async function streamProjectConversation(
   });
 
   if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string") detail = data.detail;
-      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: any) => d.msg).join("; ");
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
 
   if (!response.body) {
@@ -532,15 +664,7 @@ export async function streamDeepSearchRun(
   });
 
   if (!response.ok) {
-    let detail = response.statusText;
-    try {
-      const data = await response.json();
-      if (typeof data?.detail === "string") detail = data.detail;
-      else if (Array.isArray(data?.detail)) detail = data.detail.map((d: any) => d.msg).join("; ");
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(response.status, detail);
+    throw await apiErrorFromResponse(response);
   }
 
   if (!response.body) {
