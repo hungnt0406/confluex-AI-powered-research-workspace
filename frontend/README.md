@@ -2,7 +2,7 @@
 
 Next.js 14 App Router chat UI for the Automated Literature Review FastAPI backend.
 
-This frontend currently ships a login screen, a chat-style workspace, and admin-only token usage monitor pages. The workspace creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, asks grounded questions across the current selected paper set, and can switch the composer into Deep Search mode for streamed research reports with cited sources in the right context panel.
+This frontend currently ships a login screen, a chat-style workspace, Sepay credit billing pages, and admin-only token usage monitor pages. The workspace creates projects, runs the Searcher -> Reader discovery flow, shows ranked papers in context with citation/reference counts and expandable structured summaries, lets the user select up to 5 papers, uploads reference PDFs from the composer, asks general questions with no selected papers, asks grounded questions across the current selected paper set, and can switch the composer into Deep Search mode for streamed research reports with cited sources in the right context panel.
 
 ## Setup
 
@@ -29,6 +29,9 @@ npm run dev:reset
 ## What it wires up
 
 - `POST /auth/register` / `POST /auth/login` — session stored in `localStorage` via `AuthProvider`.
+- `/billing` reads `GET /payments/balance` and `GET /payments/packs` to show the user's current credit balance, recent ledger rows, and top-up pack links.
+- `/billing/checkout` creates a Sepay/VietQR order with `POST /payments/orders`, renders the QR image, VND amount, receiving account, and required transfer reference code, then polls `GET /payments/orders/{order_id}` every 3 seconds until payment is confirmed or the order expires.
+- `/billing/success` confirms the paid order and refreshes the sidebar balance. The sidebar also polls `GET /payments/balance` every 60 seconds and after gated feature consumption.
 - `GET /projects` — sidebar "Recents" list.
 - `PATCH /projects/{id}` — sidebar overflow menu can rename a saved chat/project in place.
 - Composer upload button:
@@ -50,6 +53,7 @@ npm run dev:reset
   4. With no active project, approved Deep Search first creates a project from the prompt, runs `POST /projects/{id}/run` to populate the related-paper panel, then streams the Deep Search run.
   5. With an active project that has no discovered related papers yet, approved Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
   6. The stream renders an expandable `Show thinking` panel with the full research path visible immediately, advances the active phase from `status` events, keeps a live elapsed timer/progress shimmer while waiting for the next backend event, creates the final answer bubble only when report text is available, and shows `source` / `done` event citations in the right context panel below `Related Papers`. Deep Search backend frames include SSE padding comments so small status updates are less likely to be buffered until the end of the run.
+- If a gated feature returns HTTP 402 with `required` and `balance`, the workspace shows a top-up CTA linking to the Deep Search top-up credit pack instead of only showing a generic error.
 - Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
@@ -57,6 +61,7 @@ npm run dev:reset
 
 - `app/layout.tsx`, `app/globals.css`, `tailwind.config.ts` — app shell and styling tokens.
 - `app/login/page.tsx` — sign in / register.
+- `app/billing/page.tsx`, `app/billing/checkout/page.tsx`, `app/billing/success/page.tsx` — credit balance, Sepay checkout, and payment confirmation.
 - `app/chat/page.tsx` — auth-gated workspace.
 - `app/admin/usage/page.tsx`, `app/admin/usage/users/page.tsx`, `app/admin/usage/components.tsx` — admin-only token usage dashboard, selected-user analysis, and shared monitor UI.
 - `components/AuthProvider.tsx` — token/user state.
