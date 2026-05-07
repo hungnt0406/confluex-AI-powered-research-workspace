@@ -31,6 +31,8 @@ import {
   api,
   fetchPaperCitationGraph,
   importCitationGraphPaper,
+  isInsufficientCreditsError,
+  notifyCreditBalanceChanged,
   streamDeepSearchRun,
   streamProjectConversation,
   uploadProjectReferenceFile,
@@ -105,6 +107,14 @@ export type UploadReferenceFileOptions = {
   topic?: string;
 };
 
+export type InsufficientCreditsNotice = {
+  message: string;
+  required?: number;
+  balance?: number;
+  href: string;
+  ctaLabel: string;
+};
+
 type ChatState = {
   projects: Project[];
   activeProject: Project | null;
@@ -120,6 +130,7 @@ type ChatState = {
   busy: boolean;
   uploadingReferenceFile: boolean;
   error: string | null;
+  insufficientCredits: InsufficientCreditsNotice | null;
   composerNotice: ComposerNotice | null;
   lastUploadedPaperId: string | null;
   chatMode: ChatMode;
@@ -149,6 +160,7 @@ type ChatState = {
     paper: CitationGraphPaper,
   ) => Promise<{ paper: ProjectPaper; created: boolean }>;
   clearComposerNotice: () => void;
+  clearInsufficientCredits: () => void;
   refreshProjects: () => Promise<void>;
 };
 
@@ -688,6 +700,27 @@ function formatDeepSearchPhase(phase: string) {
     .join(" ");
 }
 
+function insufficientCreditsMessage(required?: number, balance?: number) {
+  if (required !== undefined && balance !== undefined) {
+    return `Top up to continue. This action needs ${required.toLocaleString("en-US")} credits and your balance is ${balance.toLocaleString("en-US")}.`;
+  }
+  if (required !== undefined) {
+    return `Top up to continue. This action needs ${required.toLocaleString("en-US")} credits.`;
+  }
+  return "Top up to continue. Your current credit balance is too low for this action.";
+}
+
+function insufficientCreditsNoticeFromError(error: unknown): InsufficientCreditsNotice | null {
+  if (!isInsufficientCreditsError(error)) return null;
+  return {
+    message: insufficientCreditsMessage(error.required, error.balance),
+    required: error.required,
+    balance: error.balance,
+    href: "/billing/checkout?pack=topup_deep",
+    ctaLabel: "Top up to continue - $6 for 800 credits",
+  };
+}
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const authedRef = useRef(token);
@@ -709,6 +742,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [uploadingReferenceFile, setUploadingReferenceFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [insufficientCredits, setInsufficientCredits] =
+    useState<InsufficientCreditsNotice | null>(null);
   const [composerNotice, setComposerNotice] = useState<ComposerNotice | null>(null);
   const [lastUploadedPaperId, setLastUploadedPaperId] = useState<string | null>(null);
   const [chatMode, setChatMode] = useState<ChatMode>("standard");
@@ -801,6 +836,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const clearComposerNotice = useCallback(() => {
     setComposerNotice(null);
+  }, []);
+
+  const clearInsufficientCredits = useCallback(() => {
+    setInsufficientCredits(null);
+  }, []);
+
+  const userFacingErrorMessage = useCallback((err: unknown, fallback: string) => {
+    const creditNotice = insufficientCreditsNoticeFromError(err);
+    if (creditNotice) {
+      setInsufficientCredits(creditNotice);
+      return creditNotice.message;
+    }
+    return err instanceof Error ? err.message : fallback;
   }, []);
 
   const appendDeepSearchStatusMessage = useCallback(
@@ -908,6 +956,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         method: "POST",
         token: authedRef.current,
       });
+      notifyCreditBalanceChanged();
       setRunSummary(runResponse);
       setQueries(runResponse.queries);
 
@@ -955,6 +1004,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setLastUploadedPaperId(null);
     setPendingDeepSearchPlan(null);
     setError(null);
+    setInsufficientCredits(null);
   }, []);
 
   const selectProject = useCallback(
@@ -962,6 +1012,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) return;
       setBusy(true);
       setError(null);
+      setInsufficientCredits(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
       setPendingDeepSearchPlan(null);
@@ -1043,12 +1094,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (err?.status === 404) {
           persistActiveProjectId(user?.id, null);
         }
-        setError(err?.message ?? "Failed to load project.");
+        setError(userFacingErrorMessage(err, "Failed to load project."));
       } finally {
         setBusy(false);
       }
     },
-    [fetchProjectPapers, user?.id],
+    [fetchProjectPapers, user?.id, userFacingErrorMessage],
   );
 
   useEffect(() => {
@@ -1084,12 +1135,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           startNewResearch();
         }
       } catch (err: any) {
-        setError(err?.message ?? "Failed to delete project.");
+        setError(userFacingErrorMessage(err, "Failed to delete project."));
       } finally {
         setBusy(false);
       }
     },
-    [activeProject, startNewResearch],
+    [activeProject, startNewResearch, userFacingErrorMessage],
   );
 
   const renameProject = useCallback(
@@ -1114,13 +1165,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         );
         setActiveProject((prev) => (prev?.id === projectId ? updatedProject : prev));
       } catch (err: any) {
-        setError(err?.message ?? "Failed to rename project.");
+        setError(userFacingErrorMessage(err, "Failed to rename project."));
         throw err;
       } finally {
         setBusy(false);
       }
     },
-    [],
+    [userFacingErrorMessage],
   );
 
   const togglePaperSelection = useCallback(
@@ -1151,6 +1202,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       setUploadingReferenceFile(true);
       setError(null);
+      setInsufficientCredits(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
 
@@ -1170,6 +1222,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           });
 
           const referenceFile = await uploadProjectReferenceFile(project.id, file, authedRef.current);
+          notifyCreditBalanceChanged();
           await refreshProjects();
 
           if (activeProjectIdRef.current && activeProjectIdRef.current !== project.id) {
@@ -1207,6 +1260,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
 
         const referenceFile = await uploadProjectReferenceFile(project.id, file, authedRef.current);
+        notifyCreditBalanceChanged();
         const nextPapers = await fetchProjectPapers(project.id);
         const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, nextPapers);
 
@@ -1238,7 +1292,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             },
         );
       } catch (err: any) {
-        const detail = err?.message ?? "Failed to upload the reference PDF.";
+        const detail = userFacingErrorMessage(err, "Failed to upload the reference PDF.");
         setError(detail);
         setComposerNotice({
           tone: "error",
@@ -1255,6 +1309,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       refreshProjects,
       selectedPaperIds,
       uploadingReferenceFile,
+      userFacingErrorMessage,
     ],
   );
 
@@ -1358,6 +1413,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!completedConversation) {
         throw new Error("The streaming chat response ended before it was persisted.");
       }
+      notifyCreditBalanceChanged();
       return completedConversation;
     },
     [],
@@ -1496,6 +1552,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!completedRun) {
         throw new Error("The deep search stream ended before the run was persisted.");
       }
+      notifyCreditBalanceChanged();
       return completedRun;
     },
     [
@@ -1585,7 +1642,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           question: plan.question,
         });
       } catch (err: any) {
-        const detail = err?.message ?? "Something went wrong.";
+        const detail = userFacingErrorMessage(err, "Something went wrong.");
         setError(detail);
         setMessages((prev) => [
           ...prev,
@@ -1612,6 +1669,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       refreshProjects,
       selectedPaperIds,
       streamDeepSearchTurn,
+      userFacingErrorMessage,
     ],
   );
 
@@ -1644,6 +1702,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const trimmed = text.trim();
       if (!trimmed) return;
       setError(null);
+      setInsufficientCredits(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
 
@@ -1703,6 +1762,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             method: "POST",
             token: authedRef.current,
           });
+          notifyCreditBalanceChanged();
           setRunSummary(runResponse);
           setQueries(runResponse.queries);
 
@@ -1768,7 +1828,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           question: trimmed,
         });
       } catch (err: any) {
-        const detail = err?.message ?? "Something went wrong.";
+        const detail = userFacingErrorMessage(err, "Something went wrong.");
         setError(detail);
         setMessages((prev) => [
           ...prev,
@@ -1794,6 +1854,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       refreshProjects,
       selectedPaperIds,
       streamProjectChatTurn,
+      userFacingErrorMessage,
     ],
   );
 
@@ -1813,6 +1874,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       uploadingReferenceFile,
       error,
+      insufficientCredits,
       composerNotice,
       lastUploadedPaperId,
       chatMode,
@@ -1831,6 +1893,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       prefetchCitationGraphs,
       addCitationGraphPaperToProject,
       clearComposerNotice,
+      clearInsufficientCredits,
       refreshProjects,
     }),
     [
@@ -1848,6 +1911,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       busy,
       uploadingReferenceFile,
       error,
+      insufficientCredits,
       composerNotice,
       lastUploadedPaperId,
       chatMode,
@@ -1865,6 +1929,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       prefetchCitationGraphs,
       addCitationGraphPaperToProject,
       clearComposerNotice,
+      clearInsufficientCredits,
       refreshProjects,
     ],
   );
