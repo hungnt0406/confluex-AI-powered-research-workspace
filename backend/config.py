@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
@@ -7,6 +8,50 @@ DEFAULT_CORS_ALLOWED_ORIGINS = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://172.18.64.1:3000",
+)
+
+
+@dataclass(frozen=True)
+class CreditPack:
+    """Static one-time top-up pack definition."""
+
+    id: str
+    name: str
+    usd_cents: int
+    credits: int
+    badge: str | None = None
+
+
+CREDIT_PACK_CATALOG: tuple[CreditPack, ...] = (
+    CreditPack(id="student", name="Student", usd_cents=800, credits=800, badge="student"),
+    CreditPack(
+        id="pro",
+        name="Researcher Pro",
+        usd_cents=2_400,
+        credits=2_400,
+        badge="featured",
+    ),
+    CreditPack(
+        id="lab_starter",
+        name="Lab Starter",
+        usd_cents=6_600,
+        credits=6_600,
+        badge="lab",
+    ),
+    CreditPack(
+        id="topup_deep",
+        name="Deep Search Top-up",
+        usd_cents=600,
+        credits=800,
+        badge="topup",
+    ),
+    CreditPack(
+        id="topup_storage",
+        name="PDF Upload Credit Bump",
+        usd_cents=400,
+        credits=600,
+        badge="topup",
+    ),
 )
 
 
@@ -93,6 +138,16 @@ class Settings(BaseSettings):
         alias="REFERENCE_MAX_EXTRACTED_CHARS",
     )
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")
+    sepay_api_key: str | None = Field(default=None, alias="SEPAY_API_KEY")
+    sepay_webhook_api_key: str | None = Field(default=None, alias="SEPAY_WEBHOOK_API_KEY")
+    sepay_account_number: str = Field(default="", alias="SEPAY_ACCOUNT_NUMBER")
+    sepay_account_bank_bin: str = Field(default="", alias="SEPAY_ACCOUNT_BANK_BIN")
+    usd_to_vnd_rate: float = Field(default=25_500.0, alias="USD_TO_VND_RATE")
+    credit_cost_deep_search: int = Field(default=80, alias="CREDIT_COST_DEEP_SEARCH")
+    credit_cost_writer: int = Field(default=40, alias="CREDIT_COST_WRITER")
+    credit_cost_paper_chat: int = Field(default=2, alias="CREDIT_COST_PAPER_CHAT")
+    credit_cost_pdf_upload: int = Field(default=5, alias="CREDIT_COST_PDF_UPLOAD")
+    credit_cost_pipeline_run: int = Field(default=20, alias="CREDIT_COST_PIPELINE_RUN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -116,6 +171,18 @@ class Settings(BaseSettings):
             if origin.strip()
         )
         return configured_origins or DEFAULT_CORS_ALLOWED_ORIGINS
+
+    @property
+    def credit_pack_catalog(self) -> tuple[CreditPack, ...]:
+        """Return the static credit pack catalog."""
+
+        return CREDIT_PACK_CATALOG
+
+    @property
+    def credit_pack_by_id(self) -> dict[str, CreditPack]:
+        """Return the credit pack catalog keyed by pack id."""
+
+        return {pack.id: pack for pack in self.credit_pack_catalog}
 
 
 @lru_cache(maxsize=1)
