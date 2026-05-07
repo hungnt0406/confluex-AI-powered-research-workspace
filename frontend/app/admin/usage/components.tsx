@@ -171,9 +171,11 @@ export function ForbiddenAdminState() {
 export function DateRangeSelect({
   range,
   onChange,
+  align = "left",
 }: {
   range: RangeKey;
   onChange: (range: RangeKey) => void;
+  align?: "left" | "right";
 }) {
   const labelId = useId();
   const selectedDates = useMemo(() => getRangeDates(range), [range]);
@@ -253,7 +255,7 @@ export function DateRangeSelect({
         <div
           role="dialog"
           aria-labelledby={labelId}
-          className="absolute left-0 z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-outline/25 bg-surface-container-lowest p-3 shadow-lg"
+          className={`absolute ${align === "right" ? "right-0" : "left-0"} z-30 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-outline/25 bg-surface-container-lowest p-3 shadow-lg`}
         >
           <div className="grid grid-cols-3 gap-2">
             {RANGE_OPTIONS.map((option) => {
