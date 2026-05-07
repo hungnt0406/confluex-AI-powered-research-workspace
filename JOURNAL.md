@@ -1116,6 +1116,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `plans/vercel-render-deployment-plan.md`, `JOURNAL.md`
 - **Current status:** Added a dashboard-first deployment plan covering Render Postgres, Render FastAPI service settings, persistent upload disk, Vercel frontend settings, environment variables, CORS finalization, and production smoke tests.
 
+## 2026-05-07T00:00:00+07:00
+- **Request:** Create a pricing page following the Confluex design handoff (`ui_design_pricing_page/`) and add a "Plans" button to the sidebar chat page linking to it.
+- **Files changed:** `frontend/app/pricing/page.tsx` (new), `frontend/components/Sidebar.tsx`
+- **Current status:** Created a full-featured standalone pricing page at `/pricing` with billing toggle (monthly/annual), 4 plan cards (Free, Student, Researcher Pro, Lab/Team), comparison table, add-ons section, FAQ accordion, and footer CTA — all faithfully ported from the HTML/JSX design reference. Added a `workspace_premium` "Plans" link to both the expanded and collapsed states of the sidebar footer. Subsequent tweaks: fixed scrolling (body is `h-screen overflow-hidden`; changed page wrapper to `h-screen overflow-y-auto`), replaced `check_circle` icon with `check` (16px, FILL 1, wght 500) in the comparison table, and replaced the hero section with the large Noto Serif headline design from the design screenshot.
+
 ## 2026-05-06T16:54:27+07:00
 - **Request:** Implement `plans/vercel-render-deployment-plan.md`.
 - **Files changed:** `backend/config.py`, `backend/main.py`, `.env.example`, `README.md`, `frontend/README.md`, `docs/backend-diagram.md`, `docs/feature-map.md`, `tests/test_app_config.py`, `JOURNAL.md`
