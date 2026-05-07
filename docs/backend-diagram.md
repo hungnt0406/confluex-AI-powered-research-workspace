@@ -12,6 +12,8 @@ flowchart TB
     App --> Lifespan["Lifespan shutdown<br/>close DB engine"]
     App --> AuthRouter["Auth router<br/>/auth"]
     App --> ProjectsRouter["Projects router<br/>/projects"]
+    App --> PaymentsRouter["Payments router<br/>/payments"]
+    App --> WebhooksRouter["Webhooks router<br/>/webhooks"]
     App --> PipelineRouter["Pipeline router<br/>/pipeline"]
 
     AuthRouter --> AuthSchemas["Auth schemas"]
@@ -23,6 +25,18 @@ flowchart TB
     ProjectsRouter --> CurrentUserDep["CurrentUser dependency"]
     ProjectsRouter --> PipelineServiceDep["Pipeline service dependency"]
     ProjectsRouter --> ReferenceServiceDep["Reference-file service dependency"]
+    ProjectsRouter --> CreditGuard["require_credits guard"]
+
+    PaymentsRouter --> PaymentSchemas["Payment schemas"]
+    PaymentsRouter --> DbSessionDep
+    PaymentsRouter --> CurrentUserDep
+    PaymentsRouter --> PaymentOrderService["Payment order service"]
+    PaymentsRouter --> CreditService["Credit ledger service"]
+
+    WebhooksRouter --> PaymentSchemas
+    WebhooksRouter --> DbSessionDep
+    WebhooksRouter --> SepayService["Sepay webhook auth and VietQR helpers"]
+    WebhooksRouter --> PaymentOrderService
 
     PipelineRouter --> PipelineHealthSchema["PipelineHealthResponse"]
     PipelineRouter --> PipelineNodeNames["PIPELINE_NODE_NAMES"]
@@ -47,6 +61,7 @@ flowchart TB
 
     ReferenceServiceDep --> ReferenceFactory["get_reference_file_service"]
     ReferenceFactory --> ReferenceFileService["ReferenceFileService"]
+    CreditGuard --> CreditService
 
     SearcherAgent --> QueryLLM["OpenRouter structured output<br/>query expansion"]
     SearcherAgent --> SemanticScholarClient["Semantic Scholar adapter"]
@@ -63,6 +78,8 @@ flowchart TB
 
     AuthRouter --> Models["SQLAlchemy models"]
     ProjectsRouter --> Models
+    PaymentsRouter --> Models
+    WebhooksRouter --> Models
     SearcherAgent --> Models
     ReaderAgent --> Models
     ReferenceFileService --> Models
@@ -81,6 +98,8 @@ flowchart TB
     Settings --> Embeddings
     Settings --> ReferenceFileService
     Settings --> SemanticScholarClient
+    Settings --> SepayService
+    Settings --> PaymentOrderService
 
     classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
     classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
@@ -90,9 +109,9 @@ flowchart TB
     classDef external fill:#fff0f6,stroke:#d6336c,color:#5c1730;
 
     class Client,App,Health,Lifespan,Settings entry;
-    class AuthRouter,ProjectsRouter,PipelineRouter,AuthSchemas,ProjectSchemas,PipelineHealthSchema,PipelineNodeNames api;
-    class DbSessionDep,CurrentUserDep,PipelineServiceDep,ReferenceServiceDep,Bearer,DecodeToken,LoadUser,GetDbSession,PipelineFactory,ReferenceFactory dependency;
-    class Security,LiteraturePipelineService,ProjectPipelineRunner,SearcherAgent,ReaderAgent,ReferenceFileService,QueryLLM,SummaryLLM,Embeddings,ResearchUtils,DocumentExtraction,SemanticScholarClient,ArxivClient service;
+    class AuthRouter,ProjectsRouter,PaymentsRouter,WebhooksRouter,PipelineRouter,AuthSchemas,ProjectSchemas,PaymentSchemas,PipelineHealthSchema,PipelineNodeNames api;
+    class DbSessionDep,CurrentUserDep,PipelineServiceDep,ReferenceServiceDep,CreditGuard,Bearer,DecodeToken,LoadUser,GetDbSession,PipelineFactory,ReferenceFactory dependency;
+    class Security,LiteraturePipelineService,ProjectPipelineRunner,SearcherAgent,ReaderAgent,ReferenceFileService,CreditService,PaymentOrderService,SepayService,QueryLLM,SummaryLLM,Embeddings,ResearchUtils,DocumentExtraction,SemanticScholarClient,ArxivClient service;
     class SessionManager,AsyncEngine,Database,Models,Migrations,UploadStorage persistence;
     class OpenRouterChat,OpenRouterEmbeddings,SemanticScholarApi,ArxivApi external;
 ```
@@ -219,6 +238,62 @@ flowchart LR
     class AuthRequired,OwnedProject dependency;
     class DeleteProjectRows,DeleteLinkedPaper,DeleteReferenceRow,InsertPaper,UserModel,ProjectModel persistence;
     class DeleteProjectStoredPdfs,LiteraturePipelineService,ReferenceFileService,ReferenceFileRead,DeleteStoredPdf,PaperFilters,CitationService,ImportValidation,CitationResolver,CitationEdges,NodeNames service;
+```
+
+## Credits And Sepay Payment Routes
+
+```mermaid
+flowchart LR
+    classDef entry fill:#f6f8fa,stroke:#6e7781,color:#24292f;
+    classDef api fill:#e7f5ff,stroke:#1c7ed6,color:#0b3558;
+    classDef dependency fill:#fff4e6,stroke:#f08c00,color:#5f370e;
+    classDef service fill:#ebfbee,stroke:#37b24d,color:#163b1f;
+    classDef persistence fill:#f3f0ff,stroke:#7048e8,color:#2f1b70;
+
+    App["backend/main.py"] --> Payments["/payments router"]
+    App --> Webhooks["/webhooks router"]
+    App --> CreditException["HTTP 402 handler"]
+
+    Payments --> Packs["GET /packs"]
+    Payments --> CreateOrder["POST /orders"]
+    Payments --> GetOrder["GET /orders/{order_id}"]
+    Payments --> Balance["GET /balance"]
+    Webhooks --> SepayWebhook["POST /sepay"]
+
+    Packs --> CurrentUser["CurrentUser dependency"]
+    CreateOrder --> CurrentUser
+    GetOrder --> CurrentUser
+    Balance --> CurrentUser
+
+    Packs --> Catalog["credit_pack_catalog"]
+    CreateOrder --> CreatePaymentOrder["create_order"]
+    GetOrder --> OwnedOrder["select owned payment_orders row"]
+    Balance --> LedgerRows["select recent credit_transactions rows"]
+
+    SepayWebhook --> VerifyWebhook["verify_webhook_auth<br/>Authorization: Apikey"]
+    SepayWebhook --> ExtractReference["extract ORD reference code"]
+    SepayWebhook --> MarkPaid["mark_order_paid"]
+
+    CreatePaymentOrder --> Fx["usd_cents_to_vnd"]
+    CreatePaymentOrder --> VietQr["build_vietqr_payload"]
+    MarkPaid --> CreditLedger["credit(kind=topup)"]
+
+    CreditGuard["require_credits in paid project routes"] --> Debit["debit(kind=consume)"]
+    CreditGuard --> Refund["credit(kind=refund) on failure"]
+    Debit --> CreditException
+
+    CreatePaymentOrder --> PaymentOrders[(payment_orders)]
+    MarkPaid --> PaymentOrders
+    MarkPaid --> CreditTransactions[(credit_transactions)]
+    CreditLedger --> CreditTransactions
+    Debit --> CreditTransactions
+    Refund --> CreditTransactions
+
+    class App entry;
+    class Payments,Webhooks,Packs,CreateOrder,GetOrder,Balance,SepayWebhook,CreditException api;
+    class CurrentUser,CreditGuard dependency;
+    class Catalog,CreatePaymentOrder,Fx,VietQr,VerifyWebhook,ExtractReference,MarkPaid,CreditLedger,Debit,Refund service;
+    class OwnedOrder,LedgerRows,PaymentOrders,CreditTransactions persistence;
 ```
 
 ## Authentication And Dependency Flow
