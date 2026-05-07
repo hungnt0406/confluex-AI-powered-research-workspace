@@ -40,11 +40,77 @@ class User(Base):
     google_sub: Mapped[str | None] = mapped_column(
         String(255), unique=True, nullable=True, index=True
     )
+    credit_balance: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    country_code: Mapped[str] = mapped_column(String(8), default="VN", server_default="VN")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     projects: Mapped[list[Project]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    credit_transactions: Mapped[list[CreditTransaction]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="CreditTransaction.created_at.desc()",
+    )
+    payment_orders: Mapped[list[PaymentOrder]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="PaymentOrder.created_at.desc()",
+    )
+
+
+class CreditTransaction(Base):
+    __tablename__ = "credit_transactions"
+    __table_args__ = (
+        Index("ix_credit_transactions_user_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    delta: Mapped[int] = mapped_column(Integer)
+    balance_after: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(32))
+    feature: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reference_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="credit_transactions")
+
+
+class PaymentOrder(Base):
+    __tablename__ = "payment_orders"
+    __table_args__ = (
+        Index("ix_payment_orders_user_created_at", "user_id", "created_at"),
+        Index("ix_payment_orders_status_expires_at", "status", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pack_id: Mapped[str] = mapped_column(String(32))
+    credits: Mapped[int] = mapped_column(Integer)
+    usd_amount: Mapped[int] = mapped_column(Integer)
+    vnd_amount: Mapped[int] = mapped_column(Integer)
+    fx_rate_usd_to_vnd: Mapped[float] = mapped_column(Float)
+    reference_code: Mapped[str] = mapped_column(String(32), unique=True)
+    sepay_va_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sepay_va_bank_bin: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    qr_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    sepay_transaction_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="payment_orders")
 
 
 class Project(Base):
