@@ -179,7 +179,7 @@ export default function AdminUsageUsersPage() {
             disabled={loadingUsers || users.length === 0}
             onChange={handleUserChange}
           />
-          <DateRangeSelect range={range} onChange={setRange} />
+          <DateRangeSelect range={range} onChange={setRange} align="right" />
         </div>
       </section>
 
