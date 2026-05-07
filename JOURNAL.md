@@ -47,6 +47,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-07T14:11:33+07:00
+- **Request:** Apply `PULL_REQUEST.md` workflow to the modified admin usage files.
+- **Files changed:** `frontend/app/admin/usage/components.tsx`, `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`
+- **Current status:** Committed the two admin usage files separately, pushed `hung`, opened and merged PR #263 into `main` while keeping `hung`. Verified the frontend TypeScript check with a temporary tsbuildinfo file. Added this repository log entry as a follow-up per agent rules; local detail reference updated in ignored `AI_WORKLOG.md`.
+
 ### 2026-05-06T12:58:00+07:00
 - **Request:** Help me improve the diagrams that will be rendered by mermaid in docs/backend-diagram.md and check the rendered markdown visually.
 - **Files changed:** `docs/backend-diagram.md`
