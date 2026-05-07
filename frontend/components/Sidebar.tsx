@@ -156,6 +156,15 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Footer */}
           <div className="mt-auto pt-4 border-t border-outline/30">
+            <Link
+              href="/pricing"
+              className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
+                workspace_premium
+              </span>
+              <span>Plans</span>
+            </Link>
             {isAdmin && (
               <Link
                 href="/admin/usage"
@@ -211,6 +220,16 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Footer icons */}
           <div className="mt-auto flex flex-col items-center gap-1 pt-2 border-t border-outline/30 w-full">
+            <Link
+              href="/pricing"
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
+              aria-label="Plans"
+              title="Plans"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                workspace_premium
+              </span>
+            </Link>
             {isAdmin && (
               <Link
                 href="/admin/usage"
