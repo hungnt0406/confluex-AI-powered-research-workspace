@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 
 // ---------------------------------------------------------------------------
 // Data
@@ -28,6 +30,13 @@ interface Plan {
   badge?: string;
   perSeat?: boolean;
 }
+
+const PLAN_PACK_IDS: Record<string, string | null> = {
+  free: null,
+  student: "student",
+  researcher: "pro",
+  lab: "lab_starter",
+};
 
 const PLANS: Plan[] = [
   {
@@ -405,23 +414,7 @@ function PlanCard({ plan, billing }: PlanCardProps) {
       </p>
 
       {/* CTA */}
-      <Link
-        href="/login"
-        className="mb-6 flex items-center justify-center rounded-full py-2.5 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-        style={
-          featured
-            ? { background: "#ffffff", color: "#1d2d18" }
-            : plan.ctaStyle === "primary"
-            ? { background: "#1d2d18", color: "#ffffff" }
-            : {
-                background: "transparent",
-                color: featured ? "#ffffff" : "#1d2d18",
-                border: `1px solid ${featured ? "rgba(255,255,255,0.3)" : "rgba(29,45,24,0.35)"}`,
-              }
-        }
-      >
-        {plan.cta}
-      </Link>
+      <PlanCta plan={plan} featured={featured} />
 
       {/* Divider */}
       <div
@@ -475,6 +468,44 @@ function PlanCard({ plan, billing }: PlanCardProps) {
         {plan.limit}
       </p>
     </div>
+  );
+}
+
+function PlanCta({ plan, featured }: { plan: Plan; featured: boolean }) {
+  const { ready, token } = useAuth();
+  const router = useRouter();
+  const packId = PLAN_PACK_IDS[plan.id];
+  const checkoutPath = packId ? `/billing/checkout?pack=${encodeURIComponent(packId)}` : "/chat";
+
+  const handleClick = () => {
+    if (!ready) return;
+    if (token) {
+      router.push(checkoutPath);
+      return;
+    }
+    router.push(`/login?next=${encodeURIComponent(checkoutPath)}`);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={!ready}
+      className="mb-6 flex items-center justify-center rounded-full py-2.5 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+      style={
+        featured
+          ? { background: "#ffffff", color: "#1d2d18" }
+          : plan.ctaStyle === "primary"
+            ? { background: "#1d2d18", color: "#ffffff" }
+            : {
+                background: "transparent",
+                color: featured ? "#ffffff" : "#1d2d18",
+                border: `1px solid ${featured ? "rgba(255,255,255,0.3)" : "rgba(29,45,24,0.35)"}`,
+              }
+      }
+    >
+      {plan.cta}
+    </button>
   );
 }
 
