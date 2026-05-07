@@ -19,6 +19,7 @@ from backend.api.dependencies import (
     ProjectConversationServiceDependency,
     ReferenceFileServiceDependency,
     WriterOutputServiceDependency,
+    require_credits,
 )
 from backend.api.schemas.projects import (
     CitationGraphPaperImport,
@@ -50,6 +51,7 @@ from backend.api.schemas.projects import (
     WriterGenerateRequest,
     WriterOutputRead,
 )
+from backend.config import get_settings
 from backend.db.models import (
     DeepSearchRun,
     Paper,
@@ -456,9 +458,20 @@ async def queue_project_pipeline(
     """Run the project pipeline and return the phase-2 result summary."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
+    guard = await require_credits(
+        get_settings().credit_cost_pipeline_run,
+        feature="pipeline_run",
+        current_user=current_user,
+        session=session,
+    )
     start_usage_collection()
-    state = await pipeline_service.run_project(session=session, project=project)
-    await flush_project_usage_events(session=session, current_user=current_user, project=project)
+    try:
+        state = await pipeline_service.run_project(session=session, project=project)
+        await flush_project_usage_events(session=session, current_user=current_user, project=project)
+        await guard.commit()
+    except Exception:
+        await guard.rollback()
+        raise
     return RunPipelineResponse(
         status="completed",
         project_id=project.id,
@@ -543,6 +556,12 @@ async def upload_project_reference_file(
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
     content = await file.read()
+    guard = await require_credits(
+        get_settings().credit_cost_pdf_upload,
+        feature="pdf_upload",
+        current_user=current_user,
+        session=session,
+    )
     start_usage_collection()
 
     try:
@@ -554,9 +573,14 @@ async def upload_project_reference_file(
             content=content,
         )
     except ReferenceFileValidationError as error:
+        await guard.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
     except ReferenceFileDuplicateError as error:
+        await guard.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except Exception:
+        await guard.rollback()
+        raise
 
     loaded_reference_file = await get_project_reference_file_or_404(
         session,
@@ -564,6 +588,7 @@ async def upload_project_reference_file(
         reference_file_id=reference_file.id,
     )
     await flush_project_usage_events(session=session, current_user=current_user, project=project)
+    await guard.commit(reference_id=reference_file.id)
     response.headers["Location"] = f"/projects/{project.id}/reference-files/{reference_file.id}"
     return ReferenceFileRead.from_reference(loaded_reference_file)
 
@@ -862,14 +887,25 @@ async def create_paper_conversation_message(
         paper_id=paper.id,
         conversation_id=conversation_id,
     )
-    start_usage_collection()
-    result = await conversation_service.continue_conversation(
+    guard = await require_credits(
+        get_settings().credit_cost_paper_chat,
+        feature="paper_chat",
+        current_user=current_user,
         session=session,
-        paper=paper,
-        conversation=conversation,
-        question=payload.question,
     )
-    await flush_project_usage_events(session=session, current_user=current_user, project=project)
+    start_usage_collection()
+    try:
+        result = await conversation_service.continue_conversation(
+            session=session,
+            paper=paper,
+            conversation=conversation,
+            question=payload.question,
+        )
+        await flush_project_usage_events(session=session, current_user=current_user, project=project)
+        await guard.commit(reference_id=result.conversation.id)
+    except Exception:
+        await guard.rollback()
+        raise
     return PaperConversationRead.model_validate(result.conversation)
 
 
@@ -1166,6 +1202,12 @@ async def stream_deep_search(
         project_id=project.id,
         paper_ids=payload.paper_ids,
     )
+    guard = await require_credits(
+        get_settings().credit_cost_deep_search,
+        feature="deep_search",
+        current_user=current_user,
+        session=session,
+    )
     start_usage_collection()
 
     async def events() -> AsyncIterator[str]:
@@ -1176,15 +1218,21 @@ async def stream_deep_search(
                 question=payload.question,
                 selected_papers=selected_papers,
             ):
+                if event.event == "error":
+                    await guard.rollback()
+                    yield encode_sse_event(event.event, deep_search_stream_payload(event), pad=True)
+                    return
                 if event.event == "done":
                     await flush_project_usage_events(
                         session=session,
                         current_user=current_user,
                         project=project,
                     )
+                    run = cast(DeepSearchRun, event.data)
+                    await guard.commit(reference_id=run.id)
                 yield encode_sse_event(event.event, deep_search_stream_payload(event), pad=True)
         except Exception as error:
-            await session.rollback()
+            await guard.rollback()
             yield encode_sse_event("error", {"detail": str(error)}, pad=True)
 
     return StreamingResponse(
@@ -1254,6 +1302,12 @@ async def generate_writer_output(
     """Generate, QA, and persist a grounded writer artifact for selected project papers."""
 
     project = await get_owned_project_or_404(session, current_user.id, project_id)
+    guard = await require_credits(
+        get_settings().credit_cost_writer,
+        feature="writer",
+        current_user=current_user,
+        session=session,
+    )
     start_usage_collection()
     try:
         writer_output = await writer_output_service.generate_output(
@@ -1268,9 +1322,14 @@ async def generate_writer_output(
             max_words=payload.max_words,
         )
     except LookupError as error:
+        await guard.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    except Exception:
+        await guard.rollback()
+        raise
 
     await flush_project_usage_events(session=session, current_user=current_user, project=project)
+    await guard.commit(reference_id=writer_output.id)
     response.headers["Location"] = f"/projects/{project.id}/writer/outputs/{writer_output.id}"
     return WriterOutputRead.from_writer_output(writer_output)
 
