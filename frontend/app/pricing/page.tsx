@@ -807,55 +807,43 @@ export default function PricingPage() {
       {/* ------------------------------------------------------------------ */}
       <section className="mx-auto max-w-6xl px-6 pb-16">
         <div
-          className="relative overflow-hidden rounded-3xl px-10 py-16 text-center"
-          style={{
-            background: "#1d2d18",
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, rgba(29,45,24,0.08) 1px, transparent 0)",
-            backgroundSize: "22px 22px",
-          }}
+          className="relative overflow-hidden rounded-3xl px-10 py-14 md:px-14 md:py-16"
+          style={{ background: "#1d2d18" }}
         >
-          {/* Subtle radial glow */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(156,176,146,0.12) 0%, transparent 70%)",
-            }}
-          />
-
-          <div className="relative z-10">
-            <p
-              className="mb-3 text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "#9cb092" }}
-            >
-              Start today
-            </p>
-            <h2 className="font-headline mb-4 text-3xl font-semibold leading-tight text-white md:text-4xl">
-              Your next paper starts
-              <br />
-              <em className="font-headline not-italic" style={{ color: "rgba(156,176,146,0.9)" }}>
-                with a question.
-              </em>
-            </h2>
-            <p className="mx-auto mb-8 max-w-md text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>
-              Join researchers, students, and labs already using Confluex to move from
-              question to insight — faster.
-            </p>
-            <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <div className="relative z-10 grid items-end gap-10 md:grid-cols-[1fr_auto]">
+            <div>
+              <p
+                className="mb-4 text-xs font-semibold uppercase tracking-[0.22em]"
+                style={{ color: "#9cb092" }}
+              >
+                Start where you are
+              </p>
+              <h2 className="font-headline text-[clamp(2.4rem,5vw,3.5rem)] font-semibold leading-[1.05] tracking-tight text-white">
+                Open a project. Drop in a paper.{" "}
+                <em className="font-headline italic">See what happens.</em>
+              </h2>
+              <p
+                className="mt-5 max-w-lg text-[15px] leading-relaxed"
+                style={{ color: "rgba(255,255,255,0.65)" }}
+              >
+                The free plan has no clock and no card. You&apos;ll know within an hour of
+                reading whether Confluex belongs in your workflow.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
               <Link
                 href="/login"
-                className="rounded-full px-7 py-3 text-sm font-semibold text-on-surface transition-opacity hover:opacity-90 no-underline"
+                className="rounded-full px-8 py-3.5 text-sm font-semibold text-on-surface transition-opacity hover:opacity-90 text-center no-underline"
                 style={{ background: "#ffffff" }}
               >
-                Start for free
+                Start with Free
               </Link>
               <Link
                 href="/login"
-                className="rounded-full border px-7 py-3 text-sm font-medium text-white transition-opacity hover:opacity-75 no-underline"
-                style={{ borderColor: "rgba(255,255,255,0.2)" }}
+                className="rounded-full border px-8 py-3.5 text-sm font-medium text-white transition-opacity hover:opacity-75 text-center no-underline"
+                style={{ borderColor: "rgba(255,255,255,0.35)" }}
               >
-                Talk to us about teams
+                Talk to our team
               </Link>
             </div>
           </div>
