@@ -9,6 +9,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.api.dependencies import get_db_session
+from backend.config import get_settings
 from backend.db.base import Base
 from backend.db.models import Project, User
 from backend.db.session import normalize_database_url
@@ -19,6 +20,13 @@ from backend.security import create_access_token, hash_password
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def clear_settings_cache() -> None:
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest_asyncio.fixture
@@ -87,7 +95,11 @@ async def sample_user(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> dict[str, str]:
     async with session_factory() as session:
-        user = User(email="researcher@example.com", hashed_password=hash_password("supersecret123"))
+        user = User(
+            email="researcher@example.com",
+            hashed_password=hash_password("supersecret123"),
+            credit_balance=10_000,
+        )
         session.add(user)
         await session.commit()
         await session.refresh(user)
