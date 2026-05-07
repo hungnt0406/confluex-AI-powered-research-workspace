@@ -1,10 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { useChat } from "@/components/ChatProvider";
-import { AdminAccess, Project, api } from "@/lib/api";
+import {
+  AdminAccess,
+  CREDIT_BALANCE_REFRESH_EVENT,
+  Project,
+  api,
+  fetchCreditBalance,
+} from "@/lib/api";
 
 interface SidebarProps {
   open: boolean;
@@ -15,6 +21,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { token, user, logout } = useAuth();
   const { projects, activeProject, busy, selectProject, renameProject, deleteProject, startNewResearch } = useChat();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -35,6 +42,34 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
       cancelled = true;
     };
   }, [token]);
+
+  const refreshCreditBalance = useCallback(async () => {
+    if (!token) {
+      setCreditBalance(null);
+      return;
+    }
+
+    try {
+      const response = await fetchCreditBalance(token);
+      setCreditBalance(response.credit_balance);
+    } catch {
+      setCreditBalance(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void refreshCreditBalance();
+    if (!token) return;
+
+    const intervalId = window.setInterval(() => void refreshCreditBalance(), 60_000);
+    const handleRefresh = () => void refreshCreditBalance();
+    window.addEventListener(CREDIT_BALANCE_REFRESH_EVENT, handleRefresh);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener(CREDIT_BALANCE_REFRESH_EVENT, handleRefresh);
+    };
+  }, [refreshCreditBalance, token]);
 
   const handleDeleteProject = async (projectId: string, projectTitle: string) => {
     if (typeof window !== "undefined") {
@@ -157,6 +192,20 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
           {/* Footer */}
           <div className="mt-auto pt-4 border-t border-outline/30">
             <Link
+              href="/billing"
+              className="mb-1 flex items-center justify-between gap-2.5 w-full rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-1.5 text-xs text-primary transition-colors hover:bg-primary/10"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
+                  bolt
+                </span>
+                <span className="truncate">Credits</span>
+              </span>
+              <span className="font-semibold tabular-nums">
+                {creditBalance === null ? "..." : creditBalance.toLocaleString("en-US")}
+              </span>
+            </Link>
+            <Link
               href="/pricing"
               className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
             >
@@ -220,6 +269,24 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Footer icons */}
           <div className="mt-auto flex flex-col items-center gap-1 pt-2 border-t border-outline/30 w-full">
+            <Link
+              href="/billing"
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
+              aria-label={
+                creditBalance === null
+                  ? "Credit balance"
+                  : `${creditBalance.toLocaleString("en-US")} credits`
+              }
+              title={
+                creditBalance === null
+                  ? "Credit balance"
+                  : `${creditBalance.toLocaleString("en-US")} credits`
+              }
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                bolt
+              </span>
+            </Link>
             <Link
               href="/pricing"
               className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
