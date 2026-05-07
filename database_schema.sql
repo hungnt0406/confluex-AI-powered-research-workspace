@@ -4,11 +4,16 @@
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
-    hashed_password VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255),
+    auth_provider VARCHAR(32) NOT NULL DEFAULT 'email',
+    google_sub VARCHAR(255) UNIQUE,
+    credit_balance INTEGER NOT NULL DEFAULT 0,
+    country_code VARCHAR(8) NOT NULL DEFAULT 'VN',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);
+CREATE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub);
 
 CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(36) PRIMARY KEY,
@@ -46,6 +51,47 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
 CREATE INDEX IF NOT EXISTS ix_ai_usage_events_user_id ON ai_usage_events (user_id);
 CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_id ON ai_usage_events (project_id);
 CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_created_at ON ai_usage_events (project_id, created_at);
+
+CREATE TABLE IF NOT EXISTS credit_transactions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    delta INTEGER NOT NULL,
+    balance_after INTEGER NOT NULL,
+    kind VARCHAR(32) NOT NULL,
+    feature VARCHAR(64),
+    reference_id VARCHAR(64),
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_credit_transactions_user_id ON credit_transactions (user_id);
+CREATE INDEX IF NOT EXISTS ix_credit_transactions_user_created_at
+    ON credit_transactions (user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS payment_orders (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    pack_id VARCHAR(32) NOT NULL,
+    credits INTEGER NOT NULL,
+    usd_amount INTEGER NOT NULL,
+    vnd_amount INTEGER NOT NULL,
+    fx_rate_usd_to_vnd DOUBLE PRECISION NOT NULL,
+    reference_code VARCHAR(32) NOT NULL UNIQUE,
+    sepay_va_account VARCHAR(64),
+    sepay_va_bank_bin VARCHAR(16),
+    qr_payload TEXT,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    sepay_transaction_id VARCHAR(64) UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    paid_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_payment_orders_user_id ON payment_orders (user_id);
+CREATE INDEX IF NOT EXISTS ix_payment_orders_user_created_at
+    ON payment_orders (user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_payment_orders_status_expires_at
+    ON payment_orders (status, expires_at);
 
 CREATE TABLE IF NOT EXISTS reference_files (
     id VARCHAR(36) PRIMARY KEY,
