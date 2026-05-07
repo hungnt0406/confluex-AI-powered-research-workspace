@@ -9,6 +9,7 @@ from backend.api.schemas.auth import AuthRequest, AuthResponse, GoogleAuthReques
 from backend.config import get_settings
 from backend.db.models import User
 from backend.security import create_access_token, hash_password, verify_password
+from backend.services.credits import credit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -36,6 +37,14 @@ async def register_user(payload: AuthRequest, session: DbSession) -> AuthRespons
 
     user = User(email=payload.email, hashed_password=hash_password(payload.password))
     session.add(user)
+    await session.flush()
+    await credit(
+        session,
+        user_id=user.id,
+        delta=100,
+        kind="grant",
+        metadata={"reason": "signup_bonus"},
+    )
     await session.commit()
     await session.refresh(user)
     return build_auth_response(user)
@@ -86,7 +95,7 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
             payload.credential,
             google_requests.Request(),
             settings.google_client_id,
-        )
+        )  # type: ignore[no-untyped-call]
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -125,6 +134,14 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
                 google_sub=google_sub,
             )
             session.add(user)
+            await session.flush()
+            await credit(
+                session,
+                user_id=user.id,
+                delta=100,
+                kind="grant",
+                metadata={"reason": "signup_bonus"},
+            )
             await session.commit()
             await session.refresh(user)
         except IntegrityError:
