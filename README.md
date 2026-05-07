@@ -19,6 +19,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Project-scoped multi-paper grounded conversations for the main chat workspace
 - Project-scoped Deep Search mode with plan approval, visible thinking/progress, persisted runs, Tavily web search fallback, academic/project evidence, report streaming, source capture, and QA flags
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
+- Sepay/VietQR credit top-ups with payment orders, webhook confirmation, user credit ledger, signup credit grants, and quota enforcement on expensive research operations
 - Project-scoped OpenRouter token usage telemetry with aggregate API
 - Admin-only OpenRouter token usage monitoring across all users/projects
 - Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
@@ -64,6 +65,7 @@ cp .env.example .env
 
 Fill in the values you need locally, especially `DATABASE_URL`, `JWT_SECRET_KEY`, and `OPENROUTER_API_KEY`.
 `CORS_ALLOWED_ORIGINS` is comma-separated and defaults to local frontend origins; set it to the Vercel production URL for the deployed backend.
+For credit top-ups, set `SEPAY_WEBHOOK_API_KEY`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_ACCOUNT_BANK_BIN`, and optionally `USD_TO_VND_RATE`; missing Sepay credentials still allow deterministic local/test QR payload generation.
 
 ### 3. Install Python dependencies
 
@@ -98,6 +100,11 @@ npm run dev
 - `POST /auth/login`
 - `GET /admin/access`
 - `GET /admin/token-usage`
+- `GET /payments/packs`
+- `POST /payments/orders`
+- `GET /payments/orders/{order_id}`
+- `GET /payments/balance`
+- `POST /webhooks/sepay`
 - `POST /projects`
 - `GET /projects`
 - `GET /projects/{id}`
@@ -130,6 +137,7 @@ npm run dev
 `DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
 `GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist.
 `GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and all matching user log rows for the selected range with optional `date_from`, `date_to`, `user_id`, and `project_id` filters. Project chat usage rows include the persisted user prompt that produced the chat answer.
+`GET /payments/packs` returns the static credit pack catalog with USD cents, credit amounts, and current VND conversions. `POST /payments/orders` creates a pending Sepay/VietQR order for one pack and snapshots the VND amount, FX rate, reference code, receiving account, and QR URL. `GET /payments/orders/{order_id}` polls one owned order, while `GET /payments/balance` returns the authenticated user's balance and recent ledger rows. `POST /webhooks/sepay` verifies `Authorization: Apikey <SEPAY_WEBHOOK_API_KEY>`, matches `ORD...` reference codes from incoming transfers, and credits paid orders idempotently.
 `GET /projects/{id}/token-usage` returns provider-reported token totals plus breakdowns by feature, model, and day for the authenticated user's project.
 `GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references; each related paper includes its own `citation_count` so the frontend can render a Connected-Papers-style citation neighborhood graph in the right-hand context panel. The frontend caches graph payloads while the workspace is open, shows in-app node previews, marks nodes already in the project, offers an accessible list view, and can import missing related papers through `POST /projects/{id}/papers/import-citation`.
 `POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
@@ -165,6 +173,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literatu
 - The intended split deployment is Vercel for `frontend/`, Render Web Service for the FastAPI backend, Render Postgres for `DATABASE_URL`, and a Render persistent disk mounted at `/var/data` with `REFERENCE_UPLOAD_DIR=/var/data/reference_uploads`. See `plans/vercel-render-deployment-plan.md` for the provider-dashboard steps and smoke tests.
 - Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
 - Deep Search uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. The stream also emits user-facing `activity` events so the thinking panel can show planned research paths, source counts, and source references while the run is in progress. Final reports ask the writer to attach URL-backed Markdown citations to factual sentences, and the chat UI renders those links as compact source buttons with hover previews. If `TAVILY_API_KEY` is missing, web search is skipped with a persisted warning while academic/project evidence still runs.
+- Credit costs default to 20 credits for discovery pipeline runs, 80 for Deep Search, 40 for writer output, 2 for paper-chat follow-ups, and 5 for reference PDF uploads. Insufficient balances return HTTP 402 with `required` and `balance` fields.
 - Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
 - Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry. The admin user log reads chat prompts from already-persisted project messages for display.
 - `ADMIN_EMAILS` is a comma-separated allowlist for the admin usage monitor.
