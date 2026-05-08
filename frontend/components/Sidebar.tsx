@@ -7,6 +7,7 @@ import { useChat } from "@/components/ChatProvider";
 import {
   AdminAccess,
   CREDIT_BALANCE_REFRESH_EVENT,
+  CreditBalance,
   Project,
   api,
   fetchCreditBalance,
@@ -21,7 +22,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { token, user, logout } = useAuth();
   const { projects, activeProject, busy, selectProject, renameProject, deleteProject, startNewResearch } = useChat();
   const [isAdmin, setIsAdmin] = useState(false);
-  const [creditBalance, setCreditBalance] = useState<number | null>(null);
+  const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -51,11 +52,22 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
     try {
       const response = await fetchCreditBalance(token);
-      setCreditBalance(response.credit_balance);
+      setCreditBalance(response);
     } catch {
       setCreditBalance(null);
     }
   }, [token]);
+
+  const creditBalanceLabel = creditBalance?.is_unlimited
+    ? "Unlimited"
+    : creditBalance === null
+      ? "..."
+      : creditBalance.credit_balance.toLocaleString("en-US");
+  const creditBalanceTitle = creditBalance?.is_unlimited
+    ? "Unlimited credits"
+    : creditBalance === null
+      ? "Credit balance"
+      : `${creditBalance.credit_balance.toLocaleString("en-US")} credits`;
 
   useEffect(() => {
     void refreshCreditBalance();
@@ -202,7 +214,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                 <span className="truncate">Credits</span>
               </span>
               <span className="font-semibold tabular-nums">
-                {creditBalance === null ? "..." : creditBalance.toLocaleString("en-US")}
+                {creditBalanceLabel}
               </span>
             </Link>
             <Link
@@ -272,16 +284,8 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             <Link
               href="/billing"
               className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
-              aria-label={
-                creditBalance === null
-                  ? "Credit balance"
-                  : `${creditBalance.toLocaleString("en-US")} credits`
-              }
-              title={
-                creditBalance === null
-                  ? "Credit balance"
-                  : `${creditBalance.toLocaleString("en-US")} credits`
-              }
+              aria-label={creditBalanceTitle}
+              title={creditBalanceTitle}
             >
               <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
                 bolt
