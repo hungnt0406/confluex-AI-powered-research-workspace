@@ -47,6 +47,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-08T15:20:11+07:00
+- **Request:** SePay payments work (money received, transactions logged in dashboard) but the user's credit balance never updates — find the root cause first, then fix.
+- **Files changed:** `backend/api/schemas/payments.py`, `tests/test_sepay_webhook.py`, `AI_WORKLOG.md`, `AGENTS.md`, `.codex/AGENTS.md`, `JOURNAL.md`
+- **Current status:** Root cause was that SePay sends `id` as a JSON number, but `SepayWebhookPayload.transaction_id: str` rejected it under pydantic v2's strict-string default — every real delivery failed with HTTP 422 before reaching settlement. Two upstream SePay-config issues also blocked delivery initially (virtual-account filter scoped to a sub-account the QR didn't target, and the "skip if no payment code" toggle requiring SePay-side code-prefix registration); the user relaxed those during diagnosis. Fix adds `coerce_numbers_to_str=True` to the webhook schema's `model_config` and a regression test that posts SePay's exact production payload shape (integer `id`, `subAccount`, BIDV gateway). Verified with `.venv/bin/pytest tests/test_sepay_webhook.py -x -q` (5 passed). Awaiting redeploy to Render and a re-fire of the failed delivery from SePay's WebHooks Log.
+
 ### 2026-05-07T14:11:33+07:00
 - **Request:** Apply `PULL_REQUEST.md` workflow to the modified admin usage files.
 - **Files changed:** `frontend/app/admin/usage/components.tsx`, `frontend/app/admin/usage/users/page.tsx`, `JOURNAL.md`
