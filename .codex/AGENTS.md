@@ -164,10 +164,26 @@ tests/           — Test suite
 |-------|------|------|-------|
 | `/chat` | `frontend/app/chat/page.tsx` | Required | Main research workspace |
 | `/login` | `frontend/app/login/page.tsx` | Public | Email + Google OAuth |
+| `/billing` | `frontend/app/billing/page.tsx` | Required | Credit balance, recent ledger, and pack links |
+| `/billing/checkout` | `frontend/app/billing/checkout/page.tsx` | Required | SePay/VietQR order creation, QR display, and polling |
+| `/billing/success` | `frontend/app/billing/success/page.tsx` | Required | Payment confirmation and balance refresh |
 | `/admin/usage` | `frontend/app/admin/usage/` | Admin only | Token usage dashboard |
-| `/pricing` | `frontend/app/pricing/page.tsx` | Public | Standalone pricing page; linked from sidebar "Plans" button |
+| `/pricing` | `frontend/app/pricing/page.tsx` | Public | Standalone pricing page; linked from sidebar "Plans" button; keep the previous visual design while paid plan-card CTAs route to checkout packs |
 
-Sidebar (`frontend/components/Sidebar.tsx`) footer items (expanded + collapsed): Plans → `/pricing`, Usage Monitor → `/admin/usage` (admin-only), Sign out.
+Sidebar (`frontend/components/Sidebar.tsx`) footer items (expanded + collapsed): Credits → `/billing`, Plans → `/pricing`, Usage Monitor → `/admin/usage` (admin-only), Sign out. Admin users should see `Unlimited` credits when `/payments/balance` returns `is_unlimited`.
+
+## This Repo — Deep Search Plan Generation
+
+`POST /pipeline/deep-search/plan` (auth required) accepts `{question}` and returns `{steps: [{title, items}]}` — three sections: "Research Websites" (3 items), "Analyze Results" (2 items), "Create Report" (2 items) — with content tailored to the topic by the LLM. Falls back to static hardcoded content when `OPENROUTER_API_KEY` is absent.
+
+Frontend flow (`frontend/components/ChatProvider.tsx`): on deep-search submit, a plan card appears immediately with `status: "generating"` and animated skeleton bars (`skeleton-shimmer` CSS class in `globals.css`). The plan endpoint is called async; on success the steps are patched in and status becomes `"pending"`, enabling the Edit plan / Start research buttons. On failure the hardcoded fallback is used. `DeepSearchPlanMessage.status` union: `"generating" | "pending" | "started" | "editing" | "superseded"`.
+
+## This Repo — Payments and Credits
+
+- Credit packs, orders, balances, and SePay settlement are implemented in `backend/api/routers/payments.py`, `backend/api/routers/webhooks.py`, `backend/api/schemas/payments.py`, `backend/services/credits.py`, `backend/services/payment_orders.py`, `backend/services/sepay.py`, and `backend/services/fx.py`.
+- Paid features use `require_credits` in `backend/api/dependencies.py`; keep debit/refund handling around failure paths when adding new gated work.
+- `ADMIN_EMAILS` is both the admin usage allowlist and the credit bypass allowlist. Matching users can run gated paid features with zero balance and no credit ledger debit.
+- Keep payment/credit schema and contracts synchronized across `backend/db/models.py`, Alembic migrations, `database_schema.sql`, `backend/api/schemas/payments.py`, `frontend/lib/api.ts`, docs, and tests.
 
 ## Success Metrics
 
