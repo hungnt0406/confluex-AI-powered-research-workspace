@@ -103,6 +103,7 @@ class PaymentBalanceRead(BaseModel):
     """Current user balance plus recent ledger rows."""
 
     credit_balance: int
+    is_unlimited: bool = False
     recent_transactions: list[CreditTransactionRead]
 
 
