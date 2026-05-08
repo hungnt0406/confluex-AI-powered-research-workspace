@@ -36,3 +36,19 @@ a { color: #32432C; }
   50% { opacity: 0.75; }
   100% { transform: translateX(220%); opacity: 0.35; }
 }
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0,0,0,0.07) 25%,
+    rgba(0,0,0,0.14) 50%,
+    rgba(0,0,0,0.07) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
