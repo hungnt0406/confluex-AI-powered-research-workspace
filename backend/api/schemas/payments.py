@@ -116,7 +116,9 @@ class SepayWebhookPayload(BaseModel):
     transfer_amount: int | None = Field(default=None, alias="transferAmount")
     account_number: str | None = Field(default=None, alias="accountNumber")
 
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    model_config = ConfigDict(
+        populate_by_name=True, extra="ignore", coerce_numbers_to_str=True
+    )
 
 
 class SepayWebhookResponse(BaseModel):
