@@ -139,3 +139,18 @@ Ghi lại các quyết định kỹ thuật, phân công, và brainstorming củ
 **Code thay đổi:** `src/agent.ts` lines 45-67
 
 **Học được:** Luôn thiết kế stop condition trước khi implement retry logic.
+
+---
+
+### [ADR-3] LLM-generated Deep Search plan instead of hardcoded steps — 07/05/2026
+
+**Bối cảnh:** Deep Search plan card hiển thị nội dung cố định bất kể người dùng nhập topic gì. Mọi topic đều thấy cùng 3 bullet point chung chung, không có giá trị thực với người dùng.
+
+**Các lựa chọn đã xem xét:**
+- **Option A — Hardcoded template với string interpolation:** Đơn giản, không cần gọi API thêm. Nhưng chỉ nhúng câu hỏi vào 1 bullet, phần còn lại vẫn generic.
+- **Option B — LLM call từ frontend (client-side):** Nhanh, không cần backend thêm. Nhưng lộ API key, khó kiểm soát cost, không nhất quán với kiến trúc hiện tại.
+- **Option C — Backend endpoint `POST /pipeline/deep-search/plan`:** Gọi `OpenRouterStructuredOutputService` với structured JSON output, fallback về hardcoded khi thiếu key. Frontend hiển thị skeleton loading trong lúc chờ.
+
+**Quyết định:** Chọn Option C. Phù hợp với kiến trúc layered hiện tại (I/O trong `services/`, HTTP trong `routers/`). Offline fallback đảm bảo CI và môi trường không có key vẫn chạy được. UX không bị block vì plan card xuất hiện ngay với skeleton, rồi swap sang nội dung thật.
+
+**Hệ quả:** Thêm ~1 LLM call mỗi lần user submit Deep Search (trước khi run). Cost nhỏ, dùng model rẻ nhất của OpenRouter. Skeleton shimmer animation thêm vào `globals.css`. `DeepSearchPlanMessage.status` mở rộng thêm `"generating"`.
