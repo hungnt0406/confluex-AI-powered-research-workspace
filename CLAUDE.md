@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Automated Literature Review: async FastAPI backend + Next.js 14 frontend shell. Runs a LangGraph pipeline (Searcher → Reader → Writer → QA) over Semantic Scholar / arXiv to produce ranked papers, structured summaries, grounded paper conversations, and grounded writer drafts with citation export.
+Automated Literature Review: async FastAPI backend + Next.js 14 frontend shell. Runs a LangGraph pipeline (Searcher → Reader → Writer → QA) over Semantic Scholar / arXiv to produce ranked papers, structured summaries, grounded paper conversations, Deep Search reports, grounded writer drafts with citation export, token usage visibility, and SePay/VietQR credit top-ups.
 
 ## Common commands
 
@@ -49,17 +49,27 @@ RUN_EVAL_TESTS=1     uv run pytest tests/test_search_quality.py -m eval
 Layered async FastAPI app. Keep external I/O (HTTP, LLM, embeddings, PDF extraction) inside `backend/services/`; keep pipeline orchestration inside `backend/agents/`; keep HTTP concerns (routers, schemas, deps) inside `backend/api/`.
 
 - `backend/main.py`, `backend/config.py`, `backend/security.py` — app factory, pydantic-settings config, JWT.
-- `backend/api/routers/` + `backend/api/schemas/` — `/auth`, `/projects`, `/pipeline`. `POST /projects/{id}/run` drives the Searcher+Reader flow; `POST /projects/{id}/writer/generate` invokes the writer agent; paper conversations live under `/projects/{id}/papers/{paper_id}/conversations`.
+- `backend/api/routers/` + `backend/api/schemas/` — `/auth`, `/projects`, `/pipeline`, `/payments`, `/webhooks`. `POST /projects/{id}/run` drives the Searcher+Reader flow; `POST /projects/{id}/writer/generate` invokes the writer agent; paper conversations live under `/projects/{id}/papers/{paper_id}/conversations`; `POST /pipeline/deep-search/plan` generates a topic-specific LLM research plan (falls back to hardcoded steps when LLM key is absent); SePay credit packs/orders/balance live under `/payments`; SePay settlement posts to `/webhooks/sepay`.
 - `backend/agents/` — LangGraph pipeline. `state.py` defines shared state; `graph.py` wires `searcher.py → reader.py → writer.py → qa.py` with a warning branch when ranking yields too few papers. `pipeline.py` is the entry point used by the API.
-- `backend/services/` — `semantic_scholar.py`, `arxiv.py` (search + dedup), `embeddings.py` (OpenRouter `openai/text-embedding-3-small`, cosine rank), `llm.py` (OpenRouter chat for query expansion + structured summaries), `document_extraction.py` (PyMuPDF chunking for grounding), `paper_conversations.py`, `writer_outputs.py`, `citations.py` (APA/IEEE/Chicago formatting), `reference_files.py`, `research_utils.py`.
+- `backend/services/` — `semantic_scholar.py`, `arxiv.py` (search + dedup), `embeddings.py` (OpenRouter `openai/text-embedding-3-small`, cosine rank), `llm.py` (OpenRouter chat for query expansion + structured summaries), `document_extraction.py` (PyMuPDF chunking for grounding), `paper_conversations.py`, `writer_outputs.py`, `citations.py` (APA/IEEE/Chicago formatting), `reference_files.py`, `research_utils.py`, `credits.py`, `payment_orders.py`, `sepay.py`, `fx.py`.
 - `backend/db/` — SQLAlchemy 2.0 async models, session factory, Alembic migrations (project search settings, paper status, summary error tracking, persisted conversations and writer outputs). Add new schema changes as Alembic revisions.
 - `tests/` — pytest-asyncio (`asyncio_mode = auto`). Fixtures cover auth, projects, pipeline, graph flow, searcher/reader, services. Live API and eval tests are gated by env markers above.
 
 Frontend pages (`frontend/app/`):
 - `chat/page.tsx` — main research workspace (requires auth); sidebar (`components/Sidebar.tsx`) has New Research, project list, Plans link, admin link, logout.
 - `login/page.tsx` — email + Google OAuth login.
+- `billing/page.tsx`, `billing/checkout/page.tsx`, `billing/success/page.tsx` — credit balance, SePay/VietQR checkout, and payment confirmation (requires auth).
 - `admin/usage/` — token usage dashboard (admin-only).
-- `pricing/page.tsx` — standalone public pricing page (no auth); billing toggle, 4-tier plan cards, comparison table, add-ons, FAQ, CTA. Linked from the sidebar "Plans" button.
+- `pricing/page.tsx` — standalone public pricing page (no auth); billing toggle, 4-tier plan cards, comparison table, add-ons, FAQ, CTA. Linked from the sidebar "Plans" button. Keep the previous visual design; paid plan-card CTAs route into matching `/billing/checkout?pack=...` packs, while unauthenticated users go through `/login?next=...`.
+
+## Credits, Billing, and Admin Access
+
+- Signup grants 100 credits for email and Google users.
+- Gated expensive features use `require_credits` in `backend/api/dependencies.py`: discovery pipeline, reference PDF upload, paper-chat follow-up, Deep Search, and writer generation.
+- `backend/services/credits.py` owns ledger debits/refunds/grants; `backend/services/payment_orders.py` owns order creation and idempotent settlement; `backend/services/sepay.py` owns SePay/VietQR reference and QR helpers.
+- `GET /payments/balance` returns `credit_balance`, `is_unlimited`, and recent ledger rows. The frontend sidebar and billing page display `Unlimited` when `is_unlimited` is true.
+- `ADMIN_EMAILS` is a comma-separated allowlist for both admin usage pages and credit enforcement bypass. Allowlisted admins can run gated paid features with zero balance and without creating credit ledger debits.
+- Credit-related schema changes must keep `backend/db/models.py`, Alembic migrations, `database_schema.sql`, `backend/api/schemas/payments.py`, frontend DTOs in `frontend/lib/api.ts`, docs, and tests synchronized.
 
 Offline fallback is a hard requirement: when `OPENROUTER_API_KEY` / external keys are missing (local, dev, CI, tests), services must return deterministic offline results so the pipeline and tests still pass. Preserve this when editing `llm.py`, `embeddings.py`, or the agent nodes.
 
