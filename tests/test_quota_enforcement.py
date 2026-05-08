@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agents.state import AgentState
 from backend.api.dependencies import get_deep_search_service, get_pipeline_service
+from backend.config import get_settings
 from backend.db.models import CreditTransaction, Project, User
 from backend.security import create_access_token, hash_password
 from backend.services.deep_search import DeepSearchStreamEvent
@@ -109,6 +110,56 @@ async def test_pipeline_route_debits_credits_on_success(
     assert [(tx.kind, tx.delta, tx.feature) for tx in transactions] == [
         ("consume", -20, "pipeline_run"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_admin_user_bypasses_credit_debit(
+    app,
+    client,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    get_settings.cache_clear()
+    user, project = await create_user_and_project(
+        session_factory,
+        email="admin@example.com",
+        credit_balance=0,
+    )
+    headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+    class FakePipelineService:
+        async def run_project(self, *, session, project) -> AgentState:
+            return AgentState(
+                project_id=project.id,
+                topic=project.topic_description,
+                queries=["admin bypass"],
+                raw_papers=[],
+                ranked_papers=[],
+                summaries=[],
+                qa_flags=[],
+                errors=[],
+            )
+
+    app.dependency_overrides[get_pipeline_service] = lambda: FakePipelineService()
+    response = await client.post(f"/projects/{project.id}/run", headers=headers)
+    app.dependency_overrides.pop(get_pipeline_service, None)
+
+    assert response.status_code == 200
+
+    async with session_factory() as session:
+        persisted_user = await session.get(User, user.id)
+        transactions = list(
+            (
+                await session.execute(
+                    select(CreditTransaction).where(CreditTransaction.user_id == user.id)
+                )
+            ).scalars()
+        )
+
+    assert persisted_user is not None
+    assert persisted_user.credit_balance == 0
+    assert transactions == []
 
 
 @pytest.mark.asyncio

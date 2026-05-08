@@ -49,6 +49,9 @@ class CreditDebitGuard:
 
         if self.finalized:
             return
+        if self.amount <= 0:
+            self.finalized = True
+            return
         if reference_id is not None:
             transaction = await self.session.get(CreditTransaction, self.transaction_id)
             if transaction is not None:
@@ -63,6 +66,10 @@ class CreditDebitGuard:
             return
 
         await self.session.rollback()
+        if self.amount <= 0:
+            self.finalized = True
+            return
+
         await credit(
             self.session,
             user_id=self.user_id,
@@ -174,6 +181,15 @@ async def require_credits(
     session: AsyncSession,
 ) -> CreditDebitGuard:
     """Pre-debit a user's balance before running a paid feature."""
+
+    if current_user.email.lower() in get_settings().admin_email_set:
+        return CreditDebitGuard(
+            session=session,
+            transaction_id="",
+            user_id=current_user.id,
+            amount=0,
+            feature=feature,
+        )
 
     try:
         transaction = await debit(
