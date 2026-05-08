@@ -29,7 +29,8 @@ npm run dev:reset
 ## What it wires up
 
 - `POST /auth/register` / `POST /auth/login` — session stored in `localStorage` via `AuthProvider`.
-- `/billing` reads `GET /payments/balance` and `GET /payments/packs` to show the user's current credit balance, recent ledger rows, and top-up pack links.
+- `/pricing` keeps the previous plan-page design while routing paid plan-card CTAs into matching checkout packs. Unauthenticated users go through `/login?next=...`; the Free card routes to chat.
+- `/billing` reads `GET /payments/balance` and `GET /payments/packs` to show the user's current credit balance or admin unlimited state, recent ledger rows, and top-up pack links.
 - `/billing/checkout` creates a Sepay/VietQR order with `POST /payments/orders`, renders the QR image, VND amount, receiving account, and required transfer reference code, then polls `GET /payments/orders/{order_id}` every 3 seconds until payment is confirmed or the order expires.
 - `/billing/success` confirms the paid order and refreshes the sidebar balance. The sidebar also polls `GET /payments/balance` every 60 seconds and after gated feature consumption.
 - `GET /projects` — sidebar "Recents" list.

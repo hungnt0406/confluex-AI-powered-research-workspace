@@ -20,14 +20,14 @@ export default function ContextPanel() {
   const open = papers.length > 0 || deepSearchSources.length > 0;
   const splitPanel = papers.length > 0 && deepSearchSources.length > 0;
 
-  const [width, setWidth] = useState<number>(600);
+  const [width, setWidth] = useState<number>(320);
   const [activeTab, setActiveTab] = useState<ContextPanelTab>("papers");
   const dragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
 
   useEffect(() => {
-    setWidth(Math.round(window.innerWidth * 0.3));
+    setWidth(Math.round(window.innerWidth * 0.2));
   }, []);
 
   const onMouseMove = useCallback((e: MouseEvent) => {
