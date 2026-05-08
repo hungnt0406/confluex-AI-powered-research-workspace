@@ -44,6 +44,16 @@ const config: Config = {
         ui: ["Inter", "sans-serif"],
         display: ["'Noto Serif'", "serif"],
       },
+      keyframes: {
+        "upload-progress": {
+          "0%": { transform: "translateX(-100%) scaleX(0.3)" },
+          "50%": { transform: "translateX(0%) scaleX(0.7)" },
+          "100%": { transform: "translateX(100%) scaleX(0.3)" },
+        },
+      },
+      animation: {
+        "upload-progress": "upload-progress 1.4s ease-in-out infinite",
+      },
     },
   },
   plugins: [],
