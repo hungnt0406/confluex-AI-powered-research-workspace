@@ -108,6 +108,37 @@ async def test_sepay_webhook_returns_200_for_unknown_reference_code(
 
 
 @pytest.mark.asyncio
+async def test_sepay_webhook_accepts_numeric_transaction_id(
+    webhook_client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user = await create_user(session_factory, email="numeric-id@example.com")
+
+    async with session_factory() as session:
+        order = await create_order(session, user=user, pack_id="student")
+
+    response = await webhook_client.post(
+        "/webhooks/sepay",
+        headers={"Authorization": "Apikey test-webhook-key"},
+        json={
+            "id": 92704,
+            "gateway": "BIDV",
+            "transactionDate": "2026-05-08 14:56:15",
+            "accountNumber": "2225228099",
+            "subAccount": "96247W964F",
+            "code": None,
+            "content": order.reference_code,
+            "transferType": "in",
+            "transferAmount": order.vnd_amount,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matched"] is True
+    assert response.json()["status"] == "paid"
+
+
+@pytest.mark.asyncio
 async def test_sepay_webhook_marks_matching_order_paid_and_credits_balance(
     webhook_client: AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
