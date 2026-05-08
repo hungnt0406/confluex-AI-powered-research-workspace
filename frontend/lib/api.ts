@@ -220,6 +220,7 @@ export type CreditTransaction = {
 
 export type CreditBalance = {
   credit_balance: number;
+  is_unlimited?: boolean;
   recent_transactions: CreditTransaction[];
 };
 
