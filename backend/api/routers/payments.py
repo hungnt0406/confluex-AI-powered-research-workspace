@@ -99,6 +99,7 @@ async def get_payment_balance(
     )
     return PaymentBalanceRead(
         credit_balance=current_user.credit_balance,
+        is_unlimited=current_user.email.lower() in get_settings().admin_email_set,
         recent_transactions=[
             CreditTransactionRead.from_transaction(transaction) for transaction in transactions
         ],
