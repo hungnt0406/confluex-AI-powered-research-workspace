@@ -94,6 +94,12 @@ export default function ChatWorkspace() {
     setLocalComposerNotice(null);
   }, [composerNotice]);
 
+  useEffect(() => {
+    if (visibleComposerNotice?.tone !== "success") return;
+    const timer = setTimeout(() => clearComposerNotice(), 3000);
+    return () => clearTimeout(timer);
+  }, [visibleComposerNotice, clearComposerNotice]);
+
   async function send(text: string) {
     if (!text.trim() || composerBusy) return;
     setDraft("");
@@ -298,6 +304,14 @@ export default function ChatWorkspace() {
                   >
                     Upload PDF
                   </button>
+                </div>
+              </div>
+            )}
+            {uploadingReferenceFile && (
+              <div className="mb-3 overflow-hidden rounded-xl bg-surface-container-low px-3 py-2">
+                <p className="mb-1.5 text-xs text-hint">Uploading PDF…</p>
+                <div className="h-1 w-full overflow-hidden rounded-full bg-outline/20">
+                  <div className="h-full animate-upload-progress rounded-full bg-primary" />
                 </div>
               </div>
             )}
