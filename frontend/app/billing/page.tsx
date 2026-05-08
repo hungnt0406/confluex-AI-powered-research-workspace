@@ -128,10 +128,16 @@ export default function BillingPage() {
                   Available balance
                 </p>
                 <p className="mt-3 font-headline text-6xl font-semibold leading-none text-primary">
-                  {loading ? "..." : (balance?.credit_balance ?? 0).toLocaleString("en-US")}
+                  {loading
+                    ? "..."
+                    : balance?.is_unlimited
+                      ? "Unlimited"
+                      : (balance?.credit_balance ?? 0).toLocaleString("en-US")}
                 </p>
                 <p className="mt-2 text-sm text-on-surface-variant">
-                  Credits are debited only when gated research work starts.
+                  {balance?.is_unlimited
+                    ? "Admin bypass is active; gated research work is not debited."
+                    : "Credits are debited only when gated research work starts."}
                 </p>
               </div>
               <Link
