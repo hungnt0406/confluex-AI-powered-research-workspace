@@ -302,7 +302,6 @@ export default function ChatWorkspace() {
               </div>
             )}
             {visibleComposerNotice && <ComposerInlineNotice notice={visibleComposerNotice} />}
-            <ModeToggle mode={chatMode} onChange={setChatMode} disabled={composerBusy} />
             <form
               onSubmit={onSubmit}
               className="flex w-full items-center gap-1 bg-surface-container-low rounded-2xl border border-outline/30 px-2 py-2 focus-within:border-primary/40 transition-all shadow-sm"
@@ -335,6 +334,7 @@ export default function ChatWorkspace() {
                 aria-label={composerPlaceholder}
                 rows={1}
               />
+              <ModeDropdown mode={chatMode} onChange={setChatMode} disabled={composerBusy} />
               <button
                 type="submit"
                 disabled={composerBusy || !draft.trim()}
@@ -353,56 +353,6 @@ export default function ChatWorkspace() {
   );
 }
 
-function ModeToggle({
-  mode,
-  onChange,
-  disabled,
-}: {
-  mode: ChatMode;
-  onChange: (mode: ChatMode) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div
-      className="mb-3 inline-flex rounded-xl border border-outline/30 bg-surface-container-low p-1"
-      role="group"
-      aria-label="Chat mode"
-    >
-      <button
-        type="button"
-        onClick={() => onChange("standard")}
-        disabled={disabled}
-        aria-pressed={mode === "standard"}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${
-          mode === "standard"
-            ? "bg-background text-on-surface shadow-sm"
-            : "text-secondary hover:bg-primary/5 hover:text-on-surface"
-        }`}
-      >
-        <span className="material-symbols-outlined text-sm" aria-hidden="true">
-          chat
-        </span>
-        Standard
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("deep_search")}
-        disabled={disabled}
-        aria-pressed={mode === "deep_search"}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${
-          mode === "deep_search"
-            ? "bg-background text-on-surface shadow-sm"
-            : "text-secondary hover:bg-primary/5 hover:text-on-surface"
-        }`}
-      >
-        <span className="material-symbols-outlined text-sm" aria-hidden="true">
-          travel_explore
-        </span>
-        Deep Search
-      </button>
-    </div>
-  );
-}
 
 function SelectedPapersStrip({
   papers,
@@ -463,6 +413,75 @@ function SelectedPapersStrip({
         </>
       ) : (
         <span className="text-[11px] text-hint">Choose at least one paper from the panel.</span>
+      )}
+    </div>
+  );
+}
+
+function ModeDropdown({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: ChatMode;
+  onChange: (mode: ChatMode) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = mode === "standard" ? "Standard" : "Deep Search";
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-on-surface-variant transition-all disabled:opacity-40 hover:bg-surface-container-high hover:text-on-surface"
+      >
+        {label}
+        <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
+          expand_more
+        </span>
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="absolute bottom-full right-0 mb-2 z-50 w-64 overflow-hidden rounded-2xl bg-surface-container-lowest border border-outline/15 shadow-2xl"
+            role="listbox"
+            aria-label="Chat mode"
+          >
+            {([
+              { id: "standard", name: "Standard", desc: "Fast, grounded paper Q&A" },
+              { id: "deep_search", name: "Deep Search", desc: "Multi-step web + paper synthesis" },
+            ] as { id: ChatMode; name: string; desc: string }[]).map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                role="option"
+                aria-selected={mode === item.id}
+                onClick={() => { onChange(item.id); setOpen(false); }}
+                className={`flex w-full items-start justify-between px-4 py-3.5 text-left transition-colors hover:bg-surface-container ${i > 0 ? "border-t border-outline/10" : ""}`}
+              >
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium text-on-surface">{item.name}</span>
+                  <span className="text-xs text-on-surface-variant">{item.desc}</span>
+                </span>
+                {mode === item.id && (
+                  <span className="material-symbols-outlined mt-0.5 flex-shrink-0 text-base text-primary" aria-hidden="true">
+                    check
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -586,47 +605,76 @@ function DeepSearchPlanCard({
   onStart: () => void;
   onEdit: () => void;
 }) {
+  const generating = plan.status === "generating";
   const pending = plan.status === "pending";
-  const statusLabel = pending
-    ? "Ready in a few mins"
-    : plan.status === "started"
-      ? "Research started"
-      : plan.status === "editing"
-        ? "Editing in composer"
-        : "Replaced by newer plan";
+  const statusLabel = generating
+    ? "Crafting your plan…"
+    : pending
+      ? "Ready in a few mins"
+      : plan.status === "started"
+        ? "Research started"
+        : plan.status === "editing"
+          ? "Editing in composer"
+          : "Replaced by newer plan";
+
+  const STEP_SKELETONS = [
+    { title: "Research Websites", icon: "content_copy" },
+    { title: "Analyze Results", icon: "filter_list" },
+    { title: "Create Report", icon: "manage_search" },
+  ];
+
   return (
     <div className="max-w-3xl rounded-2xl bg-surface-container-low px-5 py-5 shadow-sm ring-1 ring-outline/20">
       <p className="text-sm text-on-surface">Here&apos;s a research plan for that topic.</p>
       <div className="mt-4 space-y-4">
-        <h3 className="text-sm font-semibold text-on-surface">
-          Deep Search Plan
-        </h3>
+        <h3 className="text-sm font-semibold text-on-surface">Deep Search Plan</h3>
         <div className="space-y-4">
-          {plan.steps.map((step) => (
-            <div key={step.title} className="flex gap-3">
-              <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant">
-                <span
-                  className="material-symbols-outlined"
-                  aria-hidden="true"
-                  style={{ fontSize: "18px" }}
-                >
-                  {step.title === "Analyze Results"
-                    ? "filter_list"
-                    : step.title === "Create Report"
-                      ? "manage_search"
-                      : "content_copy"}
-                </span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-on-surface">{step.title}</p>
-                <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-on-surface-variant marker:text-hint">
-                  {step.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ol>
-              </div>
-            </div>
-          ))}
+          {generating
+            ? STEP_SKELETONS.map((skeleton) => (
+                <div key={skeleton.title} className="flex gap-3">
+                  <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant/40">
+                    <span
+                      className="material-symbols-outlined"
+                      aria-hidden="true"
+                      style={{ fontSize: "18px" }}
+                    >
+                      {skeleton.icon}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-on-surface/50">{skeleton.title}</p>
+                    <div className="mt-2 space-y-2">
+                      <div className="skeleton-shimmer h-2.5 w-4/5 rounded" />
+                      <div className="skeleton-shimmer h-2.5 w-3/5 rounded" style={{ animationDelay: "0.2s" }} />
+                    </div>
+                  </div>
+                </div>
+              ))
+            : plan.steps.map((step) => (
+                <div key={step.title} className="flex gap-3">
+                  <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant">
+                    <span
+                      className="material-symbols-outlined"
+                      aria-hidden="true"
+                      style={{ fontSize: "18px" }}
+                    >
+                      {step.title === "Analyze Results"
+                        ? "filter_list"
+                        : step.title === "Create Report"
+                          ? "manage_search"
+                          : "content_copy"}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-on-surface">{step.title}</p>
+                    <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-on-surface-variant marker:text-hint">
+                      {step.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ol>
+                  </div>
+                </div>
+              ))}
         </div>
         <div className="flex items-center gap-2 pt-2 text-xs text-on-surface-variant">
           <span
@@ -634,7 +682,7 @@ function DeepSearchPlanCard({
             aria-hidden="true"
             style={{ fontSize: "17px" }}
           >
-            schedule
+            {generating ? "autorenew" : "schedule"}
           </span>
           <span>{statusLabel}</span>
         </div>
