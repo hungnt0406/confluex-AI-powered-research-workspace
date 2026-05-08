@@ -78,7 +78,7 @@ export type DeepSearchPlanMessage = {
   id: string;
   question: string;
   projectId: string | null;
-  status: "pending" | "started" | "editing" | "superseded";
+  status: "generating" | "pending" | "started" | "editing" | "superseded";
   steps: DeepSearchPlanStep[];
   createdAt: string;
 };
@@ -408,34 +408,6 @@ function truncateForUi(text: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-function buildDeepSearchPlanSteps(question: string): DeepSearchPlanStep[] {
-  const compactQuestion = truncateForUi(question, 120);
-  return [
-    {
-      title: "Research Websites",
-      items: [
-        `Define the research question around "${compactQuestion}".`,
-        "Search scholarly indexes, project papers, and current web sources for supporting evidence.",
-        "Collect source notes that can be cited directly in the final report.",
-      ],
-    },
-    {
-      title: "Analyze Results",
-      items: [
-        "Compare evidence quality across papers, web results, and selected project context.",
-        "Extract points of agreement, disagreement, limitations, and recent developments.",
-      ],
-    },
-    {
-      title: "Create Report",
-      items: [
-        "Write a concise synthesis with named source links for factual claims.",
-        "Run citation checks and preserve the final sources in the context panel.",
-      ],
-    },
-  ];
-}
-
 function createDeepSearchPlanMessage(
   question: string,
   projectId: string | null,
@@ -445,8 +417,8 @@ function createDeepSearchPlanMessage(
     id: uid(),
     question,
     projectId,
-    status: "pending",
-    steps: buildDeepSearchPlanSteps(question),
+    status: "generating",
+    steps: [],
     createdAt,
   };
   return {
@@ -1733,6 +1705,71 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const planMessage = createDeepSearchPlanMessage(trimmed, activeProject?.id ?? null);
         setPendingDeepSearchPlan(planMessage.deepSearchPlan);
         setMessages((prev) => [...prev, planMessage]);
+
+        const planId = planMessage.deepSearchPlan.id;
+        api<{ steps: DeepSearchPlanStep[] }>("/pipeline/deep-search/plan", {
+          method: "POST",
+          token: authedRef.current,
+          json: { question: trimmed },
+        })
+          .then(({ steps }) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
+                  ? {
+                      ...m,
+                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", steps },
+                    }
+                  : m,
+              ),
+            );
+            setPendingDeepSearchPlan((prev) =>
+              prev?.id === planId ? { ...prev, status: "pending", steps } : prev,
+            );
+          })
+          .catch(() => {
+            // On failure, surface the fallback steps inline
+            const question = trimmed;
+            const compact = question.slice(0, 120);
+            const fallback: DeepSearchPlanStep[] = [
+              {
+                title: "Research Websites",
+                items: [
+                  `Define the research question around "${compact}".`,
+                  "Search scholarly indexes, project papers, and current web sources for supporting evidence.",
+                  "Collect source notes that can be cited directly in the final report.",
+                ],
+              },
+              {
+                title: "Analyze Results",
+                items: [
+                  "Compare evidence quality across papers, web results, and selected project context.",
+                  "Extract points of agreement, disagreement, limitations, and recent developments.",
+                ],
+              },
+              {
+                title: "Create Report",
+                items: [
+                  "Write a concise synthesis with named source links for factual claims.",
+                  "Run citation checks and preserve the final sources in the context panel.",
+                ],
+              },
+            ];
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
+                  ? {
+                      ...m,
+                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", steps: fallback },
+                    }
+                  : m,
+              ),
+            );
+            setPendingDeepSearchPlan((prev) =>
+              prev?.id === planId ? { ...prev, status: "pending", steps: fallback } : prev,
+            );
+          });
+
         return;
       }
 
