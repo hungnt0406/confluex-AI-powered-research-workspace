@@ -219,4 +219,26 @@ async def test_payments_routes_list_packs_create_and_fetch_order_and_balance(
     assert balance_response.status_code == 200
     balance_payload = balance_response.json()
     assert balance_payload["credit_balance"] == 0
+    assert balance_payload["is_unlimited"] is False
+    assert balance_payload["recent_transactions"] == []
+
+
+@pytest.mark.asyncio
+async def test_payment_balance_marks_admin_as_unlimited(
+    payments_client: AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "admin-balance@example.com")
+    get_settings.cache_clear()
+    user = await create_user(session_factory, email="admin-balance@example.com")
+    token = create_access_token(user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    balance_response = await payments_client.get("/payments/balance", headers=headers)
+
+    assert balance_response.status_code == 200
+    balance_payload = balance_response.json()
+    assert balance_payload["credit_balance"] == 0
+    assert balance_payload["is_unlimited"] is True
     assert balance_payload["recent_transactions"] == []
