@@ -184,6 +184,7 @@ Frontend flow (`frontend/components/ChatProvider.tsx`): on deep-search submit, a
 - Paid features use `require_credits` in `backend/api/dependencies.py`; keep debit/refund handling around failure paths when adding new gated work.
 - `ADMIN_EMAILS` is both the admin usage allowlist and the credit bypass allowlist. Matching users can run gated paid features with zero balance and no credit ledger debit.
 - Keep payment/credit schema and contracts synchronized across `backend/db/models.py`, Alembic migrations, `database_schema.sql`, `backend/api/schemas/payments.py`, `frontend/lib/api.ts`, docs, and tests.
+- SePay webhook payload gotchas (verified 2026-05-08): `id` is sent as a JSON number, so `SepayWebhookPayload` requires `coerce_numbers_to_str=True` in its `model_config` — without it, pydantic v2 rejects every real delivery with HTTP 422 (`loc: [body, id]`). The auth scheme is `Apikey <key>` (not `Bearer`) and is parsed by `verify_webhook_auth` in `backend/services/sepay.py`. Reference codes are matched by the `ORD[A-Z0-9]{6,12}` regex in `backend/api/routers/webhooks.py` against the transfer `content`, so SePay's "Bỏ qua nếu nội dung giao dịch không có Code thanh toán" should be set to `Không` and SePay's VA filter should match the account that `SEPAY_ACCOUNT_NUMBER` puts in the QR. Regression coverage lives in `tests/test_sepay_webhook.py`, including a numeric-`id` case mirroring SePay's production payload.
 
 ## Success Metrics
 

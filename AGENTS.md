@@ -99,6 +99,24 @@ When changing Deep Search citations, keep these files synchronized:
 - Regression coverage: `tests/test_deep_search.py`, `tests/test_frontend_deep_search_static.py`.
 - Docs: `README.md`, `frontend/README.md`, `docs/features/deep_search.md`.
 
+## Current SePay Webhook Notes
+
+The SePay webhook (`POST /webhooks/sepay`, handled in `backend/api/routers/webhooks.py` and `backend/services/payment_orders.py`) settles a payment order by extracting the `ORD…` reference code from the bank-transfer `content`, matching it to a pending order, and granting credits exactly once via `backend/services/credits.py`. Two payload contracts are easy to break and have caused silent failures:
+
+- **`id` is sent as a JSON number.** `SepayWebhookPayload` in `backend/api/schemas/payments.py` types `transaction_id: str` and relies on `coerce_numbers_to_str=True` in `model_config`. Removing that flag makes pydantic v2 reject every real delivery with HTTP 422 (`loc: [body, id]`). Keep the flag, or change the field type if you prefer.
+- **Auth scheme is `Apikey <key>`, not `Bearer`.** `verify_webhook_auth` in `backend/services/sepay.py` lowercases and compares the scheme; do not switch to a generic Bearer parser.
+
+When changing this flow, keep these files synchronized:
+
+- Webhook handler and reference-code regex: `backend/api/routers/webhooks.py`.
+- Payload schema and response: `backend/api/schemas/payments.py`.
+- Settlement, idempotency (by `sepay_transaction_id`), expiry, and credit grant: `backend/services/payment_orders.py`, `backend/services/credits.py`.
+- QR generation and auth verification: `backend/services/sepay.py`.
+- Regression coverage: `tests/test_sepay_webhook.py` (includes a numeric-`id` case mirroring SePay's production payload).
+- Docs: `README.md`, `docs/features/` payments notes if updated.
+
+SePay-side configuration that must match the backend for deliveries to fire: webhook status `Kích hoạt`, event `Có tiền vào`, the bank account selected matches `SEPAY_ACCOUNT_NUMBER`, the VA filter either disabled or scoped to the same account the QR targets, "Bỏ qua nếu nội dung giao dịch không có Code thanh toán" set to `Không` (the backend does its own `ORD…` regex match), URL with no trailing slash, auth `API Key` matching `SEPAY_WEBHOOK_API_KEY`.
+
 ## Mandatory Rules When Using AI Coding Agents
 
 ### 1. AI Prompt Logging (Automatic)
