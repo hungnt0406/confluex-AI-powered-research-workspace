@@ -372,6 +372,7 @@ class DeepSearchCreate(BaseModel):
 
     paper_ids: list[str] = Field(max_length=5)
     question: str = Field(min_length=1, max_length=8_000)
+    mode: Literal["standard", "max"] = "standard"
 
     @model_validator(mode="after")
     def validate_payload(self) -> "DeepSearchCreate":
@@ -426,6 +427,7 @@ class DeepSearchRunSummaryRead(BaseModel):
     project_id: str
     user_prompt: str
     status: Literal["running", "completed", "failed"]
+    mode: str
     selected_paper_ids: list[str]
     source_count: int
     warning_count: int
@@ -442,6 +444,7 @@ class DeepSearchRunSummaryRead(BaseModel):
             project_id=run.project_id,
             user_prompt=run.user_prompt,
             status=cast(Literal["running", "completed", "failed"], run.status),
+            mode=run.mode,
             selected_paper_ids=list(run.selected_paper_ids_json),
             source_count=len(loaded_sources),
             warning_count=len(run.warnings_json),
@@ -470,6 +473,7 @@ class DeepSearchRunRead(DeepSearchRunSummaryRead):
             project_id=run.project_id,
             user_prompt=run.user_prompt,
             status=cast(Literal["running", "completed", "failed"], run.status),
+            mode=run.mode,
             selected_paper_ids=list(run.selected_paper_ids_json),
             source_count=len(loaded_sources),
             warning_count=len(run.warnings_json),

@@ -30,6 +30,9 @@ MAX_SOURCE_SNIPPET_CHARS = 900
 MAX_SOURCE_TITLE_CHARS = 500
 MAX_CHUNKS_PER_SELECTED_PAPER = 2
 MAX_REPORT_TOKENS = 1_800
+MAX_ADAPTIVE_LOOP_ITERATIONS = 4
+MAX_DECIDER_NEXT_QUERIES = 3
+MAX_DECIDER_CONTEXT_CANDIDATES = 40
 MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 
 SourceType = Literal["paper", "paper_chunk", "citation_graph", "web"]
@@ -76,6 +79,31 @@ class DeepSearchStreamEvent:
 
     event: DeepSearchEventName
     data: dict[str, Any] | DeepSearchRun
+
+
+@dataclass
+class DecisionPayload:
+    """Output from the adaptive loop decider LLM call."""
+
+    reasoning: str
+    gaps: list[str]
+    next_queries: list[str]
+    done: bool
+
+
+@dataclass
+class ResearchState:
+    """Mutable state accumulated across adaptive loop iterations (max mode only)."""
+
+    original_question: str
+    research_questions: list[str]
+    all_candidates: list[DeepSearchSourceCandidate]
+    queries_run: set[str]
+    iteration: int
+    consecutive_empty_iterations: int
+    warnings: list[str]
+    web_metadata: dict[str, Any]
+    iteration_history: list[dict[str, Any]]
 
 
 async def default_semantic_scholar_search(
@@ -179,9 +207,9 @@ class DeepSearchService:
         arxiv_search: AcademicSearchCallable | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
+        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
         )
         self.planner_model = planner_model or settings.deep_search_planner_model
         self.research_model = research_model or settings.deep_search_research_model
@@ -207,6 +235,7 @@ class DeepSearchService:
         project: Project,
         question: str,
         selected_papers: list[Paper],
+        mode: Literal["standard", "max"] = "standard",
     ) -> AsyncIterator[DeepSearchStreamEvent]:
         """Create, execute, persist, and stream one deep search run."""
 
@@ -218,6 +247,7 @@ class DeepSearchService:
             project_id=project.id,
             user_prompt=normalized_question,
             status="running",
+            mode=mode,
             selected_paper_ids_json=[paper.id for paper in selected_papers],
             plan_json={},
             source_summary_json={},
@@ -244,7 +274,7 @@ class DeepSearchService:
                 ),
             )
             planner_task = asyncio.create_task(
-                self._plan_questions(
+                self._plan_research(
                     project_title=project.title,
                     project_topic=project.topic_description,
                     question=normalized_question,
@@ -274,12 +304,14 @@ class DeepSearchService:
                 except Exception:
                     break
             try:
-                questions = await planner_task
+                questions, seed_queries = await planner_task
             except StructuredOutputError as error:
-                questions = self._build_local_plan_questions(normalized_question)
+                questions, seed_queries = self._build_local_plan_research(normalized_question)
                 warnings.append(f"Deep Search planner fell back to local planning: {error}")
-            plan_payload = {
+            plan_payload: dict[str, Any] = {
                 "questions": questions,
+                "seed_queries": seed_queries,
+                "mode": mode,
                 "max_iterations": self.max_iterations,
                 "models": {
                     "planner": self.planner_model,
@@ -356,83 +388,107 @@ class DeepSearchService:
                 ),
             )
 
-            yield DeepSearchStreamEvent("status", {"phase": "academic_search"})
-            yield DeepSearchStreamEvent(
-                "activity",
-                _thinking_activity(
-                    event_type="stage_start",
-                    phase="academic_search",
-                    stage="Searching scholarly evidence",
-                    detail="I am searching academic providers for papers related to the planned questions.",
-                ),
-            )
-            academic_candidates: list[DeepSearchSourceCandidate] = []
-            academic_warnings: list[str] = []
-            async for item_type, item_payload in self._iter_academic_sources_with_activity(
-                project=project,
-                questions=questions,
-            ):
-                if item_type == "activity":
-                    yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
-                elif item_type == "candidates":
-                    academic_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
-                elif item_type == "warnings":
-                    academic_warnings.extend(cast(list[str], item_payload))
-            candidates.extend(academic_candidates)
-            warnings.extend(academic_warnings)
-            yield DeepSearchStreamEvent(
-                "activity",
-                _thinking_activity(
-                    event_type=_source_activity_event_type(academic_candidates),
-                    phase="academic_search",
-                    stage="Searching for evidence",
-                    detail=_source_activity_detail(
-                        academic_candidates,
-                        empty_detail="The scholarly providers did not return usable abstracts for the planned questions.",
-                        populated_detail="I found scholarly sources that can support or challenge the answer.",
-                    ),
-                    sources=_source_activity_sources(academic_candidates),
-                ),
-            )
-
-            yield DeepSearchStreamEvent("status", {"phase": "web_search"})
-            yield DeepSearchStreamEvent(
-                "activity",
-                _thinking_activity(
-                    event_type="stage_start",
-                    phase="web_search",
-                    stage="Researching websites",
-                    detail="I am searching current web sources for implementation context and recent evidence.",
-                ),
-            )
-            web_candidates: list[DeepSearchSourceCandidate] = []
-            web_warnings: list[str] = []
             web_metadata: dict[str, Any] = {}
-            async for item_type, item_payload in self._iter_web_sources_with_activity(questions):
-                if item_type == "activity":
-                    yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
-                elif item_type == "candidates":
-                    web_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
-                elif item_type == "warnings":
-                    web_warnings.extend(cast(list[str], item_payload))
-                elif item_type == "metadata":
-                    web_metadata.update(cast(dict[str, Any], item_payload))
-            candidates.extend(web_candidates)
-            warnings.extend(web_warnings)
-            yield DeepSearchStreamEvent(
-                "activity",
-                _thinking_activity(
-                    event_type=_source_activity_event_type(web_candidates),
-                    phase="web_search",
-                    stage="Searching for evidence",
-                    detail=_source_activity_detail(
-                        web_candidates,
-                        empty_detail="No usable web results were returned for the planned questions.",
-                        populated_detail="I found current web sources and implementation context to compare with the paper evidence.",
+
+            if mode == "max":
+                state = ResearchState(
+                    original_question=normalized_question,
+                    research_questions=questions,
+                    all_candidates=list(project_candidates),
+                    queries_run=set(),
+                    iteration=0,
+                    consecutive_empty_iterations=0,
+                    warnings=[],
+                    web_metadata={},
+                    iteration_history=[],
+                )
+                async for event in self._run_adaptive_loop(
+                    state=state,
+                    project=project,
+                    seed_queries=seed_queries,
+                ):
+                    yield event
+                candidates = list(state.all_candidates)
+                warnings.extend(state.warnings)
+                web_metadata.update(state.web_metadata)
+                plan_payload["iteration_history"] = state.iteration_history
+            else:
+                yield DeepSearchStreamEvent("status", {"phase": "academic_search"})
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type="stage_start",
+                        phase="academic_search",
+                        stage="Searching scholarly evidence",
+                        detail="I am searching academic providers for papers related to the planned questions.",
                     ),
-                    sources=_source_activity_sources(web_candidates),
-                ),
-            )
+                )
+                academic_candidates: list[DeepSearchSourceCandidate] = []
+                academic_warnings: list[str] = []
+                async for item_type, item_payload in self._iter_academic_sources_with_activity(
+                    project=project,
+                    questions=questions,
+                ):
+                    if item_type == "activity":
+                        yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
+                    elif item_type == "candidates":
+                        academic_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+                    elif item_type == "warnings":
+                        academic_warnings.extend(cast(list[str], item_payload))
+                candidates.extend(academic_candidates)
+                warnings.extend(academic_warnings)
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type=_source_activity_event_type(academic_candidates),
+                        phase="academic_search",
+                        stage="Searching for evidence",
+                        detail=_source_activity_detail(
+                            academic_candidates,
+                            empty_detail="The scholarly providers did not return usable abstracts for the planned questions.",
+                            populated_detail="I found scholarly sources that can support or challenge the answer.",
+                        ),
+                        sources=_source_activity_sources(academic_candidates),
+                    ),
+                )
+
+                yield DeepSearchStreamEvent("status", {"phase": "web_search"})
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type="stage_start",
+                        phase="web_search",
+                        stage="Researching websites",
+                        detail="I am searching current web sources for implementation context and recent evidence.",
+                    ),
+                )
+                web_candidates: list[DeepSearchSourceCandidate] = []
+                web_warnings: list[str] = []
+                async for item_type, item_payload in self._iter_web_sources_with_activity(questions):
+                    if item_type == "activity":
+                        yield DeepSearchStreamEvent("activity", cast(dict[str, Any], item_payload))
+                    elif item_type == "candidates":
+                        web_candidates.extend(cast(list[DeepSearchSourceCandidate], item_payload))
+                    elif item_type == "warnings":
+                        web_warnings.extend(cast(list[str], item_payload))
+                    elif item_type == "metadata":
+                        web_metadata.update(cast(dict[str, Any], item_payload))
+                candidates.extend(web_candidates)
+                warnings.extend(web_warnings)
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type=_source_activity_event_type(web_candidates),
+                        phase="web_search",
+                        stage="Searching for evidence",
+                        detail=_source_activity_detail(
+                            web_candidates,
+                            empty_detail="No usable web results were returned for the planned questions.",
+                            populated_detail="I found current web sources and implementation context to compare with the paper evidence.",
+                        ),
+                        sources=_source_activity_sources(web_candidates),
+                    ),
+                )
 
             source_candidates = deduplicate_source_candidates(candidates)
             indexed_sources = [
@@ -610,6 +666,7 @@ class DeepSearchService:
             await self._persist_success(
                 session=session,
                 run_id=run_id,
+                mode=mode,
                 plan_payload=plan_payload,
                 source_candidates=indexed_sources,
                 source_summaries=source_summaries,
@@ -625,21 +682,30 @@ class DeepSearchService:
             await self._mark_failed(session=session, run_id=run_id, detail=str(error))
             yield DeepSearchStreamEvent("error", {"detail": str(error), "run_id": run_id})
 
-    async def _plan_questions(
+    async def _plan_research(
         self,
         *,
         project_title: str,
         project_topic: str,
         question: str,
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str]]:
+        """Return (research_questions, seed_queries) for the deep search run."""
         await asyncio.sleep(10)
         if self.use_live_llm:
             parsed = await self._generate_json(
                 model=self.planner_model,
                 feature="deep_search_planning",
                 system_prompt=(
-                    "You are a deep search planner. Return 3 to 5 focused research questions "
-                    "that cover academic evidence, project evidence, and current web evidence."
+                    "You are a deep research strategist. Given a research question, reason about "
+                    "the subject matter itself: identify the core claims worth verifying, the key "
+                    "debates or open problems in the field, likely knowledge gaps, and any "
+                    "counterintuitive angles that would make the answer genuinely useful. "
+                    "Then produce 3 to 5 specific research questions that would best illuminate "
+                    "the topic. Do not constrain yourself by evidence type — think about what "
+                    "would make the final answer surprising, grounded, and complete. "
+                    "Also produce 1-2 short keyword search queries (seed_queries) suitable for "
+                    "academic APIs — these must be concise keyword strings (under 8 words each), "
+                    "NOT full sentences."
                 ),
                 user_prompt=(
                     f"Project title: {project_title}\n"
@@ -654,31 +720,289 @@ class DeepSearchService:
                             "minItems": 1,
                             "maxItems": MAX_PLAN_QUESTIONS,
                             "items": {"type": "string"},
-                        }
+                        },
+                        "seed_queries": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 2,
+                            "items": {"type": "string", "maxLength": 80},
+                        },
                     },
-                    "required": ["questions"],
+                    "required": ["questions", "seed_queries"],
                     "additionalProperties": False,
                 },
                 max_tokens=700,
             )
             raw_questions = parsed.get("questions", [])
+            raw_seeds = parsed.get("seed_queries", [])
             if not isinstance(raw_questions, list):
-                raise RuntimeError("Deep search planner returned invalid questions.")
+                raise StructuredOutputError("Deep search planner returned invalid questions.")
             questions = [str(item).strip() for item in raw_questions if str(item).strip()]
             if not questions:
-                raise RuntimeError("Deep search planner returned no usable questions.")
-            return _normalize_plan_questions(question, questions)
+                raise StructuredOutputError("Deep search planner returned no usable questions.")
+            seed_queries = [str(q).strip() for q in raw_seeds if str(q).strip()]
+            if not seed_queries:
+                seed_queries = _derive_seed_queries(question)
+            return _normalize_plan_questions(question, questions), seed_queries
 
-        return self._build_local_plan_questions(question)
+        return self._build_local_plan_research(question)
 
-    def _build_local_plan_questions(self, question: str) -> list[str]:
+    def _build_local_plan_research(self, question: str) -> tuple[list[str], list[str]]:
         seed_questions = [
             question,
             f"What recent academic evidence addresses {question}?",
             f"What methods, results, and limitations are reported for {question}?",
             f"What current web evidence or implementation context is relevant to {question}?",
         ]
-        return _normalize_plan_questions(question, seed_questions)
+        return _normalize_plan_questions(question, seed_questions), _derive_seed_queries(question)
+
+    async def _decide_next_step(self, state: ResearchState) -> DecisionPayload:
+        """Call the decider LLM to determine what to search next (max mode only)."""
+        sources_summary = "\n".join(
+            f"- [{c.source_type}] {_compact_text(c.title, limit=120)}"
+            for c in state.all_candidates[:MAX_DECIDER_CONTEXT_CANDIDATES]
+        )
+        queries_so_far = "; ".join(sorted(state.queries_run)[:15])
+        research_qs = "\n".join(f"- {q}" for q in state.research_questions[:5])
+
+        parsed = await self._generate_json(
+            model=self.research_model,
+            feature="deep_search_deciding",
+            system_prompt=(
+                "You are a deep research agent deciding what to search next. Given the original "
+                "research questions, sources gathered so far, and queries already run, decide the "
+                "next 1-3 short keyword search queries (or signal done=true if the questions are "
+                "well-covered). Avoid duplicating past queries. Prefer specific over generic. "
+                "Keep each query under 8 words. Set done=true if evidence is sufficient."
+            ),
+            user_prompt=(
+                f"Original question: {state.original_question}\n\n"
+                f"Research questions:\n{research_qs}\n\n"
+                f"Queries already run: {queries_so_far or 'none'}\n\n"
+                f"Sources found so far ({len(state.all_candidates)} total):\n"
+                f"{sources_summary or 'None yet'}"
+            ),
+            schema={
+                "type": "object",
+                "properties": {
+                    "reasoning": {"type": "string"},
+                    "gaps": {"type": "array", "items": {"type": "string"}},
+                    "next_queries": {
+                        "type": "array",
+                        "maxItems": MAX_DECIDER_NEXT_QUERIES,
+                        "items": {"type": "string", "maxLength": 80},
+                    },
+                    "done": {"type": "boolean"},
+                },
+                "required": ["reasoning", "gaps", "next_queries", "done"],
+                "additionalProperties": False,
+            },
+            max_tokens=400,
+        )
+        return DecisionPayload(
+            reasoning=str(parsed.get("reasoning", "")).strip(),
+            gaps=[str(g).strip() for g in (parsed.get("gaps") or []) if str(g).strip()],
+            next_queries=[
+                str(q).strip()
+                for q in (parsed.get("next_queries") or [])
+                if str(q).strip()
+            ],
+            done=bool(parsed.get("done", False)),
+        )
+
+    async def _run_adaptive_loop(
+        self,
+        *,
+        state: ResearchState,
+        project: Project,
+        seed_queries: list[str],
+    ) -> AsyncGenerator[DeepSearchStreamEvent, None]:
+        """Run the adaptive search loop for max mode."""
+        current_queries = list(seed_queries)
+        max_iter = MAX_ADAPTIVE_LOOP_ITERATIONS
+
+        yield DeepSearchStreamEvent("status", {"phase": "academic_search"})
+        yield DeepSearchStreamEvent(
+            "activity",
+            _thinking_activity(
+                event_type="stage_start",
+                phase="academic_search",
+                stage="Searching scholarly evidence",
+                detail=f"Starting adaptive research — up to {max_iter} search iterations.",
+            ),
+        )
+        yield DeepSearchStreamEvent("status", {"phase": "web_search"})
+        yield DeepSearchStreamEvent(
+            "activity",
+            _thinking_activity(
+                event_type="stage_start",
+                phase="web_search",
+                stage="Researching websites",
+                detail="I will search web sources in parallel with academic providers each iteration.",
+            ),
+        )
+
+        for iteration in range(max_iter):
+            state.iteration = iteration + 1
+            fresh_queries = [
+                q for q in current_queries if _normalize_query(q) not in state.queries_run
+            ]
+            if not fresh_queries:
+                break
+            state.queries_run.update(_normalize_query(q) for q in fresh_queries)
+
+            iter_label = f"Iteration {state.iteration} of {max_iter}"
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_update",
+                    phase="academic_search",
+                    stage="Searching scholarly evidence",
+                    detail=f"{iter_label}: searching academic sources for {', '.join(fresh_queries[:2])}.",
+                ),
+            )
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_update",
+                    phase="web_search",
+                    stage="Researching websites",
+                    detail=f"{iter_label}: searching web sources for {', '.join(fresh_queries[:2])}.",
+                ),
+            )
+
+            acad_result, web_result = await asyncio.gather(
+                self._collect_academic_sources(project=project, questions=fresh_queries),
+                self._collect_web_sources(fresh_queries),
+            )
+            acad_candidates, acad_warnings = acad_result
+            web_candidates, web_warnings, web_meta = web_result
+
+            state.warnings.extend(acad_warnings + web_warnings)
+            state.web_metadata.update(web_meta)
+
+            new_candidates = acad_candidates + web_candidates
+            if new_candidates:
+                state.consecutive_empty_iterations = 0
+                state.all_candidates.extend(new_candidates)
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type="source_found",
+                        phase="academic_search",
+                        stage="Sources found",
+                        detail=(
+                            f"{iter_label}: found {len(acad_candidates)} academic "
+                            f"and {len(web_candidates)} web source(s)."
+                        ),
+                        sources=_source_activity_sources(new_candidates),
+                    ),
+                )
+            else:
+                state.consecutive_empty_iterations += 1
+                if state.consecutive_empty_iterations >= 2:
+                    break
+
+            if not self.use_live_llm:
+                break
+
+            yield DeepSearchStreamEvent("status", {"phase": "deciding"})
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_start",
+                    phase="deciding",
+                    stage="Reasoning about gaps",
+                    detail=f"{iter_label}: deciding what to search next.",
+                ),
+            )
+            try:
+                decision = await self._decide_next_step(state)
+            except (StructuredOutputError, Exception):
+                state.warnings.append(f"Decider failed at iteration {state.iteration}; stopping.")
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type="stage_complete",
+                        phase="deciding",
+                        stage="Reasoning about gaps",
+                        detail="Decider encountered an error; using evidence gathered so far.",
+                    ),
+                )
+                break
+
+            state.iteration_history.append(
+                {
+                    "iteration": state.iteration,
+                    "queries": fresh_queries,
+                    "reasoning": decision.reasoning,
+                    "gaps": decision.gaps,
+                    "done": decision.done,
+                }
+            )
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_update",
+                    phase="deciding",
+                    stage="Reasoning about gaps",
+                    detail=decision.reasoning or "Deciding next search queries.",
+                ),
+            )
+
+            if decision.done:
+                yield DeepSearchStreamEvent(
+                    "activity",
+                    _thinking_activity(
+                        event_type="stage_complete",
+                        phase="deciding",
+                        stage="Reasoning about gaps",
+                        detail="Evidence is sufficient — stopping adaptive loop.",
+                    ),
+                )
+                break
+
+            yield DeepSearchStreamEvent(
+                "activity",
+                _thinking_activity(
+                    event_type="stage_complete",
+                    phase="deciding",
+                    stage="Reasoning about gaps",
+                    detail=f"Will search {len(decision.next_queries)} new quer(ies) next iteration.",
+                ),
+            )
+            current_queries = decision.next_queries
+
+        all_acad = [c for c in state.all_candidates if c.source_type in ("paper", "paper_chunk", "citation_graph")]
+        all_web = [c for c in state.all_candidates if c.source_type == "web"]
+        yield DeepSearchStreamEvent(
+            "activity",
+            _thinking_activity(
+                event_type="stage_complete",
+                phase="academic_search",
+                stage="Searching scholarly evidence",
+                detail=_source_activity_detail(
+                    all_acad,
+                    empty_detail="No academic sources found across all iterations.",
+                    populated_detail="Finished academic search across all iterations.",
+                ),
+                sources=_source_activity_sources(all_acad),
+            ),
+        )
+        yield DeepSearchStreamEvent(
+            "activity",
+            _thinking_activity(
+                event_type="stage_complete",
+                phase="web_search",
+                stage="Researching websites",
+                detail=_source_activity_detail(
+                    all_web,
+                    empty_detail="No web sources found across all iterations.",
+                    populated_detail="Finished web search across all iterations.",
+                ),
+                sources=_source_activity_sources(all_web),
+            ),
+        )
 
     async def _collect_project_sources(
         self,
@@ -1219,6 +1543,7 @@ class DeepSearchService:
         *,
         session: AsyncSession,
         run_id: str,
+        mode: str,
         plan_payload: dict[str, Any],
         source_candidates: list[tuple[str, DeepSearchSourceCandidate]],
         source_summaries: list[dict[str, Any]],
@@ -1233,6 +1558,7 @@ class DeepSearchService:
             "metadata": {
                 **web_metadata,
                 "source_count": len(source_summaries),
+                "mode": mode,
             },
         }
         await session.execute(
@@ -1240,6 +1566,7 @@ class DeepSearchService:
             .where(DeepSearchRun.id == run_id)
             .values(
                 status="completed",
+                mode=mode,
                 plan_json=plan_payload,
                 report_body=report_body,
                 source_summary_json=source_summary,
@@ -1713,3 +2040,12 @@ def _chunk_report(report: str) -> list[str]:
         suffix = "\n\n" if index < len(paragraphs) - 1 else ""
         chunks.append(f"{paragraph}{suffix}")
     return chunks
+
+
+def _derive_seed_queries(question: str) -> list[str]:
+    words = question.strip().split()
+    return [" ".join(words[:6])] if words else [question[:80]]
+
+
+def _normalize_query(query: str) -> str:
+    return " ".join(query.lower().split())[:80]

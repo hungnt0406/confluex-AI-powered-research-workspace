@@ -73,11 +73,11 @@ class Settings(BaseSettings):
         alias="OPENROUTER_BASE_URL",
     )
     openrouter_model: str = Field(
-        default="google/gemma-4-31b-it:free",
+        default="mimo-v2.5-pro",
         validation_alias=AliasChoices("OPENROUTER_MODEL", "ANTHROPIC_MODEL"),
     )
     openrouter_document_model: str = Field(
-        default="google/gemini-2.5-flash-lite",
+        default="mimo-v2.5-pro",
         alias="OPENROUTER_DOCUMENT_MODEL",
     )
     openrouter_pdf_engine: str = Field(default="native", alias="OPENROUTER_PDF_ENGINE")
@@ -85,26 +85,31 @@ class Settings(BaseSettings):
         default="openai/text-embedding-3-small",
         validation_alias=AliasChoices("OPENROUTER_EMBEDDING_MODEL", "OPENAI_EMBEDDING_MODEL"),
     )
+    xiaomi_mimo_api_key: str | None = Field(default=None, alias="XIAOMI_MIMO_API_KEY")
+    xiaomi_mimo_base_url: str = Field(
+        default="https://token-plan-sgp.xiaomimimo.com/v1",
+        alias="XIAOMI_MIMO_BASE_URL",
+    )
     tavily_api_key: str | None = Field(default=None, alias="TAVILY_API_KEY")
     tavily_base_url: str = Field(default="https://api.tavily.com", alias="TAVILY_BASE_URL")
     deep_search_planner_model: str = Field(
-        default="google/gemini-2.5-flash-lite",
+        default="mimo-v2.5-pro",
         alias="DEEP_SEARCH_PLANNER_MODEL",
     )
     deep_search_research_model: str = Field(
-        default="google/gemini-2.5-flash-lite",
+        default="mimo-v2.5-pro",
         alias="DEEP_SEARCH_RESEARCH_MODEL",
     )
     deep_search_summarizer_model: str = Field(
-        default="google/gemini-2.5-flash-lite",
+        default="mimo-v2-flash",
         alias="DEEP_SEARCH_SUMMARIZER_MODEL",
     )
     deep_search_writer_model: str = Field(
-        default="deepseek/deepseek-chat-v3.1",
+        default="mimo-v2.5-pro",
         alias="DEEP_SEARCH_WRITER_MODEL",
     )
     deep_search_verifier_model: str = Field(
-        default="google/gemini-2.5-flash-lite",
+        default="mimo-v2-flash",
         alias="DEEP_SEARCH_VERIFIER_MODEL",
     )
     deep_search_max_web_searches: int = Field(default=5, alias="DEEP_SEARCH_MAX_WEB_SEARCHES")
@@ -144,12 +149,37 @@ class Settings(BaseSettings):
     sepay_account_bank_bin: str = Field(default="", alias="SEPAY_ACCOUNT_BANK_BIN")
     usd_to_vnd_rate: float = Field(default=25_500.0, alias="USD_TO_VND_RATE")
     credit_cost_deep_search: int = Field(default=80, alias="CREDIT_COST_DEEP_SEARCH")
+    credit_cost_deep_search_max: int = Field(default=400, alias="CREDIT_COST_DEEP_SEARCH_MAX")
     credit_cost_writer: int = Field(default=40, alias="CREDIT_COST_WRITER")
     credit_cost_paper_chat: int = Field(default=2, alias="CREDIT_COST_PAPER_CHAT")
     credit_cost_pdf_upload: int = Field(default=5, alias="CREDIT_COST_PDF_UPLOAD")
     credit_cost_pipeline_run: int = Field(default=20, alias="CREDIT_COST_PIPELINE_RUN")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def active_llm_api_key(self) -> str | None:
+        """Return the LLM API key, preferring MiMo over OpenRouter."""
+        return self.xiaomi_mimo_api_key or self.openrouter_api_key
+
+    @property
+    def active_llm_base_url(self) -> str:
+        """Return the LLM base URL, using MiMo when its key is configured."""
+        if self.xiaomi_mimo_api_key:
+            return self.xiaomi_mimo_base_url
+        return self.openrouter_base_url
+
+    @property
+    def active_llm_api_key(self) -> str | None:
+        """LLM API key: MiMo when configured, OpenRouter otherwise."""
+        return self.xiaomi_mimo_api_key or self.openrouter_api_key
+
+    @property
+    def active_llm_base_url(self) -> str:
+        """LLM base URL: MiMo when its key is set, OpenRouter otherwise."""
+        if self.xiaomi_mimo_api_key:
+            return self.xiaomi_mimo_base_url
+        return self.openrouter_base_url
 
     @property
     def admin_email_set(self) -> frozenset[str]:

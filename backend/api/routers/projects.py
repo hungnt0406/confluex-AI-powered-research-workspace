@@ -1202,9 +1202,15 @@ async def stream_deep_search(
         project_id=project.id,
         paper_ids=payload.paper_ids,
     )
+    settings = get_settings()
+    credit_cost = (
+        settings.credit_cost_deep_search_max
+        if payload.mode == "max"
+        else settings.credit_cost_deep_search
+    )
     guard = await require_credits(
-        get_settings().credit_cost_deep_search,
-        feature="deep_search",
+        credit_cost,
+        feature="deep_search" if payload.mode == "standard" else "deep_search_max",
         current_user=current_user,
         session=session,
     )
@@ -1217,6 +1223,7 @@ async def stream_deep_search(
                 project=project,
                 question=payload.question,
                 selected_papers=selected_papers,
+                mode=payload.mode,
             ):
                 if event.event == "error":
                     await guard.rollback()

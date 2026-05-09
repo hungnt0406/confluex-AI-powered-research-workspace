@@ -442,7 +442,12 @@ function ModeDropdown({
   disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const label = mode === "standard" ? "Standard" : "Deep Search";
+  const label =
+    mode === "standard"
+      ? "Standard"
+      : mode === "deep_search"
+      ? "Deep Search"
+      : "Deep Research Max";
 
   return (
     <div className="relative flex-shrink-0">
@@ -452,9 +457,18 @@ function ModeDropdown({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium text-on-surface-variant transition-all disabled:opacity-40 hover:bg-surface-container-high hover:text-on-surface"
+        className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm font-medium transition-all disabled:opacity-40 hover:bg-surface-container-high hover:text-on-surface ${
+          mode === "deep_research_max"
+            ? "bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 text-violet-700 dark:text-violet-300"
+            : "text-on-surface-variant"
+        }`}
       >
         {label}
+        {mode === "deep_research_max" && (
+          <span className="ml-0.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+            5×
+          </span>
+        )}
         <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
           expand_more
         </span>
@@ -467,14 +481,20 @@ function ModeDropdown({
             aria-hidden="true"
           />
           <div
-            className="absolute bottom-full right-0 mb-2 z-50 w-64 overflow-hidden rounded-2xl bg-surface-container-lowest border border-outline/15 shadow-2xl"
+            className="absolute bottom-full right-0 mb-2 z-50 w-72 overflow-hidden rounded-2xl bg-surface-container-lowest border border-outline/15 shadow-2xl"
             role="listbox"
             aria-label="Chat mode"
           >
             {([
               { id: "standard", name: "Standard", desc: "Fast, grounded paper Q&A" },
               { id: "deep_search", name: "Deep Search", desc: "Multi-step web + paper synthesis" },
-            ] as { id: ChatMode; name: string; desc: string }[]).map((item, i) => (
+              {
+                id: "deep_research_max",
+                name: "Deep Research Max",
+                desc: "Adaptive multi-round research · ~5× credits",
+                premium: true,
+              },
+            ] as { id: ChatMode; name: string; desc: string; premium?: boolean }[]).map((item, i) => (
               <button
                 key={item.id}
                 type="button"
@@ -484,7 +504,9 @@ function ModeDropdown({
                 className={`flex w-full items-start justify-between px-4 py-3.5 text-left transition-colors hover:bg-surface-container ${i > 0 ? "border-t border-outline/10" : ""}`}
               >
                 <span className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-on-surface">{item.name}</span>
+                  <span className={`text-sm font-medium ${item.premium ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent" : "text-on-surface"}`}>
+                    {item.name}
+                  </span>
                   <span className="text-xs text-on-surface-variant">{item.desc}</span>
                 </span>
                 {mode === item.id && (
@@ -637,65 +659,108 @@ function DeepSearchPlanCard({
     { title: "Create Report", icon: "manage_search" },
   ];
 
+  const HARDCODED_STEPS = [
+    {
+      title: "Research Websites",
+      icon: "content_copy",
+      items: [
+        "Search scholarly indexes and academic providers for relevant papers.",
+        "Search current web sources for implementation context and recent evidence.",
+        "Collect source notes that can be cited directly in the final report.",
+      ],
+    },
+    {
+      title: "Analyze Results",
+      icon: "filter_list",
+      items: [
+        "Compare evidence quality across papers, web results, and selected project context.",
+        "Extract points of agreement, disagreement, limitations, and recent developments.",
+      ],
+    },
+    {
+      title: "Create Report",
+      icon: "manage_search",
+      items: [
+        "Write a concise synthesis with named source links for factual claims.",
+        "Run citation checks and preserve the final sources in the context panel.",
+      ],
+    },
+  ];
+
   return (
     <div className="max-w-3xl rounded-2xl bg-surface-container-low px-5 py-5 shadow-sm ring-1 ring-outline/20">
       <p className="text-sm text-on-surface">Here&apos;s a research plan for that topic.</p>
-      <div className="mt-4 space-y-4">
-        <h3 className="text-sm font-semibold text-on-surface">Deep Search Plan</h3>
-        <div className="space-y-4">
-          {generating
-            ? STEP_SKELETONS.map((skeleton) => (
-                <div key={skeleton.title} className="flex gap-3">
-                  <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant/40">
-                    <span
-                      className="material-symbols-outlined"
-                      aria-hidden="true"
-                      style={{ fontSize: "18px" }}
-                    >
-                      {skeleton.icon}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-on-surface/50">{skeleton.title}</p>
-                    <div className="mt-2 space-y-2">
-                      <div className="skeleton-shimmer h-2.5 w-4/5 rounded" />
-                      <div className="skeleton-shimmer h-2.5 w-3/5 rounded" style={{ animationDelay: "0.2s" }} />
-                    </div>
-                  </div>
-                </div>
-              ))
-            : plan.steps.map((step) => (
-                <div key={step.title} className="flex gap-3">
-                  <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant">
-                    <span
-                      className="material-symbols-outlined"
-                      aria-hidden="true"
-                      style={{ fontSize: "18px" }}
-                    >
-                      {step.title === "Analyze Results"
-                        ? "filter_list"
-                        : step.title === "Create Report"
-                          ? "manage_search"
-                          : "content_copy"}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-on-surface">{step.title}</p>
-                    <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-on-surface-variant marker:text-hint">
-                      {step.items.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ol>
+      <div className="mt-4 space-y-5">
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-on-surface">Research Questions</h3>
+          {generating ? (
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="mt-1 h-4 w-4 flex-shrink-0 rounded-full skeleton-shimmer" style={{ animationDelay: `${i * 0.15}s` }} />
+                  <div className="flex-1 space-y-1.5 pt-0.5">
+                    <div className="skeleton-shimmer h-2.5 rounded" style={{ width: `${75 - i * 10}%`, animationDelay: `${i * 0.15}s` }} />
+                    <div className="skeleton-shimmer h-2.5 rounded" style={{ width: `${55 - i * 8}%`, animationDelay: `${i * 0.15 + 0.1}s` }} />
                   </div>
                 </div>
               ))}
+            </div>
+          ) : (
+            <ol className="space-y-2.5">
+              {plan.questions.map((q, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                    {i + 1}
+                  </span>
+                  <p className="text-xs leading-relaxed text-on-surface-variant">{q}</p>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
-        <div className="flex items-center gap-2 pt-2 text-xs text-on-surface-variant">
-          <span
-            className="material-symbols-outlined"
-            aria-hidden="true"
-            style={{ fontSize: "17px" }}
-          >
+
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-on-surface">Deep Search Plan</h3>
+          <div className="space-y-4">
+            {generating
+              ? STEP_SKELETONS.map((skeleton) => (
+                  <div key={skeleton.title} className="flex gap-3">
+                    <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant/40">
+                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: "18px" }}>
+                        {skeleton.icon}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-on-surface/50">{skeleton.title}</p>
+                      <div className="mt-2 space-y-2">
+                        <div className="skeleton-shimmer h-2.5 w-4/5 rounded" />
+                        <div className="skeleton-shimmer h-2.5 w-3/5 rounded" style={{ animationDelay: "0.2s" }} />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              : HARDCODED_STEPS.map((step) => (
+                  <div key={step.title} className="flex gap-3">
+                    <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center text-on-surface-variant">
+                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: "18px" }}>
+                        {step.icon}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-on-surface">{step.title}</p>
+                      <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-on-surface-variant marker:text-hint">
+                        {step.items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 pt-1 text-xs text-on-surface-variant">
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: "17px" }}>
             {generating ? "autorenew" : "schedule"}
           </span>
           <span>{statusLabel}</span>
@@ -982,10 +1047,62 @@ function renderMarkdownBlocks(text: string, sourceReferences: Map<string, Source
       continue;
     }
 
+    if (trimmed.startsWith("|")) {
+      const tableLines: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith("|")) {
+        tableLines.push(lines[index].trim());
+        index += 1;
+      }
+      const isSeparator = (row: string) => /^[\|\s\-:]+$/.test(row);
+      const parseRow = (row: string) =>
+        row.replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+
+      const nonSeparatorRows = tableLines.filter((r) => !isSeparator(r));
+      if (nonSeparatorRows.length > 0) {
+        const [headerRow, ...bodyRows] = nonSeparatorRows;
+        const headers = parseRow(headerRow);
+        const options = { citationLinks: !inSourcesSection, sourceReferences };
+        blocks.push(
+          <div key={`table-${index}`} className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr>
+                  {headers.map((cell, ci) => (
+                    <th
+                      key={ci}
+                      className="border border-outline/20 bg-surface-container px-3 py-2 text-left font-semibold text-on-surface"
+                    >
+                      {renderInlineMarkdown(cell, options)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => (
+                  <tr key={ri} className={ri % 2 === 0 ? "bg-transparent" : "bg-surface-container/40"}>
+                    {parseRow(row).map((cell, ci) => (
+                      <td
+                        key={ci}
+                        className="border border-outline/20 px-3 py-2 text-on-surface-variant"
+                      >
+                        {renderInlineMarkdown(cell, options)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+      }
+      continue;
+    }
+
     const paragraphLines: string[] = [];
     while (
       index < lines.length &&
       lines[index].trim() &&
+      !lines[index].trim().startsWith("|") &&
       !lines[index].trim().startsWith("```") &&
       !/^(#{1,6})\s+/.test(lines[index].trim()) &&
       !/^\d+\.\s+/.test(lines[index].trim()) &&

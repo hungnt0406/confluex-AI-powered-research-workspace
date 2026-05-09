@@ -650,7 +650,7 @@ export async function streamDeepSearchRun(
   path: string,
   options: {
     token: string;
-    json: { paper_ids: string[]; question: string };
+    json: { paper_ids: string[]; question: string; mode?: "standard" | "max" };
     onEvent: (event: DeepSearchStreamEvent) => void;
   },
 ): Promise<void> {
