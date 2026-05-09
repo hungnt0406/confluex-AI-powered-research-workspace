@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +32,8 @@ SUMMARY_SYSTEM_PROMPT = """
 You are an academic reading assistant.
 Given a paper title, abstract, and review topic, produce a concise structured JSON summary.
 Focus on the problem, method, result, and why the paper matters to the topic.
-Return only JSON that matches the requested schema.
+Respond with JSON using exactly these keys:
+{"problem": "...", "method": "...", "result": "...", "relevance": "..."}
 """.strip()
 
 
@@ -42,7 +43,10 @@ class PaperSummaryPayload(BaseModel):
     problem: str = Field(min_length=1)
     method: str = Field(min_length=1)
     result: str = Field(min_length=1)
-    relevance_to_topic: str = Field(alias="relevance", min_length=1)
+    relevance_to_topic: str = Field(
+        validation_alias=AliasChoices("relevance", "relevance_to_topic"),
+        min_length=1,
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -235,6 +239,8 @@ class ReaderAgent:
                     max_tokens=900,
                     feature="paper_summary",
                 )
+                if not payload.get("relevance") and not payload.get("relevance_to_topic"):
+                    payload["relevance"] = f"Relevant to the topic: {topic_description[:200]}"
                 parsed_payload = PaperSummaryPayload.model_validate(payload)
                 return SummaryGenerationResult(paper=paper, payload=parsed_payload)
             except (StructuredOutputError, ValidationError) as error:
@@ -285,5 +291,5 @@ class ReaderAgent:
             problem=problem,
             method=method,
             result=result,
-            relevance=relevance,
+            relevance_to_topic=relevance,
         )

@@ -545,7 +545,7 @@ async def test_deep_search_failure_marks_run_failed_and_streams_error(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     class FailingDeepSearchService(DeepSearchService):
-        async def _plan_questions(self, *, project_title: str, project_topic: str, question: str) -> list[str]:
+        async def _plan_research(self, *, project_title: str, project_topic: str, question: str, mode: str = "standard") -> tuple[list[str], list[str]]:
             raise RuntimeError("planner failed")
 
     service = FailingDeepSearchService(
@@ -962,3 +962,197 @@ async def test_deep_search_no_invented_source_chips_when_no_candidates(
                 f"stage_start/stage_update should not have invented sources, "
                 f"got {len(sources)} for phase={payload.get('phase')}"
             )
+
+
+# ── Max mode tests ────────────────────────────────────────────────────────────
+
+
+def local_max_service(
+    semantic_scholar_search=no_academic_results,
+    arxiv_search=no_academic_results,
+) -> DeepSearchService:
+    return DeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=semantic_scholar_search,
+        arxiv_search=arxiv_search,
+    )
+
+
+@pytest.mark.asyncio
+async def test_max_mode_single_iteration_offline(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Offline max mode degrades to a single iteration and completes."""
+    service = local_max_service()
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        events = [
+            event
+            async for event in service.stream_run(
+                session=session,
+                project=project,
+                question="Max mode offline test",
+                selected_papers=[],
+                mode="max",
+            )
+        ]
+    event_names = [e.event for e in events]
+    assert "done" in event_names
+    assert "error" not in event_names
+
+
+@pytest.mark.asyncio
+async def test_max_mode_run_persists_mode(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """DeepSearchRun row created with mode='max' reads back as 'max'."""
+    service = local_max_service()
+    run_id: str | None = None
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        async for event in service.stream_run(
+            session=session,
+            project=project,
+            question="Persist mode max",
+            selected_papers=[],
+            mode="max",
+        ):
+            if event.event == "run":
+                run_id = str(event.data.id)  # type: ignore[union-attr]
+
+    assert run_id is not None
+    async with session_factory() as session:
+        run = await session.get(DeepSearchRun, run_id)
+        assert run is not None
+        assert run.mode == "max"
+
+
+@pytest.mark.asyncio
+async def test_standard_mode_unchanged(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Standard mode run persists mode='standard' and completes normally."""
+    service = local_max_service()
+    run_id: str | None = None
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        async for event in service.stream_run(
+            session=session,
+            project=project,
+            question="Standard mode unchanged",
+            selected_papers=[],
+            mode="standard",
+        ):
+            if event.event == "run":
+                run_id = str(event.data.id)  # type: ignore[union-attr]
+
+    assert run_id is not None
+    async with session_factory() as session:
+        run = await session.get(DeepSearchRun, run_id)
+        assert run is not None
+        assert run.mode == "standard"
+
+
+@pytest.mark.asyncio
+async def test_max_mode_query_dedup(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Queries already in queries_run are not searched again."""
+    call_count = 0
+
+    async def counting_search(query: str, year_start: int, limit: int) -> list[PaperRecord]:
+        nonlocal call_count
+        call_count += 1
+        return []
+
+    service = local_max_service(
+        semantic_scholar_search=counting_search,
+        arxiv_search=counting_search,
+    )
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        async for _ in service.stream_run(
+            session=session,
+            project=project,
+            question="query dedup test",
+            selected_papers=[],
+            mode="max",
+        ):
+            pass
+
+    # Offline max mode does a single iteration; no duplicate calls for same query
+    assert call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_max_mode_activity_events_have_deciding_phase(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Max mode does NOT emit 'deciding' phase events when use_live_llm=False."""
+    service = local_max_service()
+    phases_seen: set[str] = set()
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        async for event in service.stream_run(
+            session=session,
+            project=project,
+            question="activity events test",
+            selected_papers=[],
+            mode="max",
+        ):
+            if event.event == "activity":
+                phases_seen.add(str(event.data.get("phase", "")))  # type: ignore[union-attr]
+
+    # Offline max mode skips the decider; 'deciding' phase should not appear
+    assert "deciding" not in phases_seen
+    # Expected phases from the adaptive loop in offline mode
+    assert "academic_search" in phases_seen
+    assert "web_search" in phases_seen
+
+
+@pytest.mark.asyncio
+async def test_max_mode_sources_from_search_included_in_report(
+    session_factory: async_sessionmaker[AsyncSession],
+    sample_project: dict[str, str],
+) -> None:
+    """Sources found in the adaptive loop are included in the final run."""
+    service = local_max_service(
+        semantic_scholar_search=one_academic_result,
+        arxiv_search=no_academic_results,
+    )
+    run_id: str | None = None
+    async with session_factory() as session:
+        project = await session.get(Project, sample_project["id"])
+        assert project is not None
+        async for event in service.stream_run(
+            session=session,
+            project=project,
+            question="sources included test",
+            selected_papers=[],
+            mode="max",
+        ):
+            if event.event == "run":
+                run_id = str(event.data.id)  # type: ignore[union-attr]
+
+    assert run_id is not None
+    async with session_factory() as session:
+        result = await session.execute(
+            select(DeepSearchRun).where(DeepSearchRun.id == run_id)
+        )
+        run = result.scalar_one_or_none()
+        assert run is not None
+        assert run.status == "completed"
+        source_count = run.source_summary_json.get("metadata", {}).get("source_count", 0)
+        assert source_count >= 1

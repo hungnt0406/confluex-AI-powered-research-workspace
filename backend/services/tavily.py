@@ -74,7 +74,7 @@ class TavilySearchService:
         requested_max_results = max_results if max_results is not None else self.max_results
         payload: dict[str, object] = {
             "query": normalized_query,
-            "search_depth": "basic",
+            "search_depth": "advanced",
             "include_answer": False,
             "include_raw_content": False,
             "max_results": requested_max_results,

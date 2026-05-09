@@ -47,6 +47,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+## 2026-05-09T00:00:00+07:00
+- **Request:** Implement Deep Research Max adaptive loop mode (new third chat mode with up to 4 adaptive search iterations, LLM gap-analysis decider, `ResearchState` accumulator, `deciding` thinking phase, mode-specific 5× credit cost). Post-commit fixes: raise report token cap from 1 800 to 4 000 to stop mid-table truncation; raise `deep_search_max_results_per_query` 5 → 10 and `deep_search_max_web_searches` 5 → 8; switch Tavily from `basic` to `advanced` search depth so the full result set is returned.
+- **Files changed:** `backend/services/deep_search.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260509_01_deep_search_mode.py`, `backend/api/schemas/projects.py`, `backend/api/routers/pipeline.py`, `backend/api/routers/projects.py`, `backend/config.py`, `backend/services/tavily.py`, `backend/agents/reader.py`, `backend/agents/searcher.py`, `backend/services/llm.py`, `backend/services/document_extraction.py`, `.env.example`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/lib/api.ts`, `tests/test_deep_search.py`, `plans/in-progress/deep-research-max-mode.md`, `JOURNAL.md`, `AI_WORKLOG.md`, `CLAUDE.md`, `.codex/AGENTS.md`
+- **Current status:** Feature committed as `6d617b9` on `feature/deep-research-max-mode`. Post-commit config/service tweaks (token cap, result counts, search depth) are uncommitted. 22 targeted Deep Search tests pass (1 pre-existing timing test excluded). Standard mode path is unchanged.
+
 ### 2026-05-08T15:20:11+07:00
 - **Request:** SePay payments work (money received, transactions logged in dashboard) but the user's credit balance never updates — find the root cause first, then fix.
 - **Files changed:** `backend/api/schemas/payments.py`, `tests/test_sepay_webhook.py`, `AI_WORKLOG.md`, `AGENTS.md`, `.codex/AGENTS.md`, `JOURNAL.md`
@@ -1150,3 +1155,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Before stopping the session, update Claude and Codex agent instruction docs.
 - **Files changed:** `CLAUDE.md`, `.codex/AGENTS.md`, `JOURNAL.md`.
 - **Current status:** Updated both agent-facing docs with the current SePay/VietQR billing routes, credit ledger/quota ownership, pricing checkout routing, and `ADMIN_EMAILS` unlimited-credit bypass behavior.
+
+## 2026-05-09T(session)
+- **Request:** Series of Deep Research Max quality and reliability fixes: (1) show per-iteration web sources in the thinking panel; (2) improve planner to generate dimension-based research questions (Gemini-quality); (3) fix offline fallback producing grammatically broken questions; (4) diagnose and reduce frequent planner fallbacks caused by silent MiMo JSON key mismatches; (5) fix paper summary `relevance` field validation failure; (6) raise report writer token cap from 4,000 to 8,000.
+- **Files changed:** `backend/services/deep_search.py`, `backend/api/routers/pipeline.py`, `backend/agents/reader.py`, `frontend/components/ChatProvider.tsx`, `tests/test_deep_search.py`
+- **Current status:** All changes applied on `feature/deep-research-max-mode`. Ruff/mypy clean. 21 deep search tests pass (2 pre-existing failures excluded). Key improvements: web sources appear per-iteration in real-time during streaming; max mode planner uses a dimension-decomposition prompt allowing up to 8 named questions; all fallback paths use grammatically safe generic phrasing; planner and pipeline fallbacks now log warnings; paper summaries never fail due to a missing `relevance` key; reports no longer truncate at ~4k tokens.

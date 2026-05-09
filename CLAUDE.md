@@ -152,7 +152,8 @@ Preserve offline fallbacks in tests: when `OPENROUTER_API_KEY` is unset, `llm.py
    - Personal debugging notes / preferences / temporary context → auto memory.
    - Team/project knowledge (architecture, API changes, runbooks) → existing project docs (`JOURNAL.md`, `AI_WORKLOG.md`, `WORKLOG.md`).
    - Don't duplicate information that already lives in code comments or commit messages.
-5. **Commit** — Conventional commits format; comprehensive PR summaries.
+5. **Log changes** — After every code-change session, ALWAYS append a timestamped entry to `JOURNAL.md` (format: `## YYYY-MM-DDTHH:MM:SS+07:00`, fields: Request, Files changed, Current status) and a detail entry to `AI_WORKLOG.md`. This is mandatory — do not skip it. Update `WORKLOG.md` for meaningful architectural decisions.
+6. **Commit** — Conventional commits format; comprehensive PR summaries.
 
 ## Repo conventions (from AGENTS.md)
 

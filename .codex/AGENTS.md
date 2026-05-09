@@ -113,6 +113,7 @@ Troubleshoot failures: check test isolation → verify mocks → fix implementat
 4. **Capture knowledge in the right place**
    - Personal debugging notes, preferences, and temporary context → auto memory
    - Team/project knowledge (architecture decisions, API changes, runbooks) → the project's existing docs structure
+   - **After every code-change session:** append a timestamped entry to `JOURNAL.md` (format: `## YYYY-MM-DDTHH:MM:SS+07:00` — fields: Request, Files changed, Current status) and a detail entry to `AI_WORKLOG.md`. This is mandatory — do not skip it.
    - If the current task already produces the relevant docs or code comments, do not duplicate the same information elsewhere
    - If there is no obvious project doc location, ask before creating a new top-level file
 5. **Commit** — Conventional commits format, comprehensive PR summaries

@@ -115,10 +115,10 @@ class PaperDocumentExtractionService:
         embedding_service: EmbeddingClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
+        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
         self.model = model if model is not None else settings.openrouter_document_model
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
         )
         self.pdf_engine = pdf_engine if pdf_engine is not None else settings.openrouter_pdf_engine
         self.pdf_download_timeout_seconds = (

@@ -59,7 +59,7 @@ export type ChatMessage = {
   createdAt: string;
 };
 
-export type ChatMode = "standard" | "deep_search";
+export type ChatMode = "standard" | "deep_search" | "deep_research_max";
 
 export type DeepSearchDisplaySource = {
   id: string;
@@ -69,17 +69,13 @@ export type DeepSearchDisplaySource = {
   note?: string;
 };
 
-export type DeepSearchPlanStep = {
-  title: string;
-  items: string[];
-};
-
 export type DeepSearchPlanMessage = {
   id: string;
   question: string;
   projectId: string | null;
   status: "generating" | "pending" | "started" | "editing" | "superseded";
-  steps: DeepSearchPlanStep[];
+  questions: string[];
+  mode: "standard" | "max";
   createdAt: string;
 };
 
@@ -411,6 +407,7 @@ function truncateForUi(text: string, maxLength: number) {
 function createDeepSearchPlanMessage(
   question: string,
   projectId: string | null,
+  mode: "standard" | "max" = "standard",
 ): ChatMessage & { deepSearchPlan: DeepSearchPlanMessage } {
   const createdAt = now();
   const plan: DeepSearchPlanMessage = {
@@ -418,7 +415,8 @@ function createDeepSearchPlanMessage(
     question,
     projectId,
     status: "generating",
-    steps: [],
+    questions: [],
+    mode,
     createdAt,
   };
   return {
@@ -436,6 +434,7 @@ const DEEP_SEARCH_THINKING_PHASES = [
   "project_evidence",
   "academic_search",
   "web_search",
+  "deciding",
   "summarizing_sources",
   "writing",
   "verifying",
@@ -459,6 +458,10 @@ function deepSearchThinkingDefinition(phase: string, question: string) {
     web_search: {
       title: "Researching websites",
       detail: "I am checking current web sources for recent context, implementations, and supporting material.",
+    },
+    deciding: {
+      title: "Reasoning about gaps",
+      detail: "I am reviewing what I've found and deciding what to search next.",
     },
     summarizing_sources: {
       title: "Uncovering source signals",
@@ -1396,10 +1399,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       projectId,
       paperIds,
       question,
+      mode = "standard",
     }: {
       projectId: string;
       paperIds: string[];
       question: string;
+      mode?: "standard" | "max";
     }) => {
       if (!authedRef.current) throw new Error("You must be logged in to chat.");
 
@@ -1434,7 +1439,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       await streamDeepSearchRun(`/projects/${projectId}/deep-search/stream`, {
         token: authedRef.current,
-        json: { paper_ids: paperIds, question },
+        json: { paper_ids: paperIds, question, mode },
         onEvent: (event) => {
           if (event.event === "run") {
             updateDeepSearchThinkingPhase(thinkingMessageId, "planning");
@@ -1588,6 +1593,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             projectId: project.id,
             paperIds: nextSelectedPaperIds,
             question: plan.question,
+            mode: plan.mode,
           });
           return;
         }
@@ -1612,6 +1618,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           projectId: activeProject.id,
           paperIds: deepSearchPaperIds,
           question: plan.question,
+          mode: plan.mode,
         });
       } catch (err: any) {
         const detail = userFacingErrorMessage(err, "Something went wrong.");
@@ -1701,72 +1708,62 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setPendingDeepSearchPlan(null);
       }
 
-      if (chatMode === "deep_search") {
-        const planMessage = createDeepSearchPlanMessage(trimmed, activeProject?.id ?? null);
+      if (chatMode === "deep_search" || chatMode === "deep_research_max") {
+        const deepMode = chatMode === "deep_research_max" ? "max" : "standard";
+        const planMessage = createDeepSearchPlanMessage(trimmed, activeProject?.id ?? null, deepMode);
         setPendingDeepSearchPlan(planMessage.deepSearchPlan);
         setMessages((prev) => [...prev, planMessage]);
 
         const planId = planMessage.deepSearchPlan.id;
-        api<{ steps: DeepSearchPlanStep[] }>("/pipeline/deep-search/plan", {
+        api<{ questions: string[] }>("/pipeline/deep-search/plan", {
           method: "POST",
           token: authedRef.current,
-          json: { question: trimmed },
+          json: { question: trimmed, mode: deepMode },
         })
-          .then(({ steps }) => {
+          .then(({ questions }) => {
             setMessages((prev) =>
               prev.map((m) =>
                 m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
                   ? {
                       ...m,
-                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", steps },
+                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", questions },
                     }
                   : m,
               ),
             );
             setPendingDeepSearchPlan((prev) =>
-              prev?.id === planId ? { ...prev, status: "pending", steps } : prev,
+              prev?.id === planId ? { ...prev, status: "pending", questions } : prev,
             );
           })
           .catch(() => {
-            // On failure, surface the fallback steps inline
-            const question = trimmed;
-            const compact = question.slice(0, 120);
-            const fallback: DeepSearchPlanStep[] = [
-              {
-                title: "Research Websites",
-                items: [
-                  `Define the research question around "${compact}".`,
-                  "Search scholarly indexes, project papers, and current web sources for supporting evidence.",
-                  "Collect source notes that can be cited directly in the final report.",
-                ],
-              },
-              {
-                title: "Analyze Results",
-                items: [
-                  "Compare evidence quality across papers, web results, and selected project context.",
-                  "Extract points of agreement, disagreement, limitations, and recent developments.",
-                ],
-              },
-              {
-                title: "Create Report",
-                items: [
-                  "Write a concise synthesis with named source links for factual claims.",
-                  "Run citation checks and preserve the final sources in the context panel.",
-                ],
-              },
-            ];
+            const compact = trimmed.slice(0, 200);
+            const fallback: string[] =
+              deepMode === "max"
+                ? [
+                    "What is the architecture and technical design of the primary method?",
+                    "What specific challenges or conditions does this approach address?",
+                    "What competing or alternative approaches exist for the same task?",
+                    "How does this method compare empirically on precision, recall, F1, and speed?",
+                    "What datasets and training procedures are required?",
+                  ]
+                : [
+                    compact,
+                    `What recent academic evidence addresses: ${compact}?`,
+                    `What are the key debates, limitations, or open problems related to: ${compact}?`,
+                    `What implementation context or real-world examples are relevant to: ${compact}?`,
+                  ];
             setMessages((prev) =>
               prev.map((m) =>
                 m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
                   ? {
                       ...m,
-                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", steps: fallback },
+                      deepSearchPlan: { ...m.deepSearchPlan!, status: "pending", questions: fallback },
                     }
                   : m,
               ),
             );
             setPendingDeepSearchPlan((prev) =>
-              prev?.id === planId ? { ...prev, status: "pending", steps: fallback } : prev,
+              prev?.id === planId ? { ...prev, status: "pending", questions: fallback } : prev,
             );
           });
 

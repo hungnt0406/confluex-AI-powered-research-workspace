@@ -411,6 +411,7 @@ class DeepSearchRun(Base):
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     user_prompt: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="running", server_default="running")
+    mode: Mapped[str] = mapped_column(String(32), default="standard", server_default="standard")
     selected_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
     plan_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     report_body: Mapped[str] = mapped_column(Text, default="", server_default="")

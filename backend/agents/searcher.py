@@ -51,8 +51,21 @@ Return only JSON that matches the requested schema.
 """.strip()
 
 BOOLEAN_OPERATOR_PATTERN = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
-PUNCTUATION_COLLAPSE_PATTERN = re.compile(r"[\"'`(){}\[\],;:]+")
+PUNCTUATION_COLLAPSE_PATTERN = re.compile(r"[\"'`(){}\[\],;:?!]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
+_QUESTION_LEAD_WORDS = frozenset(
+    {"can", "could", "describe", "do", "does", "explain", "how", "is", "are", "what", "when", "where", "which", "who", "why", "would"}
+)
+_TERM_STOP_WORDS = frozenset(
+    {
+        "a", "an", "and", "are", "as", "at", "be", "between", "by", "can", "compare",
+        "compared", "comparison", "could", "describe", "do", "does", "explain", "for",
+        "from", "general", "how", "in", "is", "it", "its", "like", "of", "or", "purpose",
+        "should", "that", "the", "their", "them", "there", "they", "this", "to", "use",
+        "used", "using", "vs", "was", "what", "when", "where", "which", "who", "why",
+        "with", "would",
+    }
+)
 REFERENCE_QUERY_STOPWORDS = {
     "about",
     "after",
@@ -405,11 +418,65 @@ class SearcherAgent:
             + "\n".join(reference_lines)
         )
 
-    def _build_fallback_queries(
+    def _is_natural_language_question(self, topic: str) -> bool:
+        words = topic.split()
+        return len(words) > 5 and (
+            topic.rstrip().endswith("?")
+            or words[0].lower() in _QUESTION_LEAD_WORDS
+        )
+
+    def _extract_key_terms(self, text: str) -> tuple[list[str], list[str]]:
+        """Return (proper_nouns, domain_terms) extracted from a question."""
+        raw_words = re.sub(r"[^\w\s\-]", " ", text).split()
+        proper_nouns: list[str] = []
+        domain_terms: list[str] = []
+        for i, word in enumerate(raw_words):
+            if not word or len(word) < 2:
+                continue
+            is_sentence_start = i == 0
+            if (not is_sentence_start and word[0].isupper()) or (word.isupper() and len(word) >= 2):
+                proper_nouns.append(word)
+            elif word.lower() not in _TERM_STOP_WORDS and len(word) > 4:
+                domain_terms.append(word.lower())
+        return proper_nouns, domain_terms
+
+    def _build_question_fallback_queries(
+        self,
+        question: str,
+        reference_context: list[ReferencePaperContext],
+    ) -> list[SearchQuery]:
+        """Build 3–4 short, targeted queries from a natural language question."""
+        proper_nouns, domain_terms = self._extract_key_terms(question)
+        candidates: list[SearchQuery] = []
+
+        if proper_nouns:
+            candidates.append(SearchQuery(query=" ".join(proper_nouns[:3]), focus="entity"))
+        if proper_nouns and domain_terms:
+            candidates.append(SearchQuery(
+                query=" ".join(proper_nouns[:2] + domain_terms[:2]),
+                focus="broad",
+            ))
+        if domain_terms:
+            candidates.append(SearchQuery(
+                query=" ".join(domain_terms[:4]),
+                focus="domain",
+            ))
+        if proper_nouns:
+            candidates.append(SearchQuery(
+                query=" ".join(proper_nouns[:2] + ["deep learning"]),
+                focus="technique",
+            ))
+            candidates.append(SearchQuery(
+                query=" ".join(proper_nouns[:2] + ["survey"]),
+                focus="survey",
+            ))
+
+        return self._deduplicate_queries(candidates)[:8] if candidates else self._build_keyword_fallback_queries(question, reference_context)
+
+    def _build_keyword_fallback_queries(
         self,
         topic: str,
-        *,
-        reference_context: list[ReferencePaperContext] | None = None,
+        reference_context: list[ReferencePaperContext],
     ) -> list[SearchQuery]:
         normalized_topic = self._sanitize_query_text(topic)
         query_candidates = [
@@ -422,23 +489,26 @@ class SearcherAgent:
             (f"{normalized_topic} application study", "application"),
             (f"{normalized_topic} empirical evaluation", "evaluation"),
         ]
-
-        for reference_query in self._build_reference_fallback_queries(
-            normalized_topic,
-            reference_context or [],
-        ):
+        for reference_query in self._build_reference_fallback_queries(normalized_topic, reference_context):
             query_candidates.append(reference_query)
-
-        deduplicated_queries: list[SearchQuery] = []
-        seen_queries: set[str] = set()
+        deduplicated: list[SearchQuery] = []
+        seen: set[str] = set()
         for raw_query, focus in query_candidates:
-            normalized_query = raw_query.lower().strip()
-            if normalized_query in seen_queries:
-                continue
-            seen_queries.add(normalized_query)
-            deduplicated_queries.append(SearchQuery(query=raw_query, focus=focus))
+            key = raw_query.lower().strip()
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(SearchQuery(query=raw_query, focus=focus))
+        return deduplicated[:8]
 
-        return deduplicated_queries[:8]
+    def _build_fallback_queries(
+        self,
+        topic: str,
+        *,
+        reference_context: list[ReferencePaperContext] | None = None,
+    ) -> list[SearchQuery]:
+        if self._is_natural_language_question(topic):
+            return self._build_question_fallback_queries(topic, reference_context or [])
+        return self._build_keyword_fallback_queries(topic, reference_context or [])
 
     def _build_reference_fallback_queries(
         self,
@@ -484,6 +554,12 @@ class SearcherAgent:
 
     def _coerce_query_payload(self, payload: dict[str, Any], topic: str) -> list[SearchQuery]:
         raw_queries = payload.get("queries")
+        if not isinstance(raw_queries, list):
+            # MiMo sometimes uses a different key or returns a nested structure
+            for value in payload.values():
+                if isinstance(value, list) and value:
+                    raw_queries = value
+                    break
         if not isinstance(raw_queries, list):
             raise ValueError("Model response did not contain a queries list.")
 
