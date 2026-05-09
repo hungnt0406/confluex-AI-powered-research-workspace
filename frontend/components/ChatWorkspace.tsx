@@ -1009,6 +1009,12 @@ function renderMarkdownBlocks(text: string, sourceReferences: Map<string, Source
       continue;
     }
 
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push(<hr key={`hr-${index}`} className="border-outline/20" />);
+      index += 1;
+      continue;
+    }
+
     if (/^\d+\.\s+/.test(trimmed)) {
       const items: string[] = [];
       const options = { citationLinks: !inSourcesSection, sourceReferences };
