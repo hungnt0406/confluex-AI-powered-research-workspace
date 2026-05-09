@@ -1718,7 +1718,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         api<{ questions: string[] }>("/pipeline/deep-search/plan", {
           method: "POST",
           token: authedRef.current,
-          json: { question: trimmed },
+          json: { question: trimmed, mode: deepMode },
         })
           .then(({ questions }) => {
             setMessages((prev) =>
@@ -1737,12 +1737,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           })
           .catch(() => {
             const compact = trimmed.slice(0, 200);
-            const fallback: string[] = [
-              compact,
-              `What recent academic evidence addresses: ${compact}?`,
-              `What are the key debates, limitations, or open problems related to: ${compact}?`,
-              `What implementation context or real-world examples are relevant to: ${compact}?`,
-            ];
+            const fallback: string[] =
+              deepMode === "max"
+                ? [
+                    "What is the architecture and technical design of the primary method?",
+                    "What specific challenges or conditions does this approach address?",
+                    "What competing or alternative approaches exist for the same task?",
+                    "How does this method compare empirically on precision, recall, F1, and speed?",
+                    "What datasets and training procedures are required?",
+                  ]
+                : [
+                    compact,
+                    `What recent academic evidence addresses: ${compact}?`,
+                    `What are the key debates, limitations, or open problems related to: ${compact}?`,
+                    `What implementation context or real-world examples are relevant to: ${compact}?`,
+                  ];
             setMessages((prev) =>
               prev.map((m) =>
                 m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId

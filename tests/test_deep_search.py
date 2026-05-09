@@ -545,7 +545,7 @@ async def test_deep_search_failure_marks_run_failed_and_streams_error(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     class FailingDeepSearchService(DeepSearchService):
-        async def _plan_research(self, *, project_title: str, project_topic: str, question: str) -> tuple[list[str], list[str]]:
+        async def _plan_research(self, *, project_title: str, project_topic: str, question: str, mode: str = "standard") -> tuple[list[str], list[str]]:
             raise RuntimeError("planner failed")
 
     service = FailingDeepSearchService(

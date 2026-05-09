@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -23,13 +24,16 @@ from backend.services.paper_types import PaperRecord
 from backend.services.research_utils import has_live_api_key
 from backend.services.tavily import TavilySearchService
 
+logger = logging.getLogger(__name__)
+
 MAX_PLAN_QUESTIONS = 5
+MAX_PLAN_QUESTIONS_MAX = 8
 MIN_PLAN_QUESTIONS = 3
-MAX_SELECTED_DEEP_SEARCH_PAPERS = 5
+MAX_SELECTED_DEEP_SEARCH_PAPERS = 10
 MAX_SOURCE_SNIPPET_CHARS = 900
 MAX_SOURCE_TITLE_CHARS = 500
 MAX_CHUNKS_PER_SELECTED_PAPER = 2
-MAX_REPORT_TOKENS = 1_800
+MAX_REPORT_TOKENS = 8_000
 MAX_ADAPTIVE_LOOP_ITERATIONS = 4
 MAX_DECIDER_NEXT_QUERIES = 3
 MAX_DECIDER_CONTEXT_CANDIDATES = 40
@@ -184,6 +188,32 @@ def verify_report_claims(
     return flags
 
 
+_STANDARD_PLANNER_PROMPT = (
+    "You are a deep research strategist. Given a research question, identify the core claims "
+    "worth verifying, the key debates or open problems in the field, likely knowledge gaps, "
+    "and counterintuitive angles that would make the answer genuinely useful. "
+    "Produce 3 to 5 specific research sub-questions that illuminate the topic — name specific "
+    "methods, models, or phenomena, not generic process steps. "
+    "Also produce 1-2 short keyword search queries (seed_queries) for academic APIs — "
+    "concise keyword strings under 8 words each, NOT full sentences. "
+    'Respond with JSON: {"questions": ["...", ...], "seed_queries": ["...", ...]}'
+)
+
+_MAX_MODE_PLANNER_PROMPT = (
+    "You are a systematic research architect. Decompose the research question into 5 to 8 "
+    "distinct research dimensions — one question per dimension, covering: the primary "
+    "architecture or method, specific challenges it addresses, competing approaches, empirical "
+    "benchmarks (Precision, Recall, F1, FPS, mAP), output representation differences "
+    "(e.g. heatmap vs bounding box), training data and dataset requirements, and trade-off "
+    "synthesis. Each question must name SPECIFIC things (model names, metric names, dataset "
+    "names) — never generic phrases like 'recent evidence' or 'real-world examples'. "
+    "Do not restate the original question verbatim. "
+    "Also produce 2-3 short keyword search queries (seed_queries) for academic APIs — "
+    "keyword-style under 8 words each, NOT full sentences. "
+    'Respond with JSON: {"questions": ["...", ...], "seed_queries": ["...", ...]}'
+)
+
+
 class DeepSearchService:
     """Orchestrate project evidence, academic search, Tavily web search, and report writing."""
 
@@ -278,6 +308,7 @@ class DeepSearchService:
                     project_title=project.title,
                     project_topic=project.topic_description,
                     question=normalized_question,
+                    mode=mode,
                 )
             )
             planning_updates = [
@@ -306,7 +337,8 @@ class DeepSearchService:
             try:
                 questions, seed_queries = await planner_task
             except StructuredOutputError as error:
-                questions, seed_queries = self._build_local_plan_research(normalized_question)
+                logger.warning("deep_search planner fell back (mode=%s): %s", mode, error)
+                questions, seed_queries = self._build_local_plan_research(normalized_question, mode)
                 warnings.append(f"Deep Search planner fell back to local planning: {error}")
             plan_payload: dict[str, Any] = {
                 "questions": questions,
@@ -688,25 +720,18 @@ class DeepSearchService:
         project_title: str,
         project_topic: str,
         question: str,
+        mode: Literal["standard", "max"] = "standard",
     ) -> tuple[list[str], list[str]]:
         """Return (research_questions, seed_queries) for the deep search run."""
         await asyncio.sleep(10)
         if self.use_live_llm:
+            is_max = mode == "max"
+            max_q = MAX_PLAN_QUESTIONS_MAX if is_max else MAX_PLAN_QUESTIONS
+            max_seeds = 3 if is_max else 2
             parsed = await self._generate_json(
                 model=self.planner_model,
                 feature="deep_search_planning",
-                system_prompt=(
-                    "You are a deep research strategist. Given a research question, reason about "
-                    "the subject matter itself: identify the core claims worth verifying, the key "
-                    "debates or open problems in the field, likely knowledge gaps, and any "
-                    "counterintuitive angles that would make the answer genuinely useful. "
-                    "Then produce 3 to 5 specific research questions that would best illuminate "
-                    "the topic. Do not constrain yourself by evidence type — think about what "
-                    "would make the final answer surprising, grounded, and complete. "
-                    "Also produce 1-2 short keyword search queries (seed_queries) suitable for "
-                    "academic APIs — these must be concise keyword strings (under 8 words each), "
-                    "NOT full sentences."
-                ),
+                system_prompt=_MAX_MODE_PLANNER_PROMPT if is_max else _STANDARD_PLANNER_PROMPT,
                 user_prompt=(
                     f"Project title: {project_title}\n"
                     f"Project topic: {project_topic}\n"
@@ -718,20 +743,20 @@ class DeepSearchService:
                         "questions": {
                             "type": "array",
                             "minItems": 1,
-                            "maxItems": MAX_PLAN_QUESTIONS,
+                            "maxItems": max_q,
                             "items": {"type": "string"},
                         },
                         "seed_queries": {
                             "type": "array",
                             "minItems": 1,
-                            "maxItems": 2,
+                            "maxItems": max_seeds,
                             "items": {"type": "string", "maxLength": 80},
                         },
                     },
                     "required": ["questions", "seed_queries"],
                     "additionalProperties": False,
                 },
-                max_tokens=700,
+                max_tokens=900 if is_max else 700,
             )
             raw_questions = parsed.get("questions", [])
             raw_seeds = parsed.get("seed_queries", [])
@@ -743,18 +768,30 @@ class DeepSearchService:
             seed_queries = [str(q).strip() for q in raw_seeds if str(q).strip()]
             if not seed_queries:
                 seed_queries = _derive_seed_queries(question)
-            return _normalize_plan_questions(question, questions), seed_queries
+            return _normalize_plan_questions(question, questions, max_q=max_q, skip_prepend=is_max), seed_queries
 
-        return self._build_local_plan_research(question)
+        return self._build_local_plan_research(question, mode)
 
-    def _build_local_plan_research(self, question: str) -> tuple[list[str], list[str]]:
-        seed_questions = [
+    def _build_local_plan_research(self, question: str, mode: str = "standard") -> tuple[list[str], list[str]]:
+        seeds = _derive_seed_queries(question)
+        if mode == "max":
+            questions = [
+                "What is the architecture and technical design of the primary method?",
+                "What specific challenges or conditions does this approach address that general methods cannot?",
+                "What competing or alternative approaches exist for the same task?",
+                "How does this method compare empirically on precision, recall, F1, and speed against baselines?",
+                "How do the output representations differ from general-purpose detectors (e.g. heatmap vs bounding box)?",
+                "What datasets and training procedures are required?",
+                "What are the trade-offs between specialized and general-purpose frameworks for this task?",
+            ]
+            return _normalize_plan_questions(question, questions, max_q=MAX_PLAN_QUESTIONS_MAX, skip_prepend=True), seeds
+        questions = [
             question,
             f"What recent academic evidence addresses {question}?",
             f"What methods, results, and limitations are reported for {question}?",
             f"What current web evidence or implementation context is relevant to {question}?",
         ]
-        return _normalize_plan_questions(question, seed_questions), _derive_seed_queries(question)
+        return _normalize_plan_questions(question, questions), seeds
 
     async def _decide_next_step(self, state: ResearchState) -> DecisionPayload:
         """Call the decider LLM to determine what to search next (max mode only)."""
@@ -1840,9 +1877,15 @@ def _skip_verifier_line(line: str) -> bool:
     return normalized in {"none", "- none"} or normalized.startswith("warnings:")
 
 
-def _normalize_plan_questions(question: str, questions: list[str]) -> list[str]:
-    normalized = _dedupe_strings([question, *questions])
-    return normalized[:MAX_PLAN_QUESTIONS]
+def _normalize_plan_questions(
+    question: str,
+    questions: list[str],
+    max_q: int = MAX_PLAN_QUESTIONS,
+    skip_prepend: bool = False,
+) -> list[str]:
+    # skip_prepend=True for max mode: LLM generates dimension questions, don't inject the original
+    source = questions if skip_prepend else [question, *questions]
+    return _dedupe_strings(source)[:max_q]
 
 
 def _paper_evidence_snippet(paper: Paper) -> str:

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 import httpx
@@ -6,6 +7,8 @@ import httpx
 from backend.config import get_settings
 from backend.services.ai_usage import collect_openrouter_usage
 from backend.services.research_utils import has_live_api_key
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 
 
 class StructuredOutputError(RuntimeError):
@@ -24,13 +27,14 @@ class OpenRouterStructuredOutputService:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
+        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
         self.model = model if model is not None else settings.openrouter_model
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
         )
         self.http_client = http_client
         self.timeout_seconds = settings.external_api_timeout_seconds
+        self.use_strict_json_schema = "openrouter.ai" in self.base_url
 
     def is_configured(self) -> bool:
         """Return whether live OpenRouter requests are available."""
@@ -55,27 +59,27 @@ class OpenRouterStructuredOutputService:
             "Authorization": f"Bearer {self.api_key or ''}",
             "Content-Type": "application/json",
         }
-        payload = {
+        response_format: dict[str, Any]
+        if self.use_strict_json_schema:
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {"name": "structured_output", "strict": True, "schema": schema},
+            }
+        else:
+            response_format = {"type": "json_object"}
+
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_output",
-                    "strict": True,
-                    "schema": schema,
-                },
-            },
+            "response_format": response_format,
             "max_tokens": max_tokens,
             "temperature": 0,
-            "provider": {
-                "require_parameters": True,
-                "sort": "price",
-            },
         }
+        if self.use_strict_json_schema:
+            payload["provider"] = {"require_parameters": True, "sort": "price"}
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -126,6 +130,9 @@ class OpenRouterStructuredOutputService:
             )
         if not isinstance(content, str) or not content.strip():
             raise StructuredOutputError("OpenRouter response did not contain text content.")
+        if not self.use_strict_json_schema:
+            fence_match = _JSON_FENCE_RE.search(content)
+            content = fence_match.group(1) if fence_match else content.strip()
 
         try:
             parsed = json.loads(content)

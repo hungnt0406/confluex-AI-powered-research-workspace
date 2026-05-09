@@ -112,10 +112,10 @@ class Settings(BaseSettings):
         default="mimo-v2-flash",
         alias="DEEP_SEARCH_VERIFIER_MODEL",
     )
-    deep_search_max_web_searches: int = Field(default=5, alias="DEEP_SEARCH_MAX_WEB_SEARCHES")
+    deep_search_max_web_searches: int = Field(default=8, alias="DEEP_SEARCH_MAX_WEB_SEARCHES")
     deep_search_max_iterations: int = Field(default=2, alias="DEEP_SEARCH_MAX_ITERATIONS")
     deep_search_max_results_per_query: int = Field(
-        default=5,
+        default=10,
         alias="DEEP_SEARCH_MAX_RESULTS_PER_QUERY",
     )
     database_url: str = Field(

@@ -1,3 +1,6 @@
+import logging
+from typing import Literal
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -6,41 +9,46 @@ from backend.api.dependencies import CurrentUser
 from backend.api.schemas.projects import PipelineHealthResponse
 from backend.services.llm import OpenRouterStructuredOutputService, StructuredOutputError
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
-_PLAN_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "questions": {
-            "type": "array",
-            "minItems": 3,
-            "maxItems": 5,
-            "items": {"type": "string"},
-        },
-        "seed_queries": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 2,
-            "items": {"type": "string", "maxLength": 80},
-        },
-    },
-    "required": ["questions", "seed_queries"],
-    "additionalProperties": False,
-}
-
-_PLAN_SYSTEM_PROMPT = (
+_STANDARD_PLAN_PROMPT = (
     "You are a deep research strategist. Given a research question, identify the core claims "
     "worth verifying, the key debates or open problems in the field, likely knowledge gaps, "
     "and counterintuitive angles that would make the answer genuinely useful. "
-    "Then produce 3 to 5 specific, investigable research sub-questions that best illuminate "
-    "the topic. Do not produce generic process steps — produce real questions about the subject. "
-    "Also produce 1-2 short keyword search queries (seed_queries) suitable for academic APIs — "
-    "these must be concise keyword strings (under 8 words each), NOT full sentences."
+    "Produce 3 to 5 specific research sub-questions that illuminate the topic — name specific "
+    "methods, models, or phenomena, not generic process steps. "
+    "Also produce 1-2 short keyword search queries (seed_queries) for academic APIs — "
+    "concise keyword strings under 8 words each, NOT full sentences. "
+    'Respond with JSON: {"questions": ["...", ...], "seed_queries": ["...", ...]}'
+)
+
+_MAX_PLAN_PROMPT = (
+    "You are a systematic research architect. Decompose the research question into 5 to 8 "
+    "distinct research dimensions — one question per dimension, covering: the primary "
+    "architecture or method, specific challenges it addresses, competing approaches, empirical "
+    "benchmarks (Precision, Recall, F1, FPS, mAP), output representation differences "
+    "(e.g. heatmap vs bounding box), training data and dataset requirements, and trade-off "
+    "synthesis. Each question must name SPECIFIC things (model names, metric names, dataset "
+    "names) — never generic phrases like 'recent evidence' or 'real-world examples'. "
+    "Do not restate the original question verbatim. "
+    "Also produce 2-3 short keyword search queries (seed_queries) for academic APIs — "
+    "keyword-style under 8 words each, NOT full sentences. "
+    'Respond with JSON: {"questions": ["...", ...], "seed_queries": ["...", ...]}'
 )
 
 
-def _fallback_questions(question: str) -> list[str]:
+def _fallback_questions(question: str, mode: str = "standard") -> list[str]:
     compact = question.strip()[:200]
+    if mode == "max":
+        return [
+            "What is the architecture and technical design of the primary method?",
+            "What specific challenges or conditions does this approach address?",
+            "What competing or alternative approaches exist for the same task?",
+            "How does this method compare empirically on precision, recall, F1, and speed?",
+            "What datasets and training procedures are required?",
+        ]
     return [
         compact,
         f"What recent academic evidence addresses: {compact}?",
@@ -56,6 +64,7 @@ def _fallback_seed_queries(question: str) -> list[str]:
 
 class DeepSearchPlanRequest(BaseModel):
     question: str
+    mode: Literal["standard", "max"] = "standard"
 
 
 class DeepSearchPlanResponse(BaseModel):
@@ -80,16 +89,37 @@ async def generate_deep_search_plan(
     llm = OpenRouterStructuredOutputService()
     if not llm.is_configured():
         return DeepSearchPlanResponse(
-            questions=_fallback_questions(body.question),
+            questions=_fallback_questions(body.question, body.mode),
             seed_queries=_fallback_seed_queries(body.question),
         )
 
+    is_max = body.mode == "max"
+    schema = {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 8 if is_max else 5,
+                "items": {"type": "string"},
+            },
+            "seed_queries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3 if is_max else 2,
+                "items": {"type": "string", "maxLength": 80},
+            },
+        },
+        "required": ["questions", "seed_queries"],
+        "additionalProperties": False,
+    }
+
     try:
         result = await llm.generate_json(
-            system_prompt=_PLAN_SYSTEM_PROMPT,
+            system_prompt=_MAX_PLAN_PROMPT if is_max else _STANDARD_PLAN_PROMPT,
             user_prompt=f"Research question: {body.question}",
-            schema=_PLAN_SCHEMA,
-            max_tokens=512,
+            schema=schema,
+            max_tokens=900 if is_max else 512,
             feature="deep_search_plan",
         )
         raw_questions = result.get("questions", [])
@@ -100,8 +130,9 @@ async def generate_deep_search_plan(
         seed_queries = [str(q).strip() for q in raw_seed_queries if str(q).strip()]
         if not seed_queries:
             seed_queries = _fallback_seed_queries(body.question)
-    except (StructuredOutputError, Exception):
-        questions = _fallback_questions(body.question)
+    except (StructuredOutputError, Exception) as exc:
+        logger.warning("deep-search/plan fell back to local questions: %s", exc)
+        questions = _fallback_questions(body.question, body.mode)
         seed_queries = _fallback_seed_queries(body.question)
 
     return DeepSearchPlanResponse(questions=questions, seed_queries=seed_queries)
