@@ -143,8 +143,8 @@ After writing the file, `create_reference_file` calls `PaperDocumentExtractionSe
 
 The uploaded bytes are sent through the same document extraction service used by grounded paper conversations:
 
-- If `OPENROUTER_API_KEY` is configured, the service sends the local PDF as a base64 `data:application/pdf` URL to OpenRouter's file parser using `OPENROUTER_DOCUMENT_MODEL` and `OPENROUTER_PDF_ENGINE`.
-- If live OpenRouter extraction is unavailable or fails, the service falls back to local PDF text extraction through the existing document extraction fallback.
+- The service first tries local PDF text extraction with PyMuPDF. This is the preferred path for normal text-based uploads because it avoids provider parser corruption when the PDF already contains extractable text.
+- If local extraction fails or produces no text and `OPENROUTER_API_KEY` is configured, the service sends the PDF as a base64 `data:application/pdf` URL to OpenRouter's file parser using `OPENROUTER_DOCUMENT_MODEL` and `OPENROUTER_PDF_ENGINE`.
 
 The extracted text is then normalized and truncated to `REFERENCE_MAX_EXTRACTED_CHARS` for storage.
 
@@ -195,7 +195,7 @@ Important columns:
 | `storage_path` | Server path to the stored PDF. |
 | `parse_status` | `parsed` or `parse_error`. |
 | `extracted_title` | Parsed title or fallback title. |
-| `extracted_authors` | Extracted author list. The current uploaded-PDF path does not infer authors from free text. |
+| `extracted_authors` | Author list inferred from simple first-page/header author lines when present. |
 | `extracted_year` | Year inferred from extracted text. |
 | `extracted_abstract` | Parsed abstract or opening excerpt. |
 | `extracted_text` | Normalized extracted text. |
