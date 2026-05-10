@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.dependencies import InsufficientCreditsHttpError
-from backend.api.routers import admin, auth, payments, pipeline, projects, webhooks
+from backend.api.routers import admin, auth, payments, pipeline, projects, webhooks, writer_documents
 from backend.config import get_settings
 from backend.db.session import close_default_session_manager
 
@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(payments.router)
     app.include_router(webhooks.router)
     app.include_router(pipeline.router)
+    app.include_router(writer_documents.router)
     return app
 
 
