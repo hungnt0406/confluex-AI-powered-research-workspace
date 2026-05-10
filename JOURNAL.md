@@ -47,6 +47,61 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-10T21:33:54+07:00
+- **Request:** Push the changed and new files from `feature/writer-workspace-mvp`, create PRs, and merge them into `main` following `PULL_REQUEST.md`.
+- **Files changed:** All remaining changed/new files on `feature/writer-workspace-mvp`; committed one file per commit and grouped PRs into two-file batches.
+- **Current status:** Focused pytest, frontend TypeScript, and targeted Ruff checks passed. Batches #311 through #334 were pushed, opened, and merged into `main`; final batch includes this journal entry and `tests/test_writer_section_agent.py` while keeping the source branch.
+
+### 2026-05-10T17:49:39+07:00
+- **Request:** Add a Beta tag to the Writer button.
+- **Files changed:** `frontend/components/Sidebar.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`
+- **Current status:** Added a compact `Beta` badge beside the expanded sidebar Writer nav item and updated the collapsed Writer icon aria/title text to "Writer beta". Verified with `python3 -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-10T17:40:48+07:00
+- **Request:** Make the Writer "Using the top 7 source papers..." notice appear after a 2-second delay.
+- **Files changed:** `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`
+- **Current status:** Added delayed warning rendering in the Writer questions panel and clear pending timers on section changes or new drafts. Verified with `python3 -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-10T17:39:01+07:00
+- **Request:** Add a clickable logo in the Writer document workspace top-left that returns to the chat workspace.
+- **Files changed:** `frontend/components/WriterWorkspace.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`
+- **Current status:** Added the Confluex mark as the first header control in the Writer workspace, linking to `/chat?project=...` for the document project. Verified with `python3 -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-10T17:34:37+07:00
+- **Request:** Add a Writer page button to return to the chat workspace.
+- **Files changed:** `frontend/app/writer/page.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`
+- **Current status:** Added a secondary "Back to Chat" header action that preserves the active project with `/chat?project=...` when available. Verified with `python3 -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-10T16:45:18+07:00
+- **Request:** Stop `mimo-v2.5-pro` requests from using the OpenRouter base URL/provider route; use Xiaomi MiMo URL instead.
+- **Files changed:** `backend/config.py`, `backend/services/llm.py`, `backend/services/project_conversations.py`, `backend/services/paper_conversations.py`, `backend/services/document_extraction.py`, `backend/services/deep_search.py`, `tests/test_app_config.py`, `JOURNAL.md`, `AI_WORKLOG.md`
+- **Current status:** Added model-aware LLM routing so `mimo-*` and `xiaomi/*` model ids resolve to `XIAOMI_MIMO_BASE_URL` and `XIAOMI_MIMO_API_KEY` only, never `OPENROUTER_BASE_URL`/`OPENROUTER_API_KEY`. Project chat, paper chat, structured output, document extraction, and Deep Search now use that routing. Focused checks pass: `python3 -m pytest tests/test_app_config.py tests/test_llm_embeddings.py tests/test_project_conversations.py tests/test_paper_conversations.py tests/test_document_extraction.py -q`, `python3 -m pytest tests/test_deep_search.py::test_deep_search_openrouter_usage_events_are_flushed tests/test_deep_search.py::test_deep_search_structured_output_truncation_falls_back_without_failing -q`, targeted `ruff`, and targeted `mypy`. The broader Deep Search file still has existing unrelated failures around the slow-planning timing test and Tavily `advanced` vs `basic` expectation.
+
+### 2026-05-10T15:49:17+07:00
+- **Request:** Fix chat answers that show raw LaTeX delimiters like `$$...$$` and `$T_k$` instead of rendered math.
+- **Files changed:** `frontend/components/ChatWorkspace.tsx`, `frontend/app/layout.tsx`, `frontend/package.json`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`
+- **Current status:** Added KaTeX rendering for display and inline math in chat Markdown, imported KaTeX CSS through the app layout, and added a static regression. Verified with `source ~/miniconda3/bin/activate agents && uv run pytest tests/test_frontend_deep_search_static.py::test_frontend_chat_markdown_renders_latex_math -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`. The full frontend static file still has an unrelated existing Deep Search mode assertion mismatch.
+
+### 2026-05-10T15:45:31+07:00
+- **Request:** Identify the project chat live-stream timeout that causes fallback answers and extend it.
+- **Files changed:** `backend/config.py`, `backend/services/project_conversations.py`, `tests/test_project_conversations.py`, `.env.example`, `README.md`, `docs/features/paper_conversations.md`, `docs/feature-map.md`, `JOURNAL.md`, `AI_WORKLOG.md`
+- **Current status:** The first-token wait was using `EXTERNAL_API_TIMEOUT_SECONDS` (20 seconds). Added `PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS` with a 60-second default and wired project chat streaming to use it before falling back. Verified with `source ~/miniconda3/bin/activate agents && uv run pytest tests/test_project_conversations.py -q` and targeted `ruff check`.
+
+### 2026-05-10T14:38:32+07:00
+- **Request:** Fix Writer UI after clicking Writer: the page showed "No project selected" while also showing draft loading skeletons, and `/writer?project=...` did not reliably restore the active project.
+- **Files changed:** `frontend/app/writer/page.tsx`, `frontend/components/ChatProvider.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`
+- **Current status:** Writer now clears document loading state when no project is active, only shows skeletons while a project is actually loading, restores the route `project` query parameter before falling back to localStorage, and avoids clearing saved active-project state before restore. Verified with `python3 -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-10T14:38:00+07:00
+- **Request:** Investigate why uploading `/Users/hungcucu/Desktop/2504.20670v1.pdf` produced a garbled paper answer.
+- **Files changed:** `backend/services/document_extraction.py`, `backend/services/reference_files.py`, `backend/services/paper_conversations.py`, `backend/services/project_conversations.py`, `tests/test_document_extraction.py`, `tests/test_reference_files.py`, `tests/test_paper_conversations.py`, `tests/test_project_conversations.py`, `docs/features/upload_reference_file.md`, `README.md`, `JOURNAL.md`, `AI_WORKLOG.md`
+- **Current status:** Verified the supplied PDF extracts cleanly through the updated upload path (9 pages, 9 text blocks, FBRT-YOLO title, coherent abstract, authors `Yao Xiao`, `Tingfa Xu`, `Yu Xin`, `Jianan Li`). Uploaded/local PDFs now prefer local PyMuPDF extraction before live parser fallback, uploaded-paper metadata infers simple header author lines, and chat prompts use metadata directly for bibliographic questions. Focused checks pass: `source ~/miniconda3/bin/activate agents && uv run pytest tests/test_reference_files.py tests/test_document_extraction.py tests/test_paper_conversations.py tests/test_project_conversations.py -q`; targeted `ruff check` passes.
+
+## 2026-05-10T10:00:00+07:00
+- **Request:** Fix output token truncation in paper Q&A — long table responses were cut off mid-row.
+- **Files changed:** `backend/services/paper_conversations.py`
+- **Current status:** Raised `DEFAULT_MAX_ANSWER_TOKENS` from 800 → 2048. Both paper conversations and project conversations (which import the same constant) benefit.
+
 ## 2026-05-09T00:00:00+07:00
 - **Request:** Implement Deep Research Max adaptive loop mode (new third chat mode with up to 4 adaptive search iterations, LLM gap-analysis decider, `ResearchState` accumulator, `deciding` thinking phase, mode-specific 5× credit cost). Post-commit fixes: raise report token cap from 1 800 to 4 000 to stop mid-table truncation; raise `deep_search_max_results_per_query` 5 → 10 and `deep_search_max_web_searches` 5 → 8; switch Tavily from `basic` to `advanced` search depth so the full result set is returned.
 - **Files changed:** `backend/services/deep_search.py`, `backend/db/models.py`, `backend/db/migrations/versions/20260509_01_deep_search_mode.py`, `backend/api/schemas/projects.py`, `backend/api/routers/pipeline.py`, `backend/api/routers/projects.py`, `backend/config.py`, `backend/services/tavily.py`, `backend/agents/reader.py`, `backend/agents/searcher.py`, `backend/services/llm.py`, `backend/services/document_extraction.py`, `.env.example`, `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/lib/api.ts`, `tests/test_deep_search.py`, `plans/in-progress/deep-research-max-mode.md`, `JOURNAL.md`, `AI_WORKLOG.md`, `CLAUDE.md`, `.codex/AGENTS.md`
@@ -1160,3 +1215,46 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Series of Deep Research Max quality and reliability fixes: (1) show per-iteration web sources in the thinking panel; (2) improve planner to generate dimension-based research questions (Gemini-quality); (3) fix offline fallback producing grammatically broken questions; (4) diagnose and reduce frequent planner fallbacks caused by silent MiMo JSON key mismatches; (5) fix paper summary `relevance` field validation failure; (6) raise report writer token cap from 4,000 to 8,000.
 - **Files changed:** `backend/services/deep_search.py`, `backend/api/routers/pipeline.py`, `backend/agents/reader.py`, `frontend/components/ChatProvider.tsx`, `tests/test_deep_search.py`
 - **Current status:** All changes applied on `feature/deep-research-max-mode`. Ruff/mypy clean. 21 deep search tests pass (2 pre-existing failures excluded). Key improvements: web sources appear per-iteration in real-time during streaming; max mode planner uses a dimension-decomposition prompt allowing up to 8 named questions; all fallback paths use grammatically safe generic phrasing; planner and pipeline fallbacks now log warnings; paper summaries never fail due to a missing `relevance` key; reports no longer truncate at ~4k tokens.
+
+## 2026-05-09T(session-2)
+- **Request:** Implement writer workspace MVP from plans/in-progress/writer-workspace-mvp.md — new branch `feature/writer-workspace-mvp`.
+- **Files changed:**
+  - `backend/db/models.py` — added `WriterDocument`, `WriterSection`, `WriterSectionVersion` models; added `writer_documents` relationship to `Project`.
+  - `backend/db/migrations/versions/20260509_02_writer_workspace.py` — Alembic migration for 3 new tables.
+  - `backend/services/tavily.py` — added `ACADEMIC_DOMAINS` constant and `include_domains` param to `search()`.
+  - `backend/services/arxiv.py` — added `download_pdf()` helper.
+  - `backend/agents/writer_section.py` — new per-section IMRaD drafting agent with low-confidence tagging.
+  - `backend/services/writer_documents.py` — new writer document service (CRUD, outline, draft, assemble, export).
+  - `backend/api/schemas/writer_documents.py` — Pydantic DTOs for all endpoints.
+  - `backend/api/routers/writer_documents.py` — new router with all writer document endpoints.
+  - `backend/main.py` — registered writer_documents router.
+  - `database_schema.sql` — appended new tables.
+  - `tests/test_writer_documents.py` — 25 tests (service + router).
+  - `tests/test_writer_section_agent.py` — 16 tests.
+  - Frontend: `frontend/lib/api.ts`, `frontend/components/Sidebar.tsx`, `frontend/app/writer/page.tsx`, `frontend/app/writer/[documentId]/page.tsx`, `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterOutlinePanel.tsx`, `frontend/components/WriterSourcesPanel.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `frontend/components/WriterQAPanel.tsx`.
+- **Current status:** Backend complete, all 41 new tests pass, ruff/mypy clean, migration applies cleanly. Frontend implementation in progress.
+
+## 2026-05-10T10:19:45+07:00
+- **Request:** Continue demo-fix pass for Writer Workspace after source attach/draft issues: verify auto Tavily drafting, PDF/manual source attach, inline `\cite{}` rendering, free-form notes, empty-body fallback, and top-k 7 retrieval.
+- **Files changed:** `backend/services/writer_documents.py`, `backend/agents/writer_section.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `backend/services/arxiv.py`, `frontend/lib/api.ts`, `frontend/components/WriterSourcesPanel.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_writer_section_agent.py`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Added focused regression coverage for metadata-only source attach when PDF fetch fails, repeated source attach dedupe, auto-Tavily draft dedupe by source URL, notes-aware section instructions, application-side `\cite{paper_id}` insertion, assemble-time BibTeX key substitution, empty LLM body fallback, frontend attach payload/optimistic state wiring, and same-project validation for direct uploaded-paper attach. Verification passed for the focused Writer pytest suite, targeted Ruff, targeted backend mypy, and frontend TypeScript.
+
+## 2026-05-10T10:32:47+07:00
+- **Request:** Fix Writer assemble output where draft text contained `\cite{paper_uuid}` entries but the assembled references did not include the matching BibTeX entries.
+- **Files changed:** `backend/services/writer_documents.py`, `tests/test_writer_documents.py`, `JOURNAL.md`.
+- **Current status:** Assemble now parses citation commands from drafted sections, loads matching same-project papers even if they are missing from `source_paper_ids_json`, backfills the document source list, substitutes UUID citations to deterministic BibTeX keys for `\cite`, `\citep`, and related commands, and warns for unresolved UUID-like citations. Verification passed for focused Writer pytest, targeted Ruff, and targeted backend mypy.
+
+## 2026-05-10T11:17:51+07:00
+- **Request:** Implement `plans/in-progress/llmranker.md` for the Writer source ranker.
+- **Files changed:** `backend/services/writer_documents.py`, `backend/api/routers/writer_documents.py`, `backend/config.py`, `.env.example`, `tests/test_writer_documents.py`, `README.md`, `docs/feature-map.md`, `JOURNAL.md`.
+- **Current status:** Added MiMo-only source ranking for Writer source suggestions and auto-draft supplemental sources. Manual suggestions now retrieve 7 arXiv plus 12 Tavily candidates, auto-draft retrieves 12 Tavily candidates, local filtering drops missing/duplicate/already-attached sources, MiMo ranks the normalized pool when `XIAOMI_MIMO_API_KEY` is present, and deterministic local ranking fills gaps or handles missing/failed MiMo without falling back to OpenRouter. Focused Writer pytest and targeted Ruff passed.
+
+## 2026-05-10T11:34:04+07:00
+- **Request:** Diagnose why Writer section drafts generated repeated generic text and long UUID citation chains across sections.
+- **Files changed:** `backend/agents/writer_section.py`, `tests/test_writer_section_agent.py`, `JOURNAL.md`.
+- **Current status:** Fixed the writer section offline/error path so it no longer reuses the generic `GroundedWriterAgent` fallback for every IMRaD section. Section drafting now caps source contexts at 7, replaces generic or empty provider output with section-specific deterministic fallback blocks, and renders multi-paper support as one grouped LaTeX citation command. Added regression coverage for section-specific fallback text, source caps, and grouped citations. Verification passed for focused writer document/section pytest, targeted Ruff, and targeted mypy.
+
+## 2026-05-10T16:35:43+07:00
+- **Request:** Diagnose and stop paper-chat answers that end with malformed numeric/punctuation tails such as `provided and22,,21..2...`.
+- **Files changed:** `backend/services/paper_conversations.py`, `backend/services/project_conversations.py`, `tests/test_paper_conversations.py`, `tests/test_project_conversations.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Identified this as live provider degeneration after an otherwise normal answer, not the deterministic fallback. Added a shared sanitizer that removes obvious numeric/punctuation suffixes before chat output is persisted or rendered in both selected-paper and project conversation paths, and added regression tests for both. Verification passed for the focused sanitizer tests, targeted Ruff, and the full paper/project conversation pytest subset.
