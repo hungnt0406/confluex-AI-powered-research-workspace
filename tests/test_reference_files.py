@@ -15,6 +15,7 @@ from backend.services.document_extraction import (
 from backend.services.reference_files import (
     ReferenceFileService,
     compute_sha256,
+    metadata_from_extracted_document,
 )
 
 
@@ -70,6 +71,36 @@ def build_empty_pdf_bytes() -> bytes:
     document = fitz.open()
     document.new_page()
     return document.tobytes()
+
+
+def test_metadata_from_extracted_document_extracts_author_header() -> None:
+    document = ExtractedDocument(
+        blocks=[
+            DocumentTextBlock(
+                page_number=1,
+                text=(
+                    "FBRT-YOLO: Faster and Better for Real-Time Aerial Image Detection\n"
+                    "Yao Xiao, Tingfa Xu*, Yu Xin, Jianan Li∗\n"
+                    "Beijing Institute of Technology\n"
+                    "{3220220586, ciom_xtf1, 3220220587, lijianan}@bit.edu.cn\n"
+                    "Abstract\n"
+                    "Embedded flight devices with visual capabilities have become essential."
+                ),
+            )
+        ],
+        page_count=1,
+        file_hash=None,
+    )
+
+    parsed = metadata_from_extracted_document(
+        document,
+        fallback_title="2504.20670v1",
+        max_extracted_chars=10_000,
+    )
+
+    assert parsed.title == "FBRT-YOLO: Faster and Better for Real-Time Aerial Image Detection"
+    assert parsed.authors == ["Yao Xiao", "Tingfa Xu", "Yu Xin", "Jianan Li"]
+    assert parsed.abstract == "Embedded flight devices with visual capabilities have become essential."
 
 
 def override_reference_service(
