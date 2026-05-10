@@ -28,6 +28,19 @@ class TavilySearchResponse:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+ACADEMIC_DOMAINS: list[str] = [
+    "arxiv.org",
+    "semanticscholar.org",
+    "scholar.google.com",
+    "acm.org",
+    "ieee.org",
+    "openreview.net",
+    "aclanthology.org",
+    "nature.com",
+    "sciencedirect.com",
+]
+
+
 class TavilySearchService:
     """Small Tavily Search API client with explicit cheap defaults."""
 
@@ -57,7 +70,13 @@ class TavilySearchService:
 
         return bool((self.api_key or "").strip())
 
-    async def search(self, query: str, *, max_results: int | None = None) -> TavilySearchResponse:
+    async def search(
+        self,
+        query: str,
+        *,
+        max_results: int | None = None,
+        include_domains: list[str] | None = None,
+    ) -> TavilySearchResponse:
         """Search Tavily, returning warnings instead of raising recoverable provider errors."""
 
         normalized_query = query.strip()
@@ -79,6 +98,8 @@ class TavilySearchService:
             "include_raw_content": False,
             "max_results": requested_max_results,
         }
+        if include_domains:
+            payload["include_domains"] = include_domains
         headers = {
             "Authorization": f"Bearer {self.api_key or ''}",
             "Content-Type": "application/json",
