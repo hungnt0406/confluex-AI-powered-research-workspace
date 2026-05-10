@@ -205,6 +205,21 @@ def test_frontend_chat_markdown_renders_citation_hover_previews_without_html_car
     assert "source-card" not in chat_workspace
 
 
+def test_frontend_chat_markdown_renders_latex_math() -> None:
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+    app_layout = (REPO_ROOT / "frontend/app/layout.tsx").read_text()
+    package_json = (REPO_ROOT / "frontend/package.json").read_text()
+
+    assert "import katex from \"katex\"" in chat_workspace
+    assert "katex.renderToString" in chat_workspace
+    assert "MathExpression" in chat_workspace
+    assert "displayMode" in chat_workspace
+    assert "trimmed.startsWith(\"$$\")" in chat_workspace
+    assert "renderInlineMarkdown" in chat_workspace
+    assert "katex/dist/katex.min.css" in app_layout
+    assert '"katex"' in package_json
+
+
 def test_frontend_deep_search_primes_related_papers() -> None:
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
 
