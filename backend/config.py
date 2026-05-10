@@ -55,6 +55,20 @@ CREDIT_PACK_CATALOG: tuple[CreditPack, ...] = (
 )
 
 
+def is_xiaomi_mimo_model(model: str | None) -> bool:
+    """Return whether a model id should be routed to Xiaomi MiMo."""
+
+    if model is None:
+        return False
+
+    normalized = model.strip().lower()
+    return (
+        normalized.startswith("mimo-")
+        or normalized.startswith("xiaomi/")
+        or "/mimo-" in normalized
+    )
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -108,6 +122,10 @@ class Settings(BaseSettings):
         default="mimo-v2.5-pro",
         alias="DEEP_SEARCH_WRITER_MODEL",
     )
+    writer_source_ranker_model: str = Field(
+        default="mimo-v2.5-pro",
+        alias="WRITER_SOURCE_RANKER_MODEL",
+    )
     deep_search_verifier_model: str = Field(
         default="mimo-v2-flash",
         alias="DEEP_SEARCH_VERIFIER_MODEL",
@@ -134,6 +152,10 @@ class Settings(BaseSettings):
     summary_concurrency: int = Field(default=5, alias="SUMMARY_CONCURRENCY")
     embedding_dimensions: int = Field(default=256, alias="EMBEDDING_DIMENSIONS")
     external_api_timeout_seconds: float = Field(default=20.0, alias="EXTERNAL_API_TIMEOUT_SECONDS")
+    project_chat_first_token_timeout_seconds: float = Field(
+        default=60.0,
+        alias="PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS",
+    )
     pdf_download_timeout_seconds: float = Field(default=20.0, alias="PDF_DOWNLOAD_TIMEOUT_SECONDS")
     paper_chunk_size_chars: int = Field(default=3_000, alias="PAPER_CHUNK_SIZE_CHARS")
     paper_retrieval_top_k: int = Field(default=5, alias="PAPER_RETRIEVAL_TOP_K")
@@ -159,25 +181,29 @@ class Settings(BaseSettings):
 
     @property
     def active_llm_api_key(self) -> str | None:
-        """Return the LLM API key, preferring MiMo over OpenRouter."""
-        return self.xiaomi_mimo_api_key or self.openrouter_api_key
+        """Return the default chat LLM API key."""
+
+        return self.llm_api_key_for_model(self.openrouter_model)
 
     @property
     def active_llm_base_url(self) -> str:
-        """Return the LLM base URL, using MiMo when its key is configured."""
-        if self.xiaomi_mimo_api_key:
-            return self.xiaomi_mimo_base_url
-        return self.openrouter_base_url
+        """Return the default chat LLM base URL."""
 
-    @property
-    def active_llm_api_key(self) -> str | None:
-        """LLM API key: MiMo when configured, OpenRouter otherwise."""
-        return self.xiaomi_mimo_api_key or self.openrouter_api_key
+        return self.llm_base_url_for_model(self.openrouter_model)
 
-    @property
-    def active_llm_base_url(self) -> str:
-        """LLM base URL: MiMo when its key is set, OpenRouter otherwise."""
-        if self.xiaomi_mimo_api_key:
+    def llm_api_key_for_model(self, model: str | None = None) -> str | None:
+        """Return the API key for a chat model without routing MiMo through OpenRouter."""
+
+        selected_model = model or self.openrouter_model
+        if is_xiaomi_mimo_model(selected_model):
+            return self.xiaomi_mimo_api_key
+        return self.openrouter_api_key
+
+    def llm_base_url_for_model(self, model: str | None = None) -> str:
+        """Return the base URL for a chat model without routing MiMo through OpenRouter."""
+
+        selected_model = model or self.openrouter_model
+        if is_xiaomi_mimo_model(selected_model):
             return self.xiaomi_mimo_base_url
         return self.openrouter_base_url
 
