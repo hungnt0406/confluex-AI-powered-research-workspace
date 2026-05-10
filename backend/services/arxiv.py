@@ -1,9 +1,13 @@
+import re
+
 import feedparser
 import httpx
 
 from backend.services.paper_types import PaperRecord
 
 ARXIV_URL = "http://export.arxiv.org/api/query"
+ARXIV_PDF_BASE = "https://arxiv.org/pdf/"
+ARXIV_ID_PATTERN = re.compile(r"(?:arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}(?:v\d+)?)")
 
 
 def coerce_optional_string(value: object) -> str | None:
@@ -76,6 +80,34 @@ def normalize_arxiv_entry(entry: dict[str, object]) -> PaperRecord:
     return normalized_paper
 
 
+async def download_pdf(
+    arxiv_id_or_url: str,
+    http_client: httpx.AsyncClient | None = None,
+) -> bytes:
+    """Fetch an arXiv PDF by ID or URL; returns raw bytes."""
+
+    normalized = arxiv_id_or_url.strip()
+    match = ARXIV_ID_PATTERN.search(normalized)
+    if match:
+        arxiv_id = match.group(1)
+    else:
+        arxiv_id = normalized.split("/")[-1].strip()
+
+    pdf_url = f"{ARXIV_PDF_BASE}{arxiv_id}"
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+
+    try:
+        response = await client.get(pdf_url)
+        response.raise_for_status()
+        return response.content
+    except httpx.HTTPError as error:
+        raise RuntimeError(f"arXiv PDF download failed for '{arxiv_id}'.") from error
+    finally:
+        if owns_client:
+            await client.aclose()
+
+
 async def search_papers(
     query: str,
     year_start: int,
@@ -99,7 +131,7 @@ async def search_papers(
         response = await client.get(ARXIV_URL, params=params)
         response.raise_for_status()
     except httpx.HTTPError as error:
-        raise RuntimeError("arXiv search failed.") from error
+        raise RuntimeError(f"HTTP {error}") from error
     finally:
         if owns_client:
             await client.aclose()
