@@ -286,3 +286,48 @@ CREATE TABLE IF NOT EXISTS writer_outputs (
 );
 
 CREATE INDEX IF NOT EXISTS ix_writer_outputs_project_id ON writer_outputs (project_id);
+
+-- Writer workspace tables (added 2026-05-09)
+CREATE TABLE IF NOT EXISTS writer_documents (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title VARCHAR(500) NOT NULL DEFAULT 'Untitled Paper',
+    topic TEXT NOT NULL,
+    thesis TEXT,
+    paper_type VARCHAR(32) NOT NULL DEFAULT 'imrad',
+    citation_style VARCHAR(32) NOT NULL DEFAULT 'ieee',
+    preamble TEXT,
+    source_paper_ids_json JSON NOT NULL,
+    bib_text TEXT,
+    status VARCHAR(32) NOT NULL DEFAULT 'outline',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_writer_documents_project_id ON writer_documents (project_id);
+
+CREATE TABLE IF NOT EXISTS writer_sections (
+    id VARCHAR(36) PRIMARY KEY,
+    writer_document_id VARCHAR(36) NOT NULL REFERENCES writer_documents(id) ON DELETE CASCADE,
+    section_type VARCHAR(64) NOT NULL,
+    order_index INTEGER NOT NULL,
+    title VARCHAR(500) NOT NULL,
+    outline_text TEXT,
+    user_inputs_json JSON NOT NULL,
+    draft_latex TEXT,
+    low_confidence_spans_json JSON NOT NULL,
+    cited_paper_ids_json JSON NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'planned',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_writer_sections_writer_document_id ON writer_sections (writer_document_id);
+
+CREATE TABLE IF NOT EXISTS writer_section_versions (
+    id VARCHAR(36) PRIMARY KEY,
+    writer_section_id VARCHAR(36) NOT NULL REFERENCES writer_sections(id) ON DELETE CASCADE,
+    draft_latex TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_writer_section_versions_section_id ON writer_section_versions (writer_section_id);
