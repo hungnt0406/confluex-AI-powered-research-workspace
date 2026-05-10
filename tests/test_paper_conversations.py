@@ -547,6 +547,7 @@ async def test_build_prompt_and_system_prompt_force_question_focused_answers(
     assert "- Answer the current question directly." in prompt
     assert "- Do not switch into a generic paper summary unless the question asks for one." in prompt
     assert "Use recent conversation history only to resolve references from the current question." in prompt
+    assert "Use paper metadata directly for bibliographic questions" in prompt
     assert "When citing evidence, mention page numbers only and never mention chunk labels or similarity scores." in prompt
     assert "Pages:" not in prompt or "Retrieved paper excerpts:" in prompt
     assert "[Chunk" not in prompt
@@ -567,6 +568,21 @@ def test_sanitize_user_visible_text_removes_internal_chunk_labels() -> None:
     assert "score=0.981" not in sanitized
     assert "(pages 4-4)" in sanitized
     assert "pages 6-6" in sanitized
+
+
+def test_sanitize_user_visible_text_removes_degenerate_numeric_tail() -> None:
+    service = PaperConversationService(api_key="placeholder-key")
+
+    sanitized = service._sanitize_user_visible_text(
+        "## Limits\n\n"
+        "The answer is based on the provided provided and22,,21..2.2...,2......2................22......2..... *.,..22-..,,222.,2,2.,:.221::222:.22:22.:2.2-:.:12:-2......:.::.-:.\n"
+        "A separate clean limitation remains visible."
+    )
+
+    assert "and22" not in sanitized
+    assert "221::222" not in sanitized
+    assert "The answer is based on the provided provided" not in sanitized
+    assert "A separate clean limitation remains visible." in sanitized
 
 
 def test_prompt_and_sanitizer_hide_raw_grounding_provider_errors() -> None:
