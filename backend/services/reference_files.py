@@ -26,6 +26,22 @@ ABSTRACT_BOUNDARY_PATTERN = re.compile(
 YEAR_PATTERN = re.compile(r"(19\d{2}|20\d{2})")
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
 LINE_BREAK_PATTERN = re.compile(r"\n{3,}")
+AUTHOR_SEPARATOR_PATTERN = re.compile(r"\s+(?:and|&)\s+|[,;]")
+AUTHOR_NOTE_MARKER_PATTERN = re.compile(r"[\*∗†‡§¶#¹²³⁰¹²³⁴⁵⁶⁷⁸⁹]|\b\d+\b")
+NON_AUTHOR_HEADER_PATTERN = re.compile(
+    r"(@|[{}]|\b("
+    r"university|institute|department|school|college|laborator(?:y|ies)|academy|faculty|"
+    r"center|centre|foundation|conference|proceedings|copyright|rights reserved|email"
+    r")\b)",
+    re.IGNORECASE,
+)
+AUTHOR_SECTION_BOUNDARY_WORDS = {
+    "abstract",
+    "introduction",
+    "keywords",
+    "index terms",
+    "background",
+}
 
 
 class ReferenceFileError(RuntimeError):
@@ -117,6 +133,55 @@ def first_plausible_title_line(text: str) -> str | None:
     return None
 
 
+def extract_authors_from_header(text: str, *, title: str) -> list[str]:
+    """Infer simple author lines between the title and affiliation/abstract header."""
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    title_index = next((index for index, line in enumerate(lines) if line == title), None)
+    if title_index is None:
+        return []
+
+    authors: list[str] = []
+    seen_authors: set[str] = set()
+    for line in lines[title_index + 1 : title_index + 9]:
+        normalized_line = line.strip(" :-").lower()
+        if normalized_line in AUTHOR_SECTION_BOUNDARY_WORDS:
+            break
+        if NON_AUTHOR_HEADER_PATTERN.search(line):
+            break
+
+        for author in split_author_line(line):
+            author_key = author.casefold()
+            if author_key in seen_authors:
+                continue
+            seen_authors.add(author_key)
+            authors.append(author)
+
+    return authors
+
+
+def split_author_line(line: str) -> list[str]:
+    """Split a first-page author line into cleaned author names."""
+
+    authors: list[str] = []
+    for raw_part in AUTHOR_SEPARATOR_PATTERN.split(line):
+        candidate = AUTHOR_NOTE_MARKER_PATTERN.sub("", raw_part)
+        candidate = WHITESPACE_PATTERN.sub(" ", candidate).strip(" .,:;")
+        if not candidate:
+            continue
+        if any(character.isdigit() for character in candidate):
+            continue
+        if NON_AUTHOR_HEADER_PATTERN.search(candidate):
+            continue
+        if not 2 <= len(candidate.split()) <= 6:
+            continue
+        if len(candidate) > 80:
+            continue
+        authors.append(candidate)
+
+    return authors
+
+
 def extract_year(*values: str | None) -> int | None:
     """Extract the first plausible publication year from metadata or text."""
 
@@ -174,7 +239,7 @@ def metadata_from_extracted_document(
     title = first_plausible_title_line(text) or fallback_title
     return ParsedReferenceMetadata(
         title=title[:500],
-        authors=[],
+        authors=extract_authors_from_header(text, title=title),
         year=extract_year(text),
         abstract=extract_abstract(text),
         text=text,
