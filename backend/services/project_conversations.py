@@ -41,6 +41,7 @@ from backend.services.paper_conversations import (
     DocumentExtractionClient,
     EmbeddingClient,
     SemanticScholarDetailsClient,
+    remove_degenerate_model_fragments,
 )
 from backend.services.research_utils import cosine_similarity, has_live_api_key
 from backend.services.semantic_scholar import (
@@ -113,16 +114,21 @@ class ProjectConversationService:
         semantic_scholar_client: SemanticScholarDetailsClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
         self.model = model if model is not None else settings.openrouter_model
+        self.api_key = (
+            api_key if api_key is not None else settings.llm_api_key_for_model(self.model)
+        )
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+            base_url.rstrip("/")
+            if base_url is not None
+            else settings.llm_base_url_for_model(self.model).rstrip("/")
         )
         self.retrieval_top_k = (
             retrieval_top_k if retrieval_top_k is not None else settings.paper_retrieval_top_k
         )
         self.http_client = http_client
         self.timeout_seconds = settings.external_api_timeout_seconds
+        self.first_token_timeout_seconds = settings.project_chat_first_token_timeout_seconds
         self.extraction_service = extraction_service or PaperDocumentExtractionService()
         self.embedding_service = embedding_service or EmbeddingService()
         self.semantic_scholar_client = semantic_scholar_client or DefaultSemanticScholarDetailsClient()
@@ -585,7 +591,7 @@ class ProjectConversationService:
             try:
                 first_token = await asyncio.wait_for(
                     anext(live_stream),
-                    timeout=self.timeout_seconds,
+                    timeout=self.first_token_timeout_seconds,
                 )
                 yield first_token
                 async for token in live_stream:
@@ -647,10 +653,11 @@ class ProjectConversationService:
             ],
             "max_tokens": DEFAULT_MAX_ANSWER_TOKENS,
             "temperature": 0.2,
-            "provider": {"sort": "price"},
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if "openrouter.ai" in self.base_url:
+            payload["provider"] = {"sort": "price"}
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -778,8 +785,9 @@ class ProjectConversationService:
             ],
             "max_tokens": DEFAULT_MAX_ANSWER_TOKENS,
             "temperature": 0.2,
-            "provider": {"sort": "price"},
         }
+        if "openrouter.ai" in self.base_url:
+            payload["provider"] = {"sort": "price"}
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -863,6 +871,7 @@ class ProjectConversationService:
             "- Synthesize across the selected papers when the evidence supports comparison.",
             "- Use recent conversation history only to resolve references from the current question.",
             "- Prefer retrieved excerpts over metadata or stored summaries.",
+            "- Use paper metadata directly for bibliographic questions about title, authors, year, DOI, or source.",
             "- If the evidence is insufficient, say exactly what is missing instead of guessing.",
             "- When citing evidence, mention page numbers and paper titles only.",
             "",
@@ -1047,6 +1056,7 @@ class ProjectConversationService:
         sanitized = CHUNK_LABEL_PATTERN.sub(r"pages \1", sanitized)
         sanitized = SCORE_SEGMENT_PATTERN.sub("", sanitized)
         sanitized = self._remove_internal_grounding_lines(sanitized)
+        sanitized = remove_degenerate_model_fragments(sanitized)
         sanitized = sanitized.replace("\r\n", "\n")
         sanitized = sanitized.replace("\r", "\n")
         while "\n\n\n" in sanitized:
