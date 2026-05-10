@@ -183,6 +183,11 @@ function loadSavedActiveProjectId(userId: string | null | undefined) {
   return window.localStorage.getItem(getActiveProjectStorageKey(userId));
 }
 
+function loadRouteProjectId() {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("project");
+}
+
 function persistActiveProjectId(userId: string | null | undefined, projectId: string | null) {
   if (typeof window === "undefined" || !userId) return;
   const storageKey = getActiveProjectStorageKey(userId);
@@ -828,8 +833,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const appendDeepSearchStatusMessage = useCallback(
     (content: string, role: "assistant" | "system" = "system") => {
+      const statusIds = deepSearchStatusMessageIds.current;
+      if (statusIds.size > 0) {
+        const lastStatusId = [...statusIds].at(-1)!;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === lastStatusId ? { ...m, content, role } : m)),
+        );
+        return;
+      }
       const messageId = uid();
-      deepSearchStatusMessageIds.current.add(messageId);
+      statusIds.add(messageId);
       setMessages((prev) => [
         ...prev,
         {
@@ -949,6 +962,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [token, refreshProjects]);
 
   useEffect(() => {
+    if (!activeProject && !restoreAttemptedRef.current) return;
     persistActiveProjectId(user?.id, activeProject?.id ?? null);
   }, [user?.id, activeProject?.id]);
 
@@ -1081,11 +1095,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!projectsLoaded || activeProject || restoreAttemptedRef.current) return;
 
     restoreAttemptedRef.current = true;
-    const savedProjectId = loadSavedActiveProjectId(user?.id);
+    const routeProjectId = loadRouteProjectId();
+    const savedProjectId = routeProjectId ?? loadSavedActiveProjectId(user?.id);
     if (!savedProjectId) return;
 
     if (!projects.some((project) => project.id === savedProjectId)) {
-      persistActiveProjectId(user?.id, null);
+      if (!routeProjectId) persistActiveProjectId(user?.id, null);
       return;
     }
 
@@ -1589,6 +1604,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             shouldRunDiscovery: true,
           });
 
+          clearDeepSearchStatusMessages();
           await streamDeepSearchTurn({
             projectId: project.id,
             paperIds: nextSelectedPaperIds,
@@ -1641,6 +1657,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       activeProject,
       appendDeepSearchStatusMessage,
       busy,
+      clearDeepSearchStatusMessages,
       ensureDeepSearchRelatedPapers,
       fetchProjectPapers,
       papers,
@@ -1773,10 +1790,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setBusy(true);
       try {
         if (!activeProject) {
+          const pipelineStatusId = uid();
           setMessages((prev) => [
             ...prev,
             {
-              id: uid(),
+              id: pipelineStatusId,
               role: "assistant",
               kind: "status",
               content: "Creating your project and running the Searcher → Reader pipeline…",
@@ -1806,6 +1824,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           const nextSelectedPaperIds: string[] = [];
           setSelectedPaperIds(nextSelectedPaperIds);
 
+          setMessages((prev) => prev.filter((m) => m.id !== pipelineStatusId));
+
           if (nextPapers.length === 0) {
             setMessages((prev) => [
               ...prev,
@@ -1823,16 +1843,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: uid(),
-              role: "assistant",
-              kind: "summary",
-              content: `Pipeline complete — ${runResponse.candidate_count} candidates, ${runResponse.ranked_count} ranked, ${runResponse.summary_count} summarized. No papers are selected yet.`,
-              createdAt: now(),
-            },
-          ]);
           await streamProjectChatTurn({
             projectId: project.id,
             paperIds: nextSelectedPaperIds,
