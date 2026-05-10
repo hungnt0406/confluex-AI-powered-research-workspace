@@ -218,6 +218,18 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
               </span>
             </Link>
             <Link
+              href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
+              className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
+                description
+              </span>
+              <span>Writer</span>
+              <span className="ml-auto rounded-full border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+                Beta
+              </span>
+            </Link>
+            <Link
               href="/pricing"
               className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
             >
@@ -289,6 +301,16 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             >
               <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
                 bolt
+              </span>
+            </Link>
+            <Link
+              href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
+              aria-label="Writer beta"
+              title="Writer beta"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                description
               </span>
             </Link>
             <Link
