@@ -27,7 +27,7 @@ from backend.services.semantic_scholar import (
     get_paper_details,
 )
 
-DEFAULT_MAX_ANSWER_TOKENS = 800
+DEFAULT_MAX_ANSWER_TOKENS = 2048
 MAX_LOCAL_SNIPPET_CHARS = 280
 RECENT_HISTORY_MESSAGE_LIMIT = 10
 CHUNK_LABEL_WITH_PAGES_PATTERN = re.compile(
@@ -43,6 +43,14 @@ BRACKETED_CHUNK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SCORE_SEGMENT_PATTERN = re.compile(r"(,\s*score\s*[=:]?\s*[0-9.]+|\bscore\s*[=:]?\s*[0-9.]+)", re.IGNORECASE)
+DEGENERATE_NUMERIC_SUFFIX_PATTERN = re.compile(
+    r"\b(?:and|or|the|provided)?\d"
+    r"(?=[\d\s,.:;*\-]{16,})"
+    r"(?=[\d\s,.:;*\-]*(?:[.,:;*\-]{2,}))"
+    r"[\d\s,.:;*\-]*.*$",
+    re.IGNORECASE,
+)
+INCOMPLETE_LINE_ENDINGS = (" and", " or", " the", " provided", " based on")
 INTERNAL_GROUNDING_LINE_PREFIXES = (
     "no retrieved chunk grounding is available",
     "answer only from metadata",
@@ -143,10 +151,14 @@ class PaperConversationService:
         semantic_scholar_client: SemanticScholarDetailsClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.openrouter_api_key
         self.model = model if model is not None else settings.openrouter_model
+        self.api_key = (
+            api_key if api_key is not None else settings.llm_api_key_for_model(self.model)
+        )
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.openrouter_base_url.rstrip("/")
+            base_url.rstrip("/")
+            if base_url is not None
+            else settings.llm_base_url_for_model(self.model).rstrip("/")
         )
         self.retrieval_top_k = (
             retrieval_top_k if retrieval_top_k is not None else settings.paper_retrieval_top_k
@@ -475,8 +487,9 @@ class PaperConversationService:
             ],
             "max_tokens": DEFAULT_MAX_ANSWER_TOKENS,
             "temperature": 0.2,
-            "provider": {"sort": "price"},
         }
+        if "openrouter.ai" in self.base_url:
+            payload["provider"] = {"sort": "price"}
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -543,6 +556,7 @@ class PaperConversationService:
             "- Do not switch into a generic paper summary unless the question asks for one.",
             "- Use recent conversation history only to resolve references from the current question.",
             "- Prefer retrieved chunks over metadata or the stored summary.",
+            "- Use paper metadata directly for bibliographic questions about title, authors, year, DOI, or source.",
             "- If the evidence is insufficient, say exactly what is missing instead of guessing.",
             "- When citing evidence, mention page numbers only and never mention chunk labels or similarity scores.",
             "",
@@ -756,6 +770,7 @@ class PaperConversationService:
         sanitized = CHUNK_LABEL_PATTERN.sub(r"pages \1", sanitized)
         sanitized = SCORE_SEGMENT_PATTERN.sub("", sanitized)
         sanitized = self._remove_internal_grounding_lines(sanitized)
+        sanitized = remove_degenerate_model_fragments(sanitized)
         sanitized = re.sub(r"\(\s*pages\s+([0-9]+(?:-[0-9]+)?)\s*,\s*\)", r"(pages \1)", sanitized)
         sanitized = re.sub(r"[ \t]{2,}", " ", sanitized)
         sanitized = re.sub(r" *\n *", "\n", sanitized)
@@ -830,3 +845,22 @@ class PaperConversationService:
             .execution_options(populate_existing=True)
             .where(Paper.id == paper_id)
         )
+
+
+def remove_degenerate_model_fragments(text: str) -> str:
+    """Drop obvious numeric/punctuation tails from provider-degenerated answers."""
+
+    visible_lines: list[str] = []
+    for line in text.split("\n"):
+        match = DEGENERATE_NUMERIC_SUFFIX_PATTERN.search(line)
+        if match is None:
+            visible_lines.append(line)
+            continue
+
+        cleaned_line = line[: match.start()].rstrip(" ,;:-")
+        normalized_cleaned = cleaned_line.lower()
+        if len(cleaned_line.split()) < 8 or normalized_cleaned.endswith(INCOMPLETE_LINE_ENDINGS):
+            continue
+        visible_lines.append(cleaned_line)
+
+    return "\n".join(visible_lines)
