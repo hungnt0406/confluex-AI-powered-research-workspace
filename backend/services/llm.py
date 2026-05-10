@@ -27,10 +27,14 @@ class OpenRouterStructuredOutputService:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
         self.model = model if model is not None else settings.openrouter_model
+        self.api_key = (
+            api_key if api_key is not None else settings.llm_api_key_for_model(self.model)
+        )
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
+            base_url.rstrip("/")
+            if base_url is not None
+            else settings.llm_base_url_for_model(self.model).rstrip("/")
         )
         self.http_client = http_client
         self.timeout_seconds = settings.external_api_timeout_seconds
