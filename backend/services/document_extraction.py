@@ -115,10 +115,14 @@ class PaperDocumentExtractionService:
         embedding_service: EmbeddingClient | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
         self.model = model if model is not None else settings.openrouter_document_model
+        self.api_key = (
+            api_key if api_key is not None else settings.llm_api_key_for_model(self.model)
+        )
         self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
+            base_url.rstrip("/")
+            if base_url is not None
+            else settings.llm_base_url_for_model(self.model).rstrip("/")
         )
         self.pdf_engine = pdf_engine if pdf_engine is not None else settings.openrouter_pdf_engine
         self.pdf_download_timeout_seconds = (
@@ -372,12 +376,21 @@ class PaperDocumentExtractionService:
         raise DocumentExtractionError("Local PDF source is outside the allowed upload directory.")
 
     async def extract_uploaded_pdf(self, *, pdf_bytes: bytes, filename: str) -> ExtractedDocument:
-        """Extract an uploaded local PDF through the same OpenRouter parser pipeline."""
+        """Extract an uploaded local PDF with local text first and live parser fallback."""
 
         if not pdf_bytes:
             raise DocumentExtractionError("Uploaded PDF was empty.")
 
         extraction_errors: list[str] = []
+
+        try:
+            blocks, page_count = self._extract_blocks_from_pdf_bytes(pdf_bytes)
+            if blocks:
+                return ExtractedDocument(blocks=blocks, page_count=page_count, file_hash=None)
+            extraction_errors.append("Uploaded PDF did not contain extractable text.")
+        except DocumentExtractionError as error:
+            extraction_errors.append(str(error))
+
         if self.is_configured():
             try:
                 openrouter_result = await self._extract_with_openrouter(
@@ -401,14 +414,6 @@ class PaperDocumentExtractionService:
                 )
             except DocumentExtractionError as error:
                 extraction_errors.append(str(error))
-
-        try:
-            blocks, page_count = self._extract_blocks_from_pdf_bytes(pdf_bytes)
-            if blocks:
-                return ExtractedDocument(blocks=blocks, page_count=page_count, file_hash=None)
-            extraction_errors.append("Uploaded PDF did not contain extractable text.")
-        except DocumentExtractionError as error:
-            extraction_errors.append(str(error))
 
         raise DocumentExtractionError("; ".join(extraction_errors))
 
@@ -475,11 +480,12 @@ class PaperDocumentExtractionService:
             ],
             "max_tokens": MAX_EXTRACTION_RESPONSE_TOKENS,
             "temperature": 0,
-            "provider": {
+        }
+        if "openrouter.ai" in self.base_url:
+            payload["provider"] = {
                 "sort": "price",
                 "require_parameters": True,
-            },
-        }
+            }
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
