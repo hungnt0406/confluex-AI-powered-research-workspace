@@ -506,7 +506,7 @@ async def test_openrouter_midstream_error_emits_error_without_partial_assistant_
 @pytest.mark.asyncio
 async def test_stream_answer_falls_back_when_provider_sends_no_first_token() -> None:
     service = ProjectConversationService(api_key="sk-live-test")
-    service.timeout_seconds = 0.01
+    service.first_token_timeout_seconds = 0.01
 
     async def hanging_live_answer(**_: object):
         await asyncio.sleep(1)
@@ -704,8 +704,24 @@ def test_project_prompt_and_answer_hide_raw_grounding_provider_errors() -> None:
     assert "OpenRouter PDF extraction" not in prompt
     assert "Public PDF download failed" not in prompt
     assert "No retrieved chunk grounding is available" not in prompt
+    assert "Use paper metadata directly for bibliographic questions" in prompt
     assert PROJECT_GROUNDING_UNAVAILABLE_MESSAGE in prompt
     assert "OpenRouter PDF extraction" not in answer
     assert "Public PDF download failed" not in answer
     assert "provider_name" not in answer
     assert PROJECT_GROUNDING_UNAVAILABLE_MESSAGE in answer
+
+
+def test_project_sanitizer_removes_degenerate_numeric_tail() -> None:
+    service = ProjectConversationService(api_key="placeholder-key")
+
+    sanitized = service._sanitize_user_visible_text(
+        "## Limits\n\n"
+        "The answer is based on the provided provided and22,,21..2.2...,2......2................22......2..... *.,..22-..,,222.,2,2.,:.221::222:.22:22.:2.2-:.:12:-2......:.::.-:.\n"
+        "A separate clean limitation remains visible."
+    )
+
+    assert "and22" not in sanitized
+    assert "221::222" not in sanitized
+    assert "The answer is based on the provided provided" not in sanitized
+    assert "A separate clean limitation remains visible." in sanitized
