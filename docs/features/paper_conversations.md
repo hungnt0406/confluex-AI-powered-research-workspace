@@ -52,7 +52,7 @@ Router ownership: `backend/api/routers/projects.py`
 - Raw provider/download errors are stored internally on extraction failure but are not included in user-visible chat answers. Users see a short grounding limitation instead.
 - Follow-up turns use recent persisted conversation history plus newly retrieved chunks for the new question.
 - Project-scoped workspace chat accepts 0 to 5 selected papers. With no selected papers it answers as general, ungrounded chat; with selected papers it retrieves evidence across the selected set, with a global cap on total snippets and a per-paper cap so one paper does not dominate the answer.
-- The main project chat also exposes POST-based SSE endpoints for bearer-authenticated streaming. Stream frames use `status`, `conversation`, `token`, `done`, and `error` events; the final `done` payload is the persisted `ProjectConversationRead`.
+- The main project chat also exposes POST-based SSE endpoints for bearer-authenticated streaming. Stream frames use `status`, `conversation`, `token`, `done`, and `error` events; the final `done` payload is the persisted `ProjectConversationRead`. The first live model token can take up to `PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS` seconds before the service falls back to the deterministic local answer.
 
 ## Related Tests
 
