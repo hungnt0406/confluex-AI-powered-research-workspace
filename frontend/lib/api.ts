@@ -716,3 +716,274 @@ export async function uploadProjectReferenceFile(
     formData,
   });
 }
+
+// ---- Writer types ----------------------------------------------------------
+
+export interface WriterSectionRead {
+  id: string;
+  section_type: string;
+  order_index: number;
+  title: string;
+  outline_text: string | null;
+  user_inputs_json: Record<string, string>;
+  draft_latex: string | null;
+  low_confidence_spans_json: Array<{
+    section_id: string;
+    text: string;
+    reason: string;
+    suggested_query: string;
+    char_offset: number;
+  }>;
+  cited_paper_ids_json: string[];
+  status: string;
+  updated_at: string;
+}
+
+export interface WriterDocumentRead {
+  id: string;
+  project_id: string;
+  title: string;
+  topic: string;
+  thesis: string | null;
+  paper_type: string;
+  citation_style: string;
+  preamble: string | null;
+  source_paper_ids_json: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+  sections: WriterSectionRead[];
+}
+
+export interface WriterDocumentSummaryRead {
+  id: string;
+  project_id: string;
+  title: string;
+  topic: string;
+  paper_type: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceCandidate {
+  title: string;
+  authors: string[];
+  year: number | null;
+  abstract: string | null;
+  source: string;
+  source_paper_id: string | null;
+  source_url: string | null;
+  pdf_url: string | null;
+  pdf_available: boolean;
+  arxiv_id: string | null;
+}
+
+export interface SectionVersionRead {
+  id: string;
+  section_id: string;
+  draft_latex: string;
+  created_at: string;
+}
+
+// ---- Writer API helpers ----------------------------------------------------
+
+export async function createWriterDocument(
+  projectId: string,
+  data: { title: string; topic: string; thesis?: string; paper_type?: string; citation_style?: string },
+  token: string,
+): Promise<WriterDocumentRead> {
+  return api<WriterDocumentRead>(`/projects/${projectId}/writer/documents`, {
+    method: "POST",
+    token,
+    json: data,
+  });
+}
+
+export async function listWriterDocuments(
+  projectId: string,
+  token: string,
+): Promise<WriterDocumentSummaryRead[]> {
+  return api<WriterDocumentSummaryRead[]>(`/projects/${projectId}/writer/documents`, { token });
+}
+
+export async function getWriterDocument(documentId: string, token: string): Promise<WriterDocumentRead> {
+  return api<WriterDocumentRead>(`/writer/documents/${documentId}`, { token });
+}
+
+export async function updateWriterDocument(
+  documentId: string,
+  data: Partial<{ title: string; thesis: string; citation_style: string }>,
+  token: string,
+): Promise<WriterDocumentRead> {
+  return api<WriterDocumentRead>(`/writer/documents/${documentId}`, {
+    method: "PATCH",
+    token,
+    json: data,
+  });
+}
+
+export async function deleteWriterDocument(documentId: string, token: string): Promise<void> {
+  return api<void>(`/writer/documents/${documentId}`, { method: "DELETE", token });
+}
+
+export async function proposeOutline(
+  documentId: string,
+  token: string,
+): Promise<{ outline_by_section: Record<string, string> }> {
+  return api<{ outline_by_section: Record<string, string> }>(
+    `/writer/documents/${documentId}/outline/propose`,
+    { method: "POST", token },
+  );
+}
+
+export async function applyOutline(
+  documentId: string,
+  outline_by_section: Record<string, string>,
+  token: string,
+): Promise<WriterDocumentRead> {
+  return api<WriterDocumentRead>(`/writer/documents/${documentId}/outline`, {
+    method: "PUT",
+    token,
+    json: { outline_by_section },
+  });
+}
+
+export async function getSectionQuestions(
+  documentId: string,
+  sectionId: string,
+  token: string,
+): Promise<{ section_id: string; questions: string[] }> {
+  return api<{ section_id: string; questions: string[] }>(
+    `/writer/documents/${documentId}/sections/${sectionId}/questions`,
+    { token },
+  );
+}
+
+export async function submitSectionInputs(
+  documentId: string,
+  sectionId: string,
+  user_inputs: Record<string, string>,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/sections/${sectionId}/inputs`,
+    { method: "PUT", token, json: { user_inputs } },
+  );
+}
+
+export async function draftSection(
+  documentId: string,
+  sectionId: string,
+  token: string,
+): Promise<{ section: WriterSectionRead; warnings: string[] }> {
+  return api<{ section: WriterSectionRead; warnings: string[] }>(
+    `/writer/documents/${documentId}/sections/${sectionId}/draft`,
+    { method: "POST", token },
+  );
+}
+
+export async function saveSectionEdit(
+  documentId: string,
+  sectionId: string,
+  draft_latex: string,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/sections/${sectionId}`,
+    { method: "PATCH", token, json: { draft_latex } },
+  );
+}
+
+export async function getSectionVersions(
+  documentId: string,
+  sectionId: string,
+  token: string,
+): Promise<SectionVersionRead[]> {
+  return api<SectionVersionRead[]>(
+    `/writer/documents/${documentId}/sections/${sectionId}/versions`,
+    { token },
+  );
+}
+
+export async function revertToVersion(
+  documentId: string,
+  sectionId: string,
+  versionId: string,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/sections/${sectionId}/revert/${versionId}`,
+    { method: "POST", token },
+  );
+}
+
+export async function suggestSources(
+  documentId: string,
+  query: string,
+  token: string,
+): Promise<{ candidates: SourceCandidate[]; warnings: string[] }> {
+  return api<{ candidates: SourceCandidate[]; warnings: string[] }>(
+    `/writer/documents/${documentId}/sources/suggest`,
+    { method: "POST", token, json: { query } },
+  );
+}
+
+export async function attachSource(
+  documentId: string,
+  candidate: SourceCandidate,
+  token: string,
+): Promise<{ paper_id: string | null; requires_upload: boolean; message: string }> {
+  return api<{ paper_id: string | null; requires_upload: boolean; message: string }>(
+    `/writer/documents/${documentId}/sources/attach`,
+    { method: "POST", token, json: { candidate } },
+  );
+}
+
+export async function removeSource(documentId: string, paperId: string, token: string): Promise<void> {
+  return api<void>(`/writer/documents/${documentId}/sources/${paperId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function attachPaperById(
+  documentId: string,
+  paperId: string,
+  token: string,
+): Promise<{ paper_id: string | null; requires_upload: boolean; message: string }> {
+  return api<{ paper_id: string | null; requires_upload: boolean; message: string }>(
+    `/writer/documents/${documentId}/sources/attach-paper`,
+    { method: "POST", token, json: { paper_id: paperId } },
+  );
+}
+
+export async function getQaReport(
+  documentId: string,
+  token: string,
+): Promise<{ unresolved_todos: unknown[]; total_count: number }> {
+  return api<{ unresolved_todos: unknown[]; total_count: number }>(
+    `/writer/documents/${documentId}/qa`,
+    { token },
+  );
+}
+
+export async function assembleDocument(
+  documentId: string,
+  token: string,
+): Promise<{ tex: string; bib: string; unresolved_todo_count: number; warnings: string[] }> {
+  return api<{ tex: string; bib: string; unresolved_todo_count: number; warnings: string[] }>(
+    `/writer/documents/${documentId}/assemble`,
+    { method: "POST", token },
+  );
+}
+
+export async function exportDocument(documentId: string, token: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/writer/documents/${documentId}/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+  return response.blob();
+}
