@@ -237,26 +237,47 @@ class DeepSearchService:
         arxiv_search: AcademicSearchCallable | None = None,
     ) -> None:
         settings = get_settings()
-        self.api_key = api_key if api_key is not None else settings.active_llm_api_key
-        self.base_url = (
-            base_url.rstrip("/") if base_url is not None else settings.active_llm_base_url.rstrip("/")
-        )
+        self._settings = settings
+        self._explicit_api_key = api_key
+        self._explicit_base_url = base_url.rstrip("/") if base_url is not None else None
         self.planner_model = planner_model or settings.deep_search_planner_model
         self.research_model = research_model or settings.deep_search_research_model
         self.summarizer_model = summarizer_model or settings.deep_search_summarizer_model
         self.writer_model = writer_model or settings.deep_search_writer_model
         self.verifier_model = verifier_model or settings.deep_search_verifier_model
+        self.api_key = self._api_key_for_model(self.writer_model)
+        self.base_url = self._base_url_for_model(self.writer_model)
         self.max_web_searches = max_web_searches or settings.deep_search_max_web_searches
         self.max_iterations = max_iterations or settings.deep_search_max_iterations
         self.max_results_per_query = max_results_per_query or settings.deep_search_max_results_per_query
-        self.use_live_llm = (
-            use_live_llm if use_live_llm is not None else has_live_api_key(self.api_key)
-        )
+        if use_live_llm is not None:
+            self.use_live_llm = use_live_llm
+        else:
+            self.use_live_llm = any(
+                has_live_api_key(self._api_key_for_model(model))
+                for model in (
+                    self.planner_model,
+                    self.research_model,
+                    self.summarizer_model,
+                    self.writer_model,
+                    self.verifier_model,
+                )
+            )
         self.http_client = http_client
         self.timeout_seconds = settings.external_api_timeout_seconds
         self.tavily_service = tavily_service or TavilySearchService()
         self.semantic_scholar_search = semantic_scholar_search or default_semantic_scholar_search
         self.arxiv_search = arxiv_search or default_arxiv_search
+
+    def _api_key_for_model(self, model: str) -> str | None:
+        if self._explicit_api_key is not None:
+            return self._explicit_api_key
+        return self._settings.llm_api_key_for_model(model)
+
+    def _base_url_for_model(self, model: str) -> str:
+        if self._explicit_base_url is not None:
+            return self._explicit_base_url
+        return self._settings.llm_base_url_for_model(model).rstrip("/")
 
     async def stream_run(
         self,
@@ -1422,11 +1443,13 @@ class DeepSearchService:
         source_summaries: list[dict[str, Any]],
         warnings: list[str],
     ) -> AsyncGenerator[str, None]:
-        if not has_live_api_key(self.api_key):
+        api_key = self._api_key_for_model(self.writer_model)
+        base_url = self._base_url_for_model(self.writer_model)
+        if not has_live_api_key(api_key):
             raise RuntimeError("OpenRouter API credentials are not configured.")
 
         headers = {
-            "Authorization": f"Bearer {self.api_key or ''}",
+            "Authorization": f"Bearer {api_key or ''}",
             "Content-Type": "application/json",
         }
         payload = {
@@ -1461,10 +1484,11 @@ class DeepSearchService:
             ],
             "max_tokens": MAX_REPORT_TOKENS,
             "temperature": 0.2,
-            "provider": {"sort": "price"},
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if "openrouter.ai" in base_url:
+            payload["provider"] = {"sort": "price"}
 
         owns_client = self.http_client is None
         client = self.http_client or httpx.AsyncClient(timeout=self.timeout_seconds)
@@ -1472,7 +1496,7 @@ class DeepSearchService:
         try:
             async with client.stream(
                 "POST",
-                f"{self.base_url}/chat/completions",
+                f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             ) as response:
@@ -1682,9 +1706,9 @@ class DeepSearchService:
         max_tokens: int,
     ) -> dict[str, Any]:
         service = OpenRouterStructuredOutputService(
-            api_key=self.api_key,
+            api_key=self._api_key_for_model(model),
             model=model,
-            base_url=self.base_url,
+            base_url=self._base_url_for_model(model),
             http_client=self.http_client,
         )
         return await service.generate_json(
