@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import katex from "katex";
 import {
   type ChatMessage,
   type ChatMode,
@@ -230,7 +231,7 @@ export default function ChatWorkspace() {
             {showGreeting && <OpeningAgentMessage onPick={(text) => void send(text)} />}
 
             <div className="space-y-8">
-              {messages.map((message) =>
+              {messages.map((message, index) =>
                 message.role === "user" ? (
                   <UserBubble key={message.id} text={message.content} />
                 ) : (
@@ -238,12 +239,13 @@ export default function ChatWorkspace() {
                     key={message.id}
                     message={message}
                     disabled={composerBusy}
+                    isActiveStatus={busy && message.kind === "status" && index === messages.length - 1}
                     onStartDeepSearchPlan={(planId) => void startDeepSearchPlan(planId)}
                     onEditDeepSearchPlan={onEditDeepSearchPlan}
                   />
                 ),
               )}
-              {busy && <TypingIndicator />}
+              {busy && messages[messages.length - 1]?.kind !== "status" && <TypingIndicator />}
             </div>
           </div>
         </div>
@@ -586,11 +588,13 @@ function UserBubble({ text }: { text: string }) {
 function AgentBubble({
   message,
   disabled,
+  isActiveStatus = false,
   onStartDeepSearchPlan,
   onEditDeepSearchPlan,
 }: {
   message: ChatMessage;
   disabled: boolean;
+  isActiveStatus?: boolean;
   onStartDeepSearchPlan: (planId: string) => void;
   onEditDeepSearchPlan: (planId: string) => void;
 }) {
@@ -600,16 +604,21 @@ function AgentBubble({
   const isThinking = kind === "deep_search_thinking" && message.thinking;
 
   return (
-    <div className="flex gap-4">
-      <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center flex-shrink-0 mt-1">
-        <span className="material-symbols-outlined text-primary text-sm">
-          {isStatus ? "hourglass_top" : isPlan || isThinking ? "travel_explore" : "school"}
-        </span>
+    <div className={`flex gap-4 ${isStatus ? "items-center" : "items-start"}`}>
+      <div className="relative w-8 h-8 flex-shrink-0">
+        {isActiveStatus && (
+          <span className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary/50 animate-spin" />
+        )}
+        <div className="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center">
+          <span
+            className={`material-symbols-outlined text-sm ${isActiveStatus ? "status-shimmer" : "text-primary"}`}
+          >
+            {isStatus ? "hourglass_top" : isPlan || isThinking ? "travel_explore" : "school"}
+          </span>
+        </div>
       </div>
       <div
-        className={`flex-1 text-xs leading-relaxed font-body ${
-          isStatus ? "italic text-on-surface-variant" : "text-on-surface"
-        }`}
+        className={`flex-1 text-xs leading-relaxed font-body ${isStatus ? "italic" : "text-on-surface"} ${isActiveStatus ? "status-shimmer" : isStatus ? "text-on-surface-variant" : ""}`}
       >
         {isPlan ? (
           <DeepSearchPlanCard
@@ -1015,6 +1024,36 @@ function renderMarkdownBlocks(text: string, sourceReferences: Map<string, Source
       continue;
     }
 
+    if (trimmed.startsWith("$$")) {
+      const mathLines: string[] = [];
+      const firstLine = trimmed.slice(2);
+      if (firstLine.endsWith("$$") && firstLine.length > 2) {
+        mathLines.push(firstLine.slice(0, -2));
+        index += 1;
+      } else {
+        if (firstLine) {
+          mathLines.push(firstLine);
+        }
+        index += 1;
+        while (index < lines.length && !lines[index].trim().endsWith("$$")) {
+          mathLines.push(lines[index]);
+          index += 1;
+        }
+        if (index < lines.length) {
+          mathLines.push(lines[index].trim().replace(/\$\$$/, ""));
+          index += 1;
+        }
+      }
+      blocks.push(
+        <MathExpression
+          key={`math-${index}`}
+          expression={mathLines.join("\n").trim()}
+          displayMode
+        />,
+      );
+      continue;
+    }
+
     if (/^\d+\.\s+/.test(trimmed)) {
       const items: string[] = [];
       const options = { citationLinks: !inSourcesSection, sourceReferences };
@@ -1132,6 +1171,37 @@ function normalizeMarkdownForDisplay(text: string): string {
   return text
     .replace(/\r\n/g, "\n")
     .replace(/([^\n])([ \t]+)(#{1,6}\s+\S)/g, "$1\n\n$3");
+}
+
+function MathExpression({
+  expression,
+  displayMode = false,
+}: {
+  expression: string;
+  displayMode?: boolean;
+}) {
+  const html = katex.renderToString(expression, {
+    displayMode,
+    throwOnError: false,
+    strict: false,
+    trust: false,
+  });
+
+  if (displayMode) {
+    return (
+      <div
+        className="overflow-x-auto rounded-lg bg-surface-container-low px-3 py-2 text-sm"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="align-baseline"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 function extractSourceReferences(text: string): Map<string, SourceReference> {
@@ -1558,7 +1628,7 @@ function renderBareUrls(text: string, keyPrefix: string): ReactNode[] {
 }
 
 function renderInlineMarkdown(text: string, options: InlineRenderOptions): ReactNode[] {
-  const matches = text.match(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  const matches = text.match(/(\*\*[^*]+\*\*|`[^`]+`|\$[^$\n]+\$|\*[^*]+\*)/g);
   if (!matches) {
     return renderTextWithLinks(text, "plain", options);
   }
@@ -1587,6 +1657,13 @@ function renderInlineMarkdown(text: string, options: InlineRenderOptions): React
         >
           {match.slice(1, -1)}
         </code>,
+      );
+    } else if (match.startsWith("$") && match.endsWith("$")) {
+      nodes.push(
+        <MathExpression
+          key={`math-inline-${tokenIndex}`}
+          expression={match.slice(1, -1)}
+        />,
       );
     } else if (match.startsWith("*") && match.endsWith("*")) {
       nodes.push(
