@@ -153,6 +153,11 @@ class Project(Base):
         cascade="all, delete-orphan",
         order_by="DeepSearchRun.created_at.desc()",
     )
+    writer_documents: Mapped[list[WriterDocument]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="WriterDocument.created_at.desc()",
+    )
 
 
 class AIUsageEvent(Base):
@@ -500,6 +505,84 @@ class Draft(Base):
     )
 
     project: Mapped[Project] = relationship(back_populates="drafts")
+
+
+class WriterDocument(Base):
+    __tablename__ = "writer_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(500), default="Untitled Paper")
+    topic: Mapped[str] = mapped_column(Text)
+    thesis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    paper_type: Mapped[str] = mapped_column(String(32), default="imrad", server_default="imrad")
+    citation_style: Mapped[str] = mapped_column(String(32), default="ieee", server_default="ieee")
+    preamble: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    bib_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="outline", server_default="outline")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project] = relationship(back_populates="writer_documents")
+    sections: Mapped[list[WriterSection]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="WriterSection.order_index",
+    )
+
+
+class WriterSection(Base):
+    __tablename__ = "writer_sections"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    writer_document_id: Mapped[str] = mapped_column(
+        ForeignKey("writer_documents.id", ondelete="CASCADE"), index=True
+    )
+    section_type: Mapped[str] = mapped_column(String(64))
+    order_index: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(500))
+    outline_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_inputs_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    draft_latex: Mapped[str | None] = mapped_column(Text, nullable=True)
+    low_confidence_spans_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    cited_paper_ids_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(32), default="planned", server_default="planned")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    document: Mapped[WriterDocument] = relationship(back_populates="sections")
+    versions: Mapped[list[WriterSectionVersion]] = relationship(
+        back_populates="section",
+        cascade="all, delete-orphan",
+        order_by="WriterSectionVersion.created_at.desc()",
+    )
+
+
+class WriterSectionVersion(Base):
+    __tablename__ = "writer_section_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    writer_section_id: Mapped[str] = mapped_column(
+        ForeignKey("writer_sections.id", ondelete="CASCADE"), index=True
+    )
+    draft_latex: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    section: Mapped[WriterSection] = relationship(back_populates="versions")
 
 
 class WriterOutput(Base):
