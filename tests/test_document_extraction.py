@@ -2,6 +2,7 @@ import base64
 import json
 from pathlib import Path
 
+import fitz
 import httpx
 import pytest
 import respx
@@ -30,6 +31,67 @@ class FakeEmbeddingService:
 def build_pdf_bytes(pages: list[str]) -> bytes:
     joined_pages = "\n\n".join(pages)
     return f"%PDF-1.4\n%mock\n{joined_pages}\n%%EOF".encode()
+
+
+def build_real_pdf_bytes(body: str) -> bytes:
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), body)
+    return document.tobytes()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_document_extraction_service_prefers_local_text_for_uploaded_pdf() -> None:
+    pdf_bytes = build_real_pdf_bytes(
+        "Clean Local Uploaded Paper\n\n"
+        "Abstract\n\n"
+        "This local extraction text should be trusted for grounding."
+    )
+    route = respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "Acknowledged.",
+                            "annotations": [
+                                {
+                                    "type": "file",
+                                    "file": {
+                                        "hash": "bad-live-parser-hash",
+                                        "content": [
+                                            {
+                                                "type": "text",
+                                                "text": "the the the detection detection 2222222222",
+                                            }
+                                        ],
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        )
+    )
+
+    service = PaperDocumentExtractionService(
+        api_key="sk-or-test-key",
+        model="google/gemini-2.5-flash-lite",
+        base_url="https://openrouter.ai/api/v1",
+    )
+    document = await service.extract_uploaded_pdf(pdf_bytes=pdf_bytes, filename="clean.pdf")
+    combined_text = "\n".join(block.text for block in document.blocks)
+
+    assert not route.called
+    assert document.file_hash is None
+    assert document.page_count == 1
+    assert "Clean Local Uploaded Paper" in combined_text
+    assert "local extraction text should be trusted" in combined_text
+    assert "the the the" not in combined_text
 
 
 @pytest.mark.asyncio
@@ -80,6 +142,7 @@ async def test_document_extraction_service_extracts_uploaded_pdf_via_openrouter_
     service = PaperDocumentExtractionService(
         api_key="sk-or-test-key",
         model="google/gemini-2.5-flash-lite",
+        base_url="https://openrouter.ai/api/v1",
     )
     document = await service.extract_uploaded_pdf(pdf_bytes=pdf_bytes, filename="seed.pdf")
 
@@ -374,6 +437,7 @@ async def test_document_extraction_service_persists_chunks_from_pdf(
         service = PaperDocumentExtractionService(
             api_key="sk-or-test-key",
             model="google/gemini-2.5-flash-lite",
+            base_url="https://openrouter.ai/api/v1",
             paper_chunk_size_chars=120,
             embedding_service=FakeEmbeddingService(),
         )
@@ -483,6 +547,7 @@ async def test_document_extraction_service_retries_cloudflare_when_native_fails(
 
         service = PaperDocumentExtractionService(
             api_key="sk-or-test-key",
+            base_url="https://openrouter.ai/api/v1",
             embedding_service=FakeEmbeddingService(),
         )
         monkeypatch.setattr(
