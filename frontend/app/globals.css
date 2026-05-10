@@ -52,3 +52,12 @@ a { color: #32432C; }
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }
+
+.status-shimmer {
+  background: linear-gradient(90deg, #444841 0%, #1a1c1b 40%, #444841 60%, #444841 100%);
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: skeleton-shimmer 2s linear infinite;
+}
