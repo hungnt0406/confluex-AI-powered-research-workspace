@@ -152,6 +152,10 @@ class Settings(BaseSettings):
     summary_concurrency: int = Field(default=5, alias="SUMMARY_CONCURRENCY")
     embedding_dimensions: int = Field(default=256, alias="EMBEDDING_DIMENSIONS")
     external_api_timeout_seconds: float = Field(default=20.0, alias="EXTERNAL_API_TIMEOUT_SECONDS")
+    writer_generation_timeout_seconds: float = Field(
+        default=60.0,
+        alias="WRITER_GENERATION_TIMEOUT_SECONDS",
+    )
     project_chat_first_token_timeout_seconds: float = Field(
         default=60.0,
         alias="PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS",
