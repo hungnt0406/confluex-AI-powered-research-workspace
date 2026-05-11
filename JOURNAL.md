@@ -1258,3 +1258,38 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Diagnose and stop paper-chat answers that end with malformed numeric/punctuation tails such as `provided and22,,21..2...`.
 - **Files changed:** `backend/services/paper_conversations.py`, `backend/services/project_conversations.py`, `tests/test_paper_conversations.py`, `tests/test_project_conversations.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Identified this as live provider degeneration after an otherwise normal answer, not the deterministic fallback. Added a shared sanitizer that removes obvious numeric/punctuation suffixes before chat output is persisted or rendered in both selected-paper and project conversation paths, and added regression tests for both. Verification passed for the focused sanitizer tests, targeted Ruff, and the full paper/project conversation pytest subset.
+
+## 2026-05-10T23:02:00+07:00
+- **Request:** Fix the Writer new-document modal crash when creating a new writer project, reported as a Next.js `insertBefore` runtime `NotFoundError`.
+- **Files changed:** `frontend/app/writer/page.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Replaced the modal submit button's conditional spinner/text insertion with stable mounted spinner and label nodes that toggle `hidden` and `aria-busy`, avoiding React DOM insertion during the submitting transition. Added a static regression test for the stable loading DOM. Verification passed for `python -m pytest tests/test_frontend_writer_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+## 2026-05-10T23:11:00+07:00
+- **Request:** Diagnose why Writer section drafting showed "No source papers attached" even though auto-search was expected when no sources were attached.
+- **Files changed:** `backend/services/writer_documents.py`, `tests/test_writer_documents.py`, `README.md`, `JOURNAL.md`.
+- **Current status:** Confirmed the draft path only auto-fetched Tavily sources and swallowed provider warnings, so missing/empty Tavily results fell through to the section agent with zero paper contexts. Added an arXiv auto-fetch fallback for no-Tavily-source drafts, preserved search warnings when no source can be found, documented the fallback, and added focused regression coverage. Verification passed for `conda run -n agents uv run pytest tests/test_writer_documents.py -x`.
+
+## 2026-05-10T23:18:00+07:00
+- **Request:** Fix arXiv auto-search failures caused by `301 Moved Permanently` redirects from `http://export.arxiv.org`.
+- **Files changed:** `backend/services/arxiv.py`, `tests/test_services.py`, `JOURNAL.md`.
+- **Current status:** Switched the arXiv API client to the HTTPS export endpoint and enabled redirect following for owned search clients. Added a regression test proving arXiv search uses `https://export.arxiv.org/api/query`. Focused arXiv and writer fallback tests pass.
+
+## 2026-05-10T23:42:00+07:00
+- **Request:** Add backend logging for invalid Writer source-ranker provider output so MiMo/Xiaomi response-shape issues are diagnosable.
+- **Files changed:** `backend/services/writer_documents.py`, `tests/test_writer_documents.py`, `JOURNAL.md`.
+- **Current status:** Added safe warning logs when the source ranker returns an invalid `ranked_candidates` shape or unknown candidate IDs. Logs include top-level keys and value types/counts, not raw candidate/source content. Extended the invalid-MiMo-output regression to assert the structured log metadata. Verification passed for focused Writer pytest, targeted Ruff, and targeted mypy.
+
+## 2026-05-11T00:02:00+07:00
+- **Request:** Accept Writer source-ranker provider responses that use `candidates` instead of `ranked_candidates`.
+- **Files changed:** `backend/services/writer_documents.py`, `tests/test_writer_documents.py`, `JOURNAL.md`.
+- **Current status:** Updated the source-ranker parser to treat a valid top-level `candidates` list as an alias for `ranked_candidates`, preventing the fallback warning for MiMo responses that use the input field name in their output. Added regression coverage proving alias payloads drive provider ordering without invalid-output logs while malformed payloads still warn and fall back. Verification passed for the full Writer document pytest file, targeted Ruff, and targeted mypy.
+
+## 2026-05-11T23:14:43+07:00
+- **Request:** Diagnose Writer section draft fallback warning and determine whether Xiaomi MiMo was the cause.
+- **Files changed:** `backend/agents/writer.py`, `backend/agents/writer_section.py`, `backend/config.py`, `backend/services/llm.py`, `.env.example`, `README.md`, `tests/test_llm_embeddings.py`, `tests/test_writer_section_agent.py`, `JOURNAL.md`.
+- **Current status:** Confirmed the current Writer prompt hit MiMo response issues: the full section prompt exceeded the old 20-second timeout, and MiMo sometimes returned narrative text without required `paper_ids`. Added a writer-specific 60-second timeout, routed section drafts through that writer timeout, removed ambiguous "reference only" section prompt wording, and repaired narrative blocks that omit `paper_ids` by citing the selected source set with a warning instead of discarding the draft. A live non-mutating retry against the same document now returns a MiMo draft with no section fallback warning. Verification passed for focused Writer/LLM pytest, targeted Ruff, and targeted mypy.
+
+## 2026-05-11T23:30:44+07:00
+- **Request:** Push the current changed files, create PRs following `PULL_REQUEST.md`, and merge them into `main`.
+- **Files changed:** `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Installed the repository pre-push hook, reviewed the pending Writer-related diffs, fixed a Ruff import-order issue found during PR preparation, and began the required per-file commit and PR merge workflow.
