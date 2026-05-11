@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from backend.agents.writer import GroundedWriterAgent, WriterPaperContext
 from backend.agents.writer_section import (
     IMRAD_SECTION_DEFAULTS,
@@ -18,6 +20,17 @@ class OfflineWriterGenerator:
 
     async def generate_json(self, **kwargs: Any) -> dict[str, Any]:
         raise AssertionError("offline fallback should not call the provider")
+
+
+class MissingPaperIdsWriterGenerator:
+    def is_configured(self) -> bool:
+        return True
+
+    async def generate_json(self, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "body_blocks": [{"text": "Generated grounded text without source IDs."}],
+            "warnings": [],
+        }
 
 
 def make_paper_context(
@@ -102,6 +115,57 @@ class TestIMRaDDefaults:
     def test_abstract_is_first(self) -> None:
         abstract = next(d for d in IMRAD_SECTION_DEFAULTS if d["section_type"] == "abstract")
         assert abstract["order_index"] == 0
+
+
+def test_default_section_agent_uses_writer_generation_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.config import get_settings
+
+    captured_kwargs: dict[str, Any] = {}
+
+    class CapturingStructuredOutputService:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_kwargs.update(kwargs)
+
+        def is_configured(self) -> bool:
+            return False
+
+        async def generate_json(self, **kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("provider should not be called")
+
+    monkeypatch.setenv("WRITER_GENERATION_TIMEOUT_SECONDS", "45")
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "backend.agents.writer.ClaudeStructuredOutputService",
+        CapturingStructuredOutputService,
+    )
+
+    try:
+        agent = WriterSectionAgent()
+        assert isinstance(agent.writer_agent, GroundedWriterAgent)
+        assert captured_kwargs["timeout_seconds"] == 45.0
+    finally:
+        get_settings.cache_clear()
+
+
+class TestGroundedWriterAgentProviderNormalization:
+    async def test_missing_provider_paper_ids_are_repaired_for_narrative_blocks(self) -> None:
+        agent = GroundedWriterAgent(writer_generator=MissingPaperIdsWriterGenerator())
+
+        result = await agent.generate(
+            paper_contexts=[make_paper_context("p1"), make_paper_context("p2")],
+            instruction="Write the introduction section.",
+            output_target="latex",
+            citation_mode="latex_cite",
+            reference_style="ieee",
+            include_references=False,
+            max_words=None,
+        )
+
+        assert result.body_blocks[0].text == "Generated grounded text without source IDs."
+        assert result.body_blocks[0].paper_ids == ["p1", "p2"]
+        assert "omitted paper_ids" in " ".join(result.warnings)
 
 
 class TestWriterSectionAgentOffline:
@@ -236,6 +300,7 @@ class TestWriterSectionAgentOffline:
         )
         assert "Dataset: 1,240 annotated cases." in instruction
         assert "do NOT write \\cite in text" in instruction
+        assert "reference only" not in instruction.lower()
         assert "Cite every factual claim" not in instruction
 
     async def test_offline_fallback_is_section_specific_not_reused_generic_text(self) -> None:
