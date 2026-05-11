@@ -5,7 +5,7 @@ import httpx
 
 from backend.services.paper_types import PaperRecord
 
-ARXIV_URL = "http://export.arxiv.org/api/query"
+ARXIV_URL = "https://export.arxiv.org/api/query"
 ARXIV_PDF_BASE = "https://arxiv.org/pdf/"
 ARXIV_ID_PATTERN = re.compile(r"(?:arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}(?:v\d+)?)")
 
@@ -125,7 +125,7 @@ async def search_papers(
     }
 
     owns_client = http_client is None
-    client = http_client or httpx.AsyncClient(timeout=15.0)
+    client = http_client or httpx.AsyncClient(timeout=15.0, follow_redirects=True)
 
     try:
         response = await client.get(ARXIV_URL, params=params)
