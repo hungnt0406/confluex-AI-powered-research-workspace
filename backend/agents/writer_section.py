@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from backend.agents.writer import GroundedWriterAgent, WriterBodyBlock, WriterPaperContext
-from backend.services.llm import OpenRouterStructuredOutputService
 
 IMRAD_SECTION_QUESTIONS: dict[str, list[str]] = {
     "abstract": [],
@@ -108,9 +107,7 @@ class WriterSectionAgent:
         *,
         writer_agent: GroundedWriterAgent | None = None,
     ) -> None:
-        self.writer_agent = writer_agent or GroundedWriterAgent(
-            writer_generator=OpenRouterStructuredOutputService()
-        )
+        self.writer_agent = writer_agent or GroundedWriterAgent()
 
     async def draft_section(
         self,
@@ -240,7 +237,7 @@ class WriterSectionAgent:
                 for ctx in paper_contexts
             ]
             parts.append(
-                "Available paper IDs (reference only — do NOT write \\cite in text):\n"
+                "Available paper IDs (support-map identifiers — do NOT write \\cite in text):\n"
                 + "\n".join(cite_lines)
             )
         parts.append(
