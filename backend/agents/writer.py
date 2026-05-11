@@ -131,7 +131,9 @@ class GroundedWriterAgent:
         max_tokens: int | None = None,
     ) -> None:
         settings = get_settings()
-        self.writer_generator = writer_generator or ClaudeStructuredOutputService()
+        self.writer_generator = writer_generator or ClaudeStructuredOutputService(
+            timeout_seconds=settings.writer_generation_timeout_seconds
+        )
         self.max_tokens = max_tokens if max_tokens is not None else int(settings.external_api_timeout_seconds * 80)
 
     async def generate(
@@ -176,6 +178,12 @@ class GroundedWriterAgent:
                     max_tokens=self.max_tokens,
                     feature="writer_generation",
                 )
+                payload = self._repair_provider_payload(
+                    payload=payload,
+                    paper_contexts=paper_contexts,
+                    instruction=instruction,
+                    citation_mode=citation_mode,
+                )
                 parsed_payload = WriterGenerationPayload.model_validate(payload)
                 return WriterGenerationResult(
                     body_blocks=[
@@ -197,6 +205,71 @@ class GroundedWriterAgent:
             include_references=include_references,
             max_words=max_words,
         )
+
+    def _repair_provider_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        paper_contexts: list[WriterPaperContext],
+        instruction: str,
+        citation_mode: str,
+    ) -> dict[str, Any]:
+        if citation_mode == "bibtex_only" or self._is_reference_only_request(instruction):
+            return payload
+
+        body_blocks = payload.get("body_blocks")
+        if not isinstance(body_blocks, list):
+            return payload
+
+        fallback_paper_ids = [context.paper_id for context in paper_contexts[:20]]
+        allowed_paper_ids = set(fallback_paper_ids)
+        repaired_blocks: list[Any] = []
+        omitted_id_count = 0
+        unsupported_id_count = 0
+
+        for block in body_blocks:
+            if not isinstance(block, dict):
+                repaired_blocks.append(block)
+                continue
+
+            raw_paper_ids = block.get("paper_ids")
+            valid_paper_ids: list[str] = []
+            if isinstance(raw_paper_ids, list):
+                for raw_paper_id in raw_paper_ids:
+                    if (
+                        isinstance(raw_paper_id, str)
+                        and raw_paper_id in allowed_paper_ids
+                        and raw_paper_id not in valid_paper_ids
+                    ):
+                        valid_paper_ids.append(raw_paper_id)
+                if len(valid_paper_ids) != len(raw_paper_ids):
+                    unsupported_id_count += 1
+
+            if not valid_paper_ids and isinstance(block.get("text"), str) and block["text"].strip():
+                valid_paper_ids = list(fallback_paper_ids)
+                omitted_id_count += 1
+
+            if valid_paper_ids != raw_paper_ids:
+                block = {**block, "paper_ids": valid_paper_ids}
+            repaired_blocks.append(block)
+
+        if omitted_id_count == 0 and unsupported_id_count == 0:
+            return payload
+
+        repaired_payload = {**payload, "body_blocks": repaired_blocks}
+        warnings = [
+            str(warning).strip()
+            for warning in payload.get("warnings", [])
+            if str(warning).strip()
+        ] if isinstance(payload.get("warnings"), list) else []
+        if omitted_id_count:
+            warnings.append(
+                "LLM omitted paper_ids for one or more body blocks; cited all selected papers for repaired blocks."
+            )
+        if unsupported_id_count:
+            warnings.append("LLM returned unsupported paper_ids; removed unsupported citation IDs.")
+        repaired_payload["warnings"] = self._dedupe_strings(warnings)
+        return repaired_payload
 
     def _build_writer_prompt(
         self,
