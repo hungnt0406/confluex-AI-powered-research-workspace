@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,6 +62,22 @@ def test_writer_page_has_back_to_chat_workspace_action() -> None:
     assert "const chatHref = activeProject ? `/chat?project=${activeProject.id}` : \"/chat\";" in writer_page
     assert "href={chatHref}" in writer_page
     assert "Back to Chat" in writer_page
+
+
+def test_writer_new_document_submit_button_keeps_loading_dom_stable() -> None:
+    writer_page = (REPO_ROOT / "frontend/app/writer/page.tsx").read_text()
+    modal_match = re.search(
+        r"function NewDocumentModal\(.*?\nfunction DocumentCard",
+        writer_page,
+        flags=re.DOTALL,
+    )
+
+    assert modal_match is not None
+    modal = modal_match.group(0)
+    assert "{submitting && (" not in modal
+    assert "hidden={!submitting}" in modal
+    assert "hidden={submitting}" in modal
+    assert 'aria-live="polite"' in modal
 
 
 def test_writer_workspace_logo_links_back_to_project_chat() -> None:
