@@ -15,6 +15,16 @@ from backend.services.embeddings import EmbeddingService
 from backend.services.llm import OpenRouterStructuredOutputService
 
 
+def test_structured_output_service_accepts_timeout_override() -> None:
+    service = OpenRouterStructuredOutputService(
+        api_key="sk-test-key",
+        model="google/gemma-4-31b-it:free",
+        timeout_seconds=45.0,
+    )
+
+    assert service.timeout_seconds == 45.0
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_openrouter_structured_output_service_posts_chat_completion_request() -> None:
