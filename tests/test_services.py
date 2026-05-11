@@ -60,6 +60,22 @@ async def test_semantic_scholar_search_returns_expected_fields() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_arxiv_search_uses_https_export_endpoint() -> None:
+    route = respx.get("https://export.arxiv.org/api/query").mock(
+        return_value=httpx.Response(
+            200,
+            text='<feed xmlns="http://www.w3.org/2005/Atom"></feed>',
+        )
+    )
+
+    papers = await search_arxiv_papers("high speed object tracking", 2020, 5)
+
+    assert route.called
+    assert papers == []
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_arxiv_search_returns_expected_fields() -> None:
     xml_payload = """
     <feed xmlns="http://www.w3.org/2005/Atom">
