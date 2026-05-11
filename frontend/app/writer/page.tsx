@@ -208,14 +208,20 @@ function NewDocumentModal({ projectId, token, onCreated, onClose }: NewDocumentM
             <button
               type="submit"
               disabled={submitting || !projectId}
+              aria-busy={submitting}
+              aria-live="polite"
               className="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {submitting && (
-                <span className="material-symbols-outlined animate-spin" style={{ fontSize: "16px" }}>
-                  progress_activity
-                </span>
-              )}
-              {submitting ? "Creating…" : "Create Paper"}
+              <span
+                className="material-symbols-outlined animate-spin"
+                style={{ fontSize: "16px" }}
+                aria-hidden="true"
+                hidden={!submitting}
+              >
+                progress_activity
+              </span>
+              <span hidden={submitting}>Create Paper</span>
+              <span hidden={!submitting}>Creating…</span>
             </button>
           </div>
         </form>
