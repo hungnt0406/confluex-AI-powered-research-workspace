@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import re
 import zipfile
 from dataclasses import dataclass
@@ -83,6 +84,7 @@ SOURCE_RANKER_SCHEMA: dict[str, Any] = {
     "required": ["ranked_candidates", "warnings"],
     "additionalProperties": False,
 }
+logger = logging.getLogger(__name__)
 
 
 class StructuredSourceRankerClient(Protocol):
@@ -348,8 +350,8 @@ class WriterDocumentService:
             session=session, project_id=doc.project_id, paper_ids=doc.source_paper_ids_json
         )
 
-        # Auto-search Tavily on every draft to supplement attached sources
-        auto_papers = await self._auto_fetch_tavily_papers(
+        # Auto-search on every draft to supplement attached sources.
+        auto_papers, auto_warnings = await self._auto_fetch_source_papers(
             session=session,
             doc=doc,
             section=section,
@@ -391,7 +393,7 @@ class WriterDocumentService:
         section.status = "drafted"
         await session.commit()
         await session.refresh(section)
-        return section, draft_result.warnings
+        return section, [*auto_warnings, *draft_result.warnings]
 
     async def save_section_edit(
         self,
@@ -848,6 +850,39 @@ class WriterDocumentService:
         ranked.sort(key=lambda x: x[0], reverse=True)
         return [text for _, text in ranked[:top_k]]
 
+    async def _auto_fetch_source_papers(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+        section: WriterSection,
+        existing_papers: list[Paper],
+    ) -> tuple[list[Paper], list[str]]:
+        """Auto-fetch draft sources, falling back to arXiv when Tavily has no candidates."""
+
+        tavily_papers, tavily_warnings = await self._auto_fetch_tavily_papers(
+            session=session,
+            doc=doc,
+            section=section,
+            existing_papers=existing_papers,
+        )
+        if tavily_papers or existing_papers:
+            return tavily_papers, []
+
+        arxiv_papers, arxiv_warnings = await self._auto_fetch_arxiv_papers(
+            session=session,
+            doc=doc,
+            section=section,
+            existing_papers=existing_papers,
+        )
+        if arxiv_papers:
+            return arxiv_papers, []
+
+        warnings = [*arxiv_warnings, *tavily_warnings]
+        if not warnings:
+            warnings.append("Auto-search found no usable sources for this section.")
+        return [], warnings
+
     async def _auto_fetch_tavily_papers(
         self,
         *,
@@ -855,7 +890,7 @@ class WriterDocumentService:
         doc: WriterDocument,
         section: WriterSection,
         existing_papers: list[Paper],
-    ) -> list[Paper]:
+    ) -> tuple[list[Paper], list[str]]:
         """Auto-search Tavily on every draft and create metadata-only Papers for new results."""
         query = self._build_section_source_query(doc=doc, section=section)
 
@@ -865,20 +900,70 @@ class WriterDocumentService:
                 include_domains=ACADEMIC_DOMAINS,
                 max_results=WRITER_TAVILY_SOURCE_POOL,
             )
-        except Exception:
-            return []
+        except Exception as err:
+            return [], [f"Tavily search failed: {err}"]
 
         raw_candidates = [
             self._candidate_from_tavily_result(result, source="tavily_auto")
             for result in tavily_response.results
         ]
-        ranked_candidates, _ = await self._rank_source_candidates(
+        ranked_candidates, ranker_warnings = await self._rank_source_candidates(
             doc=doc,
             section=section,
             raw_candidates=raw_candidates,
             attached_papers=existing_papers,
             query=query,
         )
+        papers = await self._persist_auto_source_candidates(
+            session=session,
+            doc=doc,
+            ranked_candidates=ranked_candidates,
+        )
+        warnings = [*tavily_response.warnings, *ranker_warnings]
+        return papers, ([] if papers else warnings)
+
+    async def _auto_fetch_arxiv_papers(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+        section: WriterSection,
+        existing_papers: list[Paper],
+    ) -> tuple[list[Paper], list[str]]:
+        """Auto-search arXiv when Tavily cannot provide draft sources."""
+
+        query = self._build_section_source_query(doc=doc, section=section)
+        try:
+            raw_candidates = await self._fetch_arxiv_candidates(
+                query,
+                limit=WRITER_ARXIV_SOURCE_POOL,
+            )
+        except Exception as err:
+            msg = str(err) if str(err) else type(err).__name__
+            return [], [f"arXiv unavailable: {msg}"]
+
+        ranked_candidates, ranker_warnings = await self._rank_source_candidates(
+            doc=doc,
+            section=section,
+            raw_candidates=raw_candidates,
+            attached_papers=existing_papers,
+            query=query,
+        )
+        papers = await self._persist_auto_source_candidates(
+            session=session,
+            doc=doc,
+            ranked_candidates=ranked_candidates,
+        )
+        return papers, ([] if papers else ranker_warnings)
+
+    async def _persist_auto_source_candidates(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+        ranked_candidates: list[dict[str, Any]],
+    ) -> list[Paper]:
+        """Persist ranked auto-source candidates as project papers."""
 
         new_papers: list[Paper] = []
         for candidate in ranked_candidates:
@@ -1040,9 +1125,19 @@ class WriterDocumentService:
     ) -> tuple[list[dict[str, Any]], list[str]]:
         ranked_items = payload.get("ranked_candidates")
         if not isinstance(ranked_items, list):
-            return local_ranked[:WRITER_SOURCE_LIMIT], [
-                "Source ranker returned invalid output; used local ranking."
-            ]
+            candidate_alias_items = payload.get("candidates")
+            if isinstance(candidate_alias_items, list):
+                ranked_items = candidate_alias_items
+            else:
+                payload_shape = self._source_ranker_payload_shape(payload)
+                logger.warning(
+                    "Source ranker returned invalid provider payload; payload_shape=%s",
+                    payload_shape,
+                    extra={"payload_shape": payload_shape},
+                )
+                return local_ranked[:WRITER_SOURCE_LIMIT], [
+                    "Source ranker returned invalid output; used local ranking."
+                ]
 
         candidate_by_id = {
             str(candidate["candidate_id"]): candidate for candidate in candidates
@@ -1089,8 +1184,37 @@ class WriterDocumentService:
             else []
         )
         if invalid_id_count:
+            payload_shape = self._source_ranker_payload_shape(payload)
+            logger.warning(
+                "Source ranker returned unknown candidate IDs; invalid_id_count=%s; payload_shape=%s",
+                invalid_id_count,
+                payload_shape,
+                extra={
+                    "invalid_id_count": invalid_id_count,
+                    "payload_shape": payload_shape,
+                },
+            )
             warnings.append("Source ranker returned unknown candidate IDs; filled with local ranking.")
         return ranked, warnings
+
+    def _source_ranker_payload_shape(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Summarize provider payload structure without logging raw source content."""
+
+        ranked_items = payload.get("ranked_candidates")
+        warnings = payload.get("warnings")
+        shape: dict[str, Any] = {
+            "ranked_candidates_type": type(ranked_items).__name__,
+            "top_level_keys": sorted(str(key) for key in payload.keys()),
+            "warnings_type": type(warnings).__name__,
+        }
+        if "candidates" in payload:
+            shape["candidates_type"] = type(payload.get("candidates")).__name__
+        if isinstance(ranked_items, list):
+            shape["ranked_candidates_count"] = len(ranked_items)
+            shape["ranked_candidate_item_types"] = sorted(
+                {type(item).__name__ for item in ranked_items}
+            )
+        return shape
 
     def _local_rank_source_candidates(
         self,
