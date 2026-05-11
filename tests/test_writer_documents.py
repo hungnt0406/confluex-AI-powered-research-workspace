@@ -65,8 +65,13 @@ async def writer_auth_headers(writer_user: dict[str, str]) -> dict[str, str]:
 
 
 class FakeTavilyService:
-    def __init__(self, results: list[TavilySearchResult]) -> None:
+    def __init__(
+        self,
+        results: list[TavilySearchResult],
+        warnings: list[str] | None = None,
+    ) -> None:
         self.results = results
+        self.warnings = warnings or []
         self.calls: list[dict[str, object]] = []
 
     async def search(
@@ -79,7 +84,7 @@ class FakeTavilyService:
         self.calls.append(
             {"query": query, "max_results": max_results, "include_domains": include_domains}
         )
-        return TavilySearchResponse(results=self.results, warnings=[])
+        return TavilySearchResponse(results=self.results, warnings=list(self.warnings))
 
 
 class FakeEmbeddingService:
@@ -777,12 +782,88 @@ class TestWriterDocumentService:
         assert [candidate["title"] for candidate in candidates] == ["Relevant retrieval source"]
         get_settings.cache_clear()
 
+    async def test_suggest_sources_accepts_mimo_candidates_alias(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        async def fake_arxiv_candidates(query: str, limit: int = 7) -> list[dict[str, Any]]:
+            return []
+
+        tavily = FakeTavilyService(
+            [
+                TavilySearchResult(
+                    title="Sparse unrelated source",
+                    url="https://example.com/unrelated",
+                    content="robot motion planning",
+                    score=0.9,
+                ),
+                TavilySearchResult(
+                    title="Clinical retrieval source",
+                    url="https://example.com/clinical-retrieval",
+                    content="clinical retrieval augmented generation QA",
+                    score=0.2,
+                ),
+            ]
+        )
+        ranker = FakeSourceRankerClient(
+            {
+                "candidates": [
+                    {
+                        "candidate_id": "cand_1",
+                        "relevance_score": 0.98,
+                        "keep": True,
+                        "rationale": "provider alias order",
+                    },
+                    {
+                        "candidate_id": "cand_2",
+                        "relevance_score": 0.97,
+                        "keep": True,
+                        "rationale": "provider alias order",
+                    },
+                ],
+                "warnings": [],
+            }
+        )
+        svc = WriterDocumentService(tavily_service=tavily, source_ranker_client=ranker)
+        monkeypatch.setattr(svc, "_fetch_arxiv_candidates", fake_arxiv_candidates)
+        caplog.set_level("WARNING", logger="backend.services.writer_documents")
+
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="RAG",
+                topic="clinical retrieval",
+                thesis=None,
+            )
+            candidates, warnings = await svc.suggest_sources(
+                session=session,
+                document_id=doc.id,
+                user_id=writer_user["id"],
+                query="clinical retrieval",
+            )
+
+        assert warnings == []
+        assert [candidate["title"] for candidate in candidates] == [
+            "Sparse unrelated source",
+            "Clinical retrieval source",
+        ]
+        assert not any(
+            record.message.startswith("Source ranker returned invalid provider payload")
+            for record in caplog.records
+        )
+
     async def test_suggest_sources_invalid_mimo_output_falls_back_locally(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         writer_user: dict[str, str],
         writer_project: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         async def fake_arxiv_candidates(query: str, limit: int = 7) -> list[dict[str, Any]]:
             return []
@@ -806,6 +887,7 @@ class TestWriterDocumentService:
         ranker = FakeSourceRankerClient({"ranked_candidates": "not-a-list", "warnings": []})
         svc = WriterDocumentService(tavily_service=tavily, source_ranker_client=ranker)
         monkeypatch.setattr(svc, "_fetch_arxiv_candidates", fake_arxiv_candidates)
+        caplog.set_level("WARNING", logger="backend.services.writer_documents")
 
         async with session_factory() as session:
             doc = await svc.create_document(
@@ -824,6 +906,17 @@ class TestWriterDocumentService:
 
         assert candidates[0]["title"] == "Clinical retrieval source"
         assert warnings == ["Source ranker returned invalid output; used local ranking."]
+        log_record = next(
+            record
+            for record in caplog.records
+            if record.message.startswith("Source ranker returned invalid provider payload")
+        )
+        assert log_record.payload_shape == {
+            "ranked_candidates_type": "str",
+            "top_level_keys": ["ranked_candidates", "warnings"],
+            "warnings_type": "list",
+        }
+        assert "Sparse unrelated source" not in log_record.message
 
     async def test_attach_paper_id_requires_same_project_paper(
         self,
@@ -1037,6 +1130,111 @@ class TestWriterDocumentService:
         assert ranker.prompt_payloads[0]["section"]["user_answers"]["__notes__"] == (
             "prioritize recent clinical QA evidence"
         )
+
+    async def test_draft_section_auto_fetches_arxiv_when_tavily_returns_no_sources(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fake_arxiv_candidates(query: str, limit: int = 7) -> list[dict[str, Any]]:
+            assert limit == 7
+            assert "clinical retrieval" in query
+            return [
+                {
+                    "title": "Arxiv Auto Source",
+                    "authors": ["A. Author"],
+                    "year": 2024,
+                    "abstract": "clinical retrieval augmented generation evidence",
+                    "source": "arxiv",
+                    "source_paper_id": "2401.00001",
+                    "source_url": "https://arxiv.org/abs/2401.00001",
+                    "pdf_url": "https://arxiv.org/pdf/2401.00001",
+                }
+            ]
+
+        tavily = FakeTavilyService(
+            [],
+            warnings=["Tavily API key is not configured; web search was skipped."],
+        )
+        section_agent = CapturingSectionAgent()
+        svc = WriterDocumentService(
+            tavily_service=tavily,
+            embedding_service=FakeEmbeddingService(),
+            section_agent=section_agent,
+        )
+        monkeypatch.setattr(svc, "_fetch_arxiv_candidates", fake_arxiv_candidates)
+
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="RAG",
+                topic="clinical retrieval",
+                thesis=None,
+            )
+            intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            section, warnings = await svc.draft_section(
+                session=session,
+                section_id=intro_section.id,
+                user_id=writer_user["id"],
+            )
+            reloaded = await svc.get_document(
+                session=session, document_id=doc.id, user_id=writer_user["id"]
+            )
+            stored_papers = list(
+                (
+                    await session.execute(
+                        select(Paper).where(Paper.project_id == writer_project["id"])
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        assert section.draft_latex
+        assert warnings == []
+        assert [paper.title for paper in stored_papers] == ["Arxiv Auto Source"]
+        assert reloaded.source_paper_ids_json == [stored_papers[0].id]
+        assert section_agent.context_ids == reloaded.source_paper_ids_json
+
+    async def test_draft_section_reports_auto_search_warnings_when_no_sources_found(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fail_arxiv_candidates(query: str, limit: int = 7) -> list[dict[str, Any]]:
+            raise RuntimeError("arXiv timeout")
+
+        tavily = FakeTavilyService(
+            [],
+            warnings=["Tavily API key is not configured; web search was skipped."],
+        )
+        svc = WriterDocumentService(tavily_service=tavily)
+        monkeypatch.setattr(svc, "_fetch_arxiv_candidates", fail_arxiv_candidates)
+
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="RAG",
+                topic="clinical retrieval",
+                thesis=None,
+            )
+            intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            section, warnings = await svc.draft_section(
+                session=session,
+                section_id=intro_section.id,
+                user_id=writer_user["id"],
+            )
+
+        assert section.draft_latex == ""
+        assert "arXiv unavailable: arXiv timeout" in warnings
+        assert "Tavily API key is not configured; web search was skipped." in warnings
+        assert "No source papers attached" in warnings[-1]
 
     async def test_assemble_substitutes_paper_uuid_citations_with_bibtex_keys(
         self,
