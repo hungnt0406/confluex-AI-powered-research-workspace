@@ -24,6 +24,7 @@ class OpenRouterStructuredOutputService:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        timeout_seconds: float | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         settings = get_settings()
@@ -37,7 +38,11 @@ class OpenRouterStructuredOutputService:
             else settings.llm_base_url_for_model(self.model).rstrip("/")
         )
         self.http_client = http_client
-        self.timeout_seconds = settings.external_api_timeout_seconds
+        self.timeout_seconds = (
+            timeout_seconds
+            if timeout_seconds is not None
+            else settings.external_api_timeout_seconds
+        )
         self.use_strict_json_schema = "openrouter.ai" in self.base_url
 
     def is_configured(self) -> bool:
