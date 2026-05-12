@@ -34,6 +34,7 @@ import {
   isInsufficientCreditsError,
   notifyCreditBalanceChanged,
   streamDeepSearchRun,
+  streamProjectPipeline,
   streamProjectConversation,
   uploadProjectReferenceFile,
 } from "@/lib/api";
@@ -160,6 +161,16 @@ type ChatState = {
   refreshProjects: () => Promise<void>;
 };
 
+type ProjectChatSnapshot = {
+  project: Project;
+  messages: ChatMessage[];
+  papers: ProjectPaper[];
+  selectedPaperIds: string[];
+  queries: string[];
+  conversation: ProjectConversation | null;
+  runSummary: RunPipelineResponse | null;
+};
+
 const ChatContext = createContext<ChatState | null>(null);
 
 function uid() {
@@ -246,6 +257,14 @@ function isUploadedProjectPaper(paper: ProjectPaper) {
 
 function hasDiscoveredProjectPapers(papers: ProjectPaper[]) {
   return papers.some((paper) => !isUploadedProjectPaper(paper));
+}
+
+function patchProjectPaper(papers: ProjectPaper[], updatedPaper: ProjectPaper) {
+  return papers.map((paper) => (paper.id === updatedPaper.id ? updatedPaper : paper));
+}
+
+function pipelineSummaryPaper(data: { paper: ProjectPaper } | ProjectPaper) {
+  return "paper" in data ? data.paper : data;
 }
 
 function buildProjectShellMessages(
@@ -705,9 +724,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuth();
   const authedRef = useRef(token);
   const activeProjectIdRef = useRef<string | null>(null);
+  const projectViewRevisionRef = useRef(0);
   const restoreAttemptedRef = useRef(false);
   const deepSearchStatusMessageIds = useRef<Set<string>>(new Set());
   const citationGraphRequestRefs = useRef<Map<string, Promise<CitationGraph>>>(new Map());
+  const projectSnapshotsRef = useRef<Record<string, ProjectChatSnapshot>>({});
   authedRef.current = token;
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -719,7 +740,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [queries, setQueries] = useState<string[]>([]);
   const [conversation, setConversation] = useState<ProjectConversation | null>(null);
   const [runSummary, setRunSummary] = useState<RunPipelineResponse | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [busyProjectIds, setBusyProjectIds] = useState<Record<string, boolean>>({});
   const [uploadingReferenceFile, setUploadingReferenceFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insufficientCredits, setInsufficientCredits] =
@@ -731,6 +753,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     useState<DeepSearchPlanMessage | null>(null);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   activeProjectIdRef.current = activeProject?.id ?? null;
+  const busy = workspaceBusy || Boolean(activeProject?.id && busyProjectIds[activeProject.id]);
 
   const refreshProjects = useCallback(async () => {
     if (!authedRef.current) return;
@@ -830,6 +853,79 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
     return err instanceof Error ? err.message : fallback;
   }, []);
+
+  const setProjectBusy = useCallback((projectId: string, isBusy: boolean) => {
+    setBusyProjectIds((prev) => {
+      if (isBusy) return { ...prev, [projectId]: true };
+      const { [projectId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }, []);
+
+  const clearVisibleProjectState = useCallback(() => {
+    projectViewRevisionRef.current += 1;
+    activeProjectIdRef.current = null;
+    setActiveProject(null);
+    setMessages([]);
+    setPapers([]);
+    setSelectedPaperIds([]);
+    setQueries([]);
+    setConversation(null);
+    setRunSummary(null);
+  }, []);
+
+  const applyProjectSnapshot = useCallback((snapshot: ProjectChatSnapshot) => {
+    activeProjectIdRef.current = snapshot.project.id;
+    setActiveProject(snapshot.project);
+    setMessages(snapshot.messages);
+    setPapers(snapshot.papers);
+    setSelectedPaperIds(snapshot.selectedPaperIds);
+    setQueries(snapshot.queries);
+    setConversation(snapshot.conversation);
+    setRunSummary(snapshot.runSummary);
+  }, []);
+
+  const saveProjectSnapshot = useCallback(
+    (snapshot: ProjectChatSnapshot, options: { activate?: boolean } = {}) => {
+      projectSnapshotsRef.current[snapshot.project.id] = snapshot;
+      if (options.activate || activeProjectIdRef.current === snapshot.project.id) {
+        applyProjectSnapshot(snapshot);
+      }
+    },
+    [applyProjectSnapshot],
+  );
+
+  const updateProjectSnapshot = useCallback(
+    (
+      projectId: string,
+      updater: (snapshot: ProjectChatSnapshot) => ProjectChatSnapshot,
+      applyActive?: (snapshot: ProjectChatSnapshot) => void,
+    ) => {
+      const current = projectSnapshotsRef.current[projectId];
+      if (!current) return null;
+      const next = updater(current);
+      projectSnapshotsRef.current[projectId] = next;
+      if (activeProjectIdRef.current === projectId) {
+        if (applyActive) {
+          applyActive(next);
+        } else {
+          applyProjectSnapshot(next);
+        }
+      }
+      return next;
+    },
+    [applyProjectSnapshot],
+  );
+
+  const updateProjectMessages = useCallback(
+    (projectId: string, updater: (messages: ChatMessage[]) => ChatMessage[]) =>
+      updateProjectSnapshot(
+        projectId,
+        (snapshot) => ({ ...snapshot, messages: updater(snapshot.messages) }),
+        (snapshot) => setMessages(snapshot.messages),
+      ),
+    [updateProjectSnapshot],
+  );
 
   const appendDeepSearchStatusMessage = useCallback(
     (content: string, role: "assistant" | "system" = "system") => {
@@ -945,16 +1041,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         token: authedRef.current,
       });
       notifyCreditBalanceChanged();
-      setRunSummary(runResponse);
-      setQueries(runResponse.queries);
 
       const nextPapers = await fetchProjectPapers(projectId);
       const nextSelectedPaperIds = normalizeSelectedPaperIds(paperIdsToKeep, nextPapers);
-      setPapers(nextPapers);
-      setSelectedPaperIds(nextSelectedPaperIds);
+      updateProjectSnapshot(
+        projectId,
+        (snapshot) => ({
+          ...snapshot,
+          runSummary: runResponse,
+          queries: runResponse.queries,
+          papers: nextPapers,
+          selectedPaperIds: nextSelectedPaperIds,
+        }),
+        (snapshot) => {
+          setRunSummary(snapshot.runSummary);
+          setQueries(snapshot.queries);
+          setPapers(snapshot.papers);
+          setSelectedPaperIds(snapshot.selectedPaperIds);
+        },
+      );
       return nextSelectedPaperIds;
     },
-    [appendDeepSearchStatusMessage, fetchProjectPapers],
+    [appendDeepSearchStatusMessage, fetchProjectPapers, updateProjectSnapshot],
   );
 
   useEffect(() => {
@@ -970,6 +1078,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     persistSelectedPaperIds(user?.id, activeProject?.id ?? null, selectedPaperIds);
   }, [user?.id, activeProject?.id, selectedPaperIds]);
 
+  useEffect(() => {
+    if (!activeProject) return;
+    projectSnapshotsRef.current[activeProject.id] = {
+      project: activeProject,
+      messages,
+      papers,
+      selectedPaperIds,
+      queries,
+      conversation,
+      runSummary,
+    };
+  }, [activeProject, conversation, messages, papers, queries, runSummary, selectedPaperIds]);
+
   const selectedPapers = useMemo(
     () => selectedPaperIds
       .map((paperId) => papers.find((paper) => paper.id === paperId) ?? null)
@@ -982,43 +1103,43 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const startNewResearch = useCallback(() => {
-    setActiveProject(null);
-    setMessages([]);
-    setPapers([]);
-    setSelectedPaperIds([]);
-    setQueries([]);
-    setConversation(null);
-    setRunSummary(null);
+    clearVisibleProjectState();
     setComposerNotice(null);
     setLastUploadedPaperId(null);
     setPendingDeepSearchPlan(null);
     setError(null);
     setInsufficientCredits(null);
-  }, []);
+  }, [clearVisibleProjectState]);
 
   const selectProject = useCallback(
     async (projectId: string) => {
       if (!authedRef.current) return;
-      setBusy(true);
+      projectViewRevisionRef.current += 1;
+      const cachedSnapshot = projectSnapshotsRef.current[projectId];
+      if (cachedSnapshot) {
+        setWorkspaceBusy(false);
+        setError(null);
+        setInsufficientCredits(null);
+        setComposerNotice(null);
+        setLastUploadedPaperId(null);
+        setPendingDeepSearchPlan(null);
+        applyProjectSnapshot(cachedSnapshot);
+        return;
+      }
+
+      setWorkspaceBusy(true);
       setError(null);
       setInsufficientCredits(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
       setPendingDeepSearchPlan(null);
       try {
-        setActiveProject(null);
-        setPapers([]);
-        setSelectedPaperIds([]);
-        setMessages([]);
-        setConversation(null);
-        setRunSummary(null);
+        clearVisibleProjectState();
         const project = await api<Project>(`/projects/${projectId}`, {
           token: authedRef.current,
         });
 
         const nextPapers = await fetchProjectPapers(project.id);
-        setPapers(nextPapers);
-        setQueries([]);
 
         const savedSelectedPaperIds = loadSavedSelectedPaperIds(user?.id, project.id);
         const normalizedSavedSelectedPaperIds = savedSelectedPaperIds === null
@@ -1071,24 +1192,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             ? normalizedSavedSelectedPaperIds
             : fallbackSelectedPaperIds;
 
-        setActiveProject(project);
-        setSelectedPaperIds(nextSelectedPaperIds);
-        setConversation(restoredConversation);
-
         const shellMessages = buildProjectShellMessages(project, nextPapers, {
           omitEmptyPaperStatus: restoredDeepSearchMessages.length > 0,
         });
-        setMessages([...shellMessages, ...restoredChatMessages]);
+        saveProjectSnapshot(
+          {
+            project,
+            messages: [...shellMessages, ...restoredChatMessages],
+            papers: nextPapers,
+            selectedPaperIds: nextSelectedPaperIds,
+            queries: [],
+            conversation: restoredConversation,
+            runSummary: null,
+          },
+          { activate: true },
+        );
       } catch (err: any) {
         if (err?.status === 404) {
           persistActiveProjectId(user?.id, null);
         }
         setError(userFacingErrorMessage(err, "Failed to load project."));
       } finally {
-        setBusy(false);
+        setWorkspaceBusy(false);
       }
     },
-    [fetchProjectPapers, user?.id, userFacingErrorMessage],
+    [
+      applyProjectSnapshot,
+      clearVisibleProjectState,
+      fetchProjectPapers,
+      saveProjectSnapshot,
+      user?.id,
+      userFacingErrorMessage,
+    ],
   );
 
   useEffect(() => {
@@ -1110,7 +1245,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const deleteProject = useCallback(
     async (projectId: string) => {
       if (!authedRef.current) return;
-      setBusy(true);
+      setWorkspaceBusy(true);
       setError(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
@@ -1121,16 +1256,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           token: authedRef.current,
         });
         setProjects((prev) => prev.filter((project) => project.id !== projectId));
+        const { [projectId]: _deletedSnapshot, ...remainingSnapshots } = projectSnapshotsRef.current;
+        projectSnapshotsRef.current = remainingSnapshots;
+        setProjectBusy(projectId, false);
         if (activeProject?.id === projectId) {
           startNewResearch();
         }
       } catch (err: any) {
         setError(userFacingErrorMessage(err, "Failed to delete project."));
       } finally {
-        setBusy(false);
+        setWorkspaceBusy(false);
       }
     },
-    [activeProject, startNewResearch, userFacingErrorMessage],
+    [activeProject, setProjectBusy, startNewResearch, userFacingErrorMessage],
   );
 
   const renameProject = useCallback(
@@ -1139,7 +1277,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const trimmedTitle = title.trim();
       if (!trimmedTitle) return;
 
-      setBusy(true);
+      setWorkspaceBusy(true);
       setError(null);
 
       try {
@@ -1153,15 +1291,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             project.id === projectId ? { ...project, title: updatedProject.title } : project,
           ),
         );
+        updateProjectSnapshot(
+          projectId,
+          (snapshot) => ({ ...snapshot, project: updatedProject }),
+          (snapshot) => setActiveProject(snapshot.project),
+        );
         setActiveProject((prev) => (prev?.id === projectId ? updatedProject : prev));
       } catch (err: any) {
         setError(userFacingErrorMessage(err, "Failed to rename project."));
         throw err;
       } finally {
-        setBusy(false);
+        setWorkspaceBusy(false);
       }
     },
-    [userFacingErrorMessage],
+    [updateProjectSnapshot, userFacingErrorMessage],
   );
 
   const togglePaperSelection = useCallback(
@@ -1323,16 +1466,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       let completedConversation: ProjectConversation | null = null;
       let streamedError: string | null = null;
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantMessageId,
-          role: "assistant",
-          kind: assistantKind,
-          content: "",
-          createdAt: now(),
-        },
-      ]);
+      const assistantMessage: ChatMessage = {
+        id: assistantMessageId,
+        role: "assistant",
+        kind: assistantKind,
+        content: "",
+        createdAt: now(),
+      };
+      const seededSnapshot = updateProjectSnapshot(
+        projectId,
+        (snapshot) => ({
+          ...snapshot,
+          messages: [...snapshot.messages, assistantMessage],
+        }),
+        (snapshot) => setMessages(snapshot.messages),
+      );
+      if (!seededSnapshot) {
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
 
       const path = conversationId
         ? `/projects/${projectId}/conversations/${conversationId}/messages/stream`
@@ -1343,55 +1494,77 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         json: { paper_ids: paperIds, question },
         onEvent: (event) => {
           if (event.event === "conversation") {
-            setConversation(event.data);
+            updateProjectSnapshot(
+              projectId,
+              (snapshot) => ({ ...snapshot, conversation: event.data }),
+              (snapshot) => setConversation(snapshot.conversation),
+            );
             return;
           }
 
           if (event.event === "token") {
             const delta = event.data.delta;
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantMessageId
-                  ? { ...message, content: `${message.content}${delta}` }
-                  : message,
-              ),
+            updateProjectSnapshot(
+              projectId,
+              (snapshot) => ({
+                ...snapshot,
+                messages: snapshot.messages.map((message) =>
+                  message.id === assistantMessageId
+                    ? { ...message, content: `${message.content}${delta}` }
+                    : message,
+                ),
+              }),
+              (snapshot) => setMessages(snapshot.messages),
             );
             return;
           }
 
           if (event.event === "done") {
             completedConversation = event.data;
-            setConversation(event.data);
             const assistantTurn = [...event.data.messages]
               .reverse()
               .find((message) => message.role === "assistant");
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantMessageId
-                  ? {
-                    ...message,
-                    id: assistantTurn?.id ?? message.id,
-                    content: assistantTurn?.content ?? message.content,
-                    createdAt: assistantTurn?.created_at ?? message.createdAt,
-                  }
-                  : message,
-              ),
+            updateProjectSnapshot(
+              projectId,
+              (snapshot) => ({
+                ...snapshot,
+                conversation: event.data,
+                messages: snapshot.messages.map((message) =>
+                  message.id === assistantMessageId
+                    ? {
+                      ...message,
+                      id: assistantTurn?.id ?? message.id,
+                      content: assistantTurn?.content ?? message.content,
+                      createdAt: assistantTurn?.created_at ?? message.createdAt,
+                    }
+                    : message,
+                ),
+              }),
+              (snapshot) => {
+                setConversation(snapshot.conversation);
+                setMessages(snapshot.messages);
+              },
             );
             return;
           }
 
           if (event.event === "error") {
             streamedError = event.data.detail;
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === assistantMessageId
-                  ? {
-                    ...message,
-                    kind: "status",
-                    content: `Error: ${event.data.detail}`,
-                  }
-                  : message,
-              ),
+            updateProjectSnapshot(
+              projectId,
+              (snapshot) => ({
+                ...snapshot,
+                messages: snapshot.messages.map((message) =>
+                  message.id === assistantMessageId
+                    ? {
+                      ...message,
+                      kind: "status",
+                      content: `Error: ${event.data.detail}`,
+                    }
+                    : message,
+                ),
+              }),
+              (snapshot) => setMessages(snapshot.messages),
             );
           }
         },
@@ -1406,7 +1579,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       notifyCreditBalanceChanged();
       return completedConversation;
     },
-    [],
+    [updateProjectSnapshot],
   );
 
   const streamDeepSearchTurn = useCallback(
@@ -1430,12 +1603,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       let streamedError: string | null = null;
       let assistantMessageId: string | null = null;
 
+      const updateDeepSearchMessages = (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+        const updatedSnapshot = updateProjectMessages(projectId, updater);
+        if (!updatedSnapshot && activeProjectIdRef.current === projectId) {
+          setMessages((prev) => updater(prev));
+        }
+      };
+
+      const clearProjectDeepSearchStatusMessages = () => {
+        const statusIds = deepSearchStatusMessageIds.current;
+        if (statusIds.size === 0) return;
+        updateDeepSearchMessages((prev) => prev.filter((message) => !statusIds.has(message.id)));
+        statusIds.clear();
+      };
+
       const ensureDeepSearchAnswerMessage = (initialContent = "") => {
         if (assistantMessageId) return assistantMessageId;
 
         const nextMessageId = uid();
         assistantMessageId = nextMessageId;
-        setMessages((prev) => [
+        updateDeepSearchMessages((prev) => [
           ...prev,
           {
             id: nextMessageId,
@@ -1449,47 +1636,84 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return nextMessageId;
       };
 
-      clearDeepSearchStatusMessages();
-      setMessages((prev) => [...prev, thinkingMessage]);
+      clearProjectDeepSearchStatusMessages();
+      updateDeepSearchMessages((prev) => [...prev, thinkingMessage]);
 
       await streamDeepSearchRun(`/projects/${projectId}/deep-search/stream`, {
         token: authedRef.current,
         json: { paper_ids: paperIds, question, mode },
         onEvent: (event) => {
           if (event.event === "run") {
-            updateDeepSearchThinkingPhase(thinkingMessageId, "planning");
+            updateDeepSearchMessages((prev) =>
+              prev.map((message) =>
+                message.id === thinkingMessageId && message.thinking
+                  ? {
+                    ...message,
+                    thinking: upsertDeepSearchThinkingPhase(message.thinking, "planning"),
+                  }
+                  : message,
+              ),
+            );
             return;
           }
 
           if (event.event === "status") {
-            updateDeepSearchThinkingPhase(thinkingMessageId, event.data.phase);
+            updateDeepSearchMessages((prev) =>
+              prev.map((message) =>
+                message.id === thinkingMessageId && message.thinking
+                  ? {
+                    ...message,
+                    thinking: upsertDeepSearchThinkingPhase(message.thinking, event.data.phase),
+                  }
+                  : message,
+              ),
+            );
             return;
           }
 
           if (event.event === "activity") {
-            applyDeepSearchThinkingActivity(thinkingMessageId, event.data);
+            updateDeepSearchMessages((prev) =>
+              prev.map((message) =>
+                message.id === thinkingMessageId && message.thinking
+                  ? {
+                    ...message,
+                    sources: dedupeDeepSearchSources([
+                      ...(message.sources ?? []),
+                      ...(event.data.sources ?? []).map(deepSearchActivitySourceToDisplaySource),
+                    ]),
+                    thinking: applyDeepSearchThinkingActivityToState(message.thinking, event.data),
+                  }
+                  : message,
+              ),
+            );
             return;
           }
 
           if (event.event === "source") {
             collectedSources.push(deepSearchSourceEventToDisplaySource(event.data));
-            appendDeepSearchThinkingSource(thinkingMessageId, event.data);
-            if (assistantMessageId) {
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === assistantMessageId
-                    ? { ...message, sources: [...collectedSources] }
-                    : message,
-                ),
-              );
-            }
+            const displaySource = deepSearchSourceEventToDisplaySource(event.data);
+            updateDeepSearchMessages((prev) =>
+              prev.map((message) => {
+                if (message.id === thinkingMessageId && message.thinking) {
+                  return {
+                    ...message,
+                    sources: dedupeDeepSearchSources([...(message.sources ?? []), displaySource]),
+                    thinking: appendDeepSearchThinkingSourceToState(message.thinking, event.data),
+                  };
+                }
+                if (message.id === assistantMessageId) {
+                  return { ...message, sources: [...collectedSources] };
+                }
+                return message;
+              }),
+            );
             return;
           }
 
           if (event.event === "token") {
             const delta = event.data.delta;
             const targetMessageId = ensureDeepSearchAnswerMessage();
-            setMessages((prev) =>
+            updateDeepSearchMessages((prev) =>
               prev.map((message) =>
                 message.id === targetMessageId
                   ? { ...message, content: `${message.content}${delta}` }
@@ -1502,11 +1726,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           if (event.event === "done") {
             completedRun = event.data;
             const finalSources = event.data.sources.map(deepSearchSourceToDisplaySource);
-            clearDeepSearchStatusMessages();
-            completeDeepSearchThinking(thinkingMessageId);
+            clearProjectDeepSearchStatusMessages();
             const targetMessageId = ensureDeepSearchAnswerMessage(event.data.report_body);
-            setMessages((prev) =>
+            updateDeepSearchMessages((prev) =>
               prev.map((message) =>
+                message.id === thinkingMessageId && message.thinking
+                  ? { ...message, thinking: completeDeepSearchThinkingState(message.thinking) }
+                  :
                 message.id === targetMessageId
                   ? {
                     ...message,
@@ -1523,7 +1749,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           if (event.event === "error") {
             streamedError = event.data.detail;
             const targetMessageId = ensureDeepSearchAnswerMessage();
-            setMessages((prev) =>
+            updateDeepSearchMessages((prev) =>
               prev.map((message) =>
                 message.id === targetMessageId
                   ? {
@@ -1547,13 +1773,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       notifyCreditBalanceChanged();
       return completedRun;
     },
-    [
-      appendDeepSearchThinkingSource,
-      applyDeepSearchThinkingActivity,
-      clearDeepSearchStatusMessages,
-      completeDeepSearchThinking,
-      updateDeepSearchThinkingPhase,
-    ],
+    [updateProjectMessages],
   );
 
   const startDeepSearchPlan = useCallback(
@@ -1562,21 +1782,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const plan = pendingDeepSearchPlan?.id === planId ? pendingDeepSearchPlan : null;
       if (!plan || plan.status !== "pending") return;
 
-      setBusy(true);
+      const viewRevisionAtStart = projectViewRevisionRef.current;
+      let targetProjectId = plan.projectId ?? activeProject?.id ?? null;
+      if (targetProjectId) {
+        if (activeProject && !projectSnapshotsRef.current[targetProjectId]) {
+          projectSnapshotsRef.current[targetProjectId] = {
+            project: activeProject,
+            messages,
+            papers,
+            selectedPaperIds,
+            queries,
+            conversation,
+            runSummary,
+          };
+        }
+        setProjectBusy(targetProjectId, true);
+      } else {
+        setWorkspaceBusy(true);
+      }
       setError(null);
       setComposerNotice(null);
       setLastUploadedPaperId(null);
       setPendingDeepSearchPlan(null);
-      setMessages((prev) =>
-        prev.map((message) =>
+      const markPlanStarted = (source: ChatMessage[]) =>
+        source.map((message) =>
           message.deepSearchPlan?.id === planId
             ? {
               ...message,
-              deepSearchPlan: { ...message.deepSearchPlan, status: "started" },
+              deepSearchPlan: { ...message.deepSearchPlan, status: "started" as const },
             }
             : message,
-        ),
-      );
+        );
+      if (targetProjectId && projectSnapshotsRef.current[targetProjectId]) {
+        updateProjectMessages(targetProjectId, markPlanStarted);
+      } else {
+        setMessages((prev) => markPlanStarted(prev));
+      }
 
       try {
         if (!plan.projectId || !activeProject) {
@@ -1587,15 +1828,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             token: authedRef.current,
             json: buildProjectCreatePayload(plan.question),
           });
-          setActiveProject(project);
+          targetProjectId = project.id;
+          setProjectBusy(project.id, true);
           await refreshProjects();
 
           const nextPapers = await fetchProjectPapers(project.id);
-          setPapers(nextPapers);
-          setSelectedPaperIds([]);
-          setQueries([]);
-          setRunSummary(null);
-          setConversation(null);
+          const shouldActivateCreatedProject =
+            projectViewRevisionRef.current === viewRevisionAtStart;
+          if (shouldActivateCreatedProject) {
+            setWorkspaceBusy(false);
+          }
+          saveProjectSnapshot(
+            {
+              project,
+              messages,
+              papers: nextPapers,
+              selectedPaperIds: [],
+              queries: [],
+              conversation: null,
+              runSummary: null,
+            },
+            { activate: shouldActivateCreatedProject },
+          );
 
           const nextSelectedPaperIds = await ensureDeepSearchRelatedPapers({
             projectId: project.id,
@@ -1620,7 +1874,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
         if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
-          setSelectedPaperIds(nextSelectedPaperIds);
+          updateProjectSnapshot(
+            activeProject.id,
+            (snapshot) => ({ ...snapshot, selectedPaperIds: nextSelectedPaperIds }),
+            (snapshot) => setSelectedPaperIds(snapshot.selectedPaperIds),
+          );
         }
 
         const deepSearchPaperIds = await ensureDeepSearchRelatedPapers({
@@ -1639,18 +1897,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       } catch (err: any) {
         const detail = userFacingErrorMessage(err, "Something went wrong.");
         setError(detail);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: uid(),
-            role: "assistant",
-            kind: "status",
-            content: `Error: ${detail}`,
-            createdAt: now(),
-          },
-        ]);
+        const errorMessage: ChatMessage = {
+          id: uid(),
+          role: "assistant",
+          kind: "status",
+          content: `Error: ${detail}`,
+          createdAt: now(),
+        };
+        if (targetProjectId && projectSnapshotsRef.current[targetProjectId]) {
+          updateProjectMessages(targetProjectId, (prev) => [...prev, errorMessage]);
+        } else {
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       } finally {
-        setBusy(false);
+        if (targetProjectId) {
+          setProjectBusy(targetProjectId, false);
+        } else {
+          setWorkspaceBusy(false);
+        }
       }
     },
     [
@@ -1658,13 +1922,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       appendDeepSearchStatusMessage,
       busy,
       clearDeepSearchStatusMessages,
+      conversation,
       ensureDeepSearchRelatedPapers,
       fetchProjectPapers,
+      messages,
       papers,
       pendingDeepSearchPlan,
+      queries,
       refreshProjects,
+      runSummary,
+      saveProjectSnapshot,
       selectedPaperIds,
+      setProjectBusy,
       streamDeepSearchTurn,
+      updateProjectMessages,
+      updateProjectSnapshot,
       userFacingErrorMessage,
     ],
   );
@@ -1697,6 +1969,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (!authedRef.current) return;
       const trimmed = text.trim();
       if (!trimmed) return;
+      const viewRevisionAtSubmit = projectViewRevisionRef.current;
       setError(null);
       setInsufficientCredits(null);
       setComposerNotice(null);
@@ -1709,10 +1982,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         kind: "text",
         createdAt: now(),
       };
-      setMessages((prev) => [...prev, userMessage]);
+      let targetProjectId = activeProject?.id ?? null;
+      if (targetProjectId && activeProject && !projectSnapshotsRef.current[targetProjectId]) {
+        projectSnapshotsRef.current[targetProjectId] = {
+          project: activeProject,
+          messages,
+          papers,
+          selectedPaperIds,
+          queries,
+          conversation,
+          runSummary,
+        };
+      }
+      if (targetProjectId && projectSnapshotsRef.current[targetProjectId]) {
+        updateProjectMessages(targetProjectId, (prev) => [...prev, userMessage]);
+      } else {
+        setMessages((prev) => [...prev, userMessage]);
+      }
+      const updateTargetMessages = (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+        if (targetProjectId && projectSnapshotsRef.current[targetProjectId]) {
+          updateProjectMessages(targetProjectId, updater);
+          return;
+        }
+        setMessages((prev) => updater(prev));
+      };
 
       if (pendingDeepSearchPlan) {
-        setMessages((prev) =>
+        updateTargetMessages((prev) =>
           prev.map((message) =>
             message.deepSearchPlan?.id === pendingDeepSearchPlan.id
               ? {
@@ -1729,7 +2025,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const deepMode = chatMode === "deep_research_max" ? "max" : "standard";
         const planMessage = createDeepSearchPlanMessage(trimmed, activeProject?.id ?? null, deepMode);
         setPendingDeepSearchPlan(planMessage.deepSearchPlan);
-        setMessages((prev) => [...prev, planMessage]);
+        updateTargetMessages((prev) => [...prev, planMessage]);
 
         const planId = planMessage.deepSearchPlan.id;
         api<{ questions: string[] }>("/pipeline/deep-search/plan", {
@@ -1738,7 +2034,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           json: { question: trimmed, mode: deepMode },
         })
           .then(({ questions }) => {
-            setMessages((prev) =>
+            updateTargetMessages((prev) =>
               prev.map((m) =>
                 m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
                   ? {
@@ -1769,7 +2065,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     `What are the key debates, limitations, or open problems related to: ${compact}?`,
                     `What implementation context or real-world examples are relevant to: ${compact}?`,
                   ];
-            setMessages((prev) =>
+            updateTargetMessages((prev) =>
               prev.map((m) =>
                 m.kind === "deep_search_plan" && m.deepSearchPlan?.id === planId
                   ? {
@@ -1787,61 +2083,166 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setBusy(true);
+      if (targetProjectId) {
+        setProjectBusy(targetProjectId, true);
+      } else {
+        setWorkspaceBusy(true);
+      }
       try {
         if (!activeProject) {
           const pipelineStatusId = uid();
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: pipelineStatusId,
-              role: "assistant",
-              kind: "status",
-              content: "Creating your project and running the Searcher → Reader pipeline…",
-              createdAt: now(),
-            },
-          ]);
+          const pipelineStatusMessage: ChatMessage = {
+            id: pipelineStatusId,
+            role: "assistant",
+            kind: "status",
+            content: "Creating your project and finding related papers…",
+            createdAt: now(),
+          };
+          setMessages((prev) => [...prev, pipelineStatusMessage]);
 
           const project = await api<Project>("/projects", {
             method: "POST",
             token: authedRef.current,
             json: buildProjectCreatePayload(trimmed),
           });
-          setActiveProject(project);
+          targetProjectId = project.id;
+          setProjectBusy(project.id, true);
+          const shouldActivateCreatedProject =
+            projectViewRevisionRef.current === viewRevisionAtSubmit;
+          if (shouldActivateCreatedProject) {
+            setWorkspaceBusy(false);
+          }
+          saveProjectSnapshot(
+            {
+              project,
+              messages: [userMessage, pipelineStatusMessage],
+              papers: [],
+              selectedPaperIds: [],
+              queries: [],
+              conversation: null,
+              runSummary: null,
+            },
+            { activate: shouldActivateCreatedProject },
+          );
           await refreshProjects();
 
-          const runResponse = await api<RunPipelineResponse>(`/projects/${project.id}/run`, {
-            method: "POST",
+          let completedRun: RunPipelineResponse | null = null;
+          let streamedError: string | null = null;
+
+          await streamProjectPipeline(project.id, {
             token: authedRef.current,
+            onEvent: (event) => {
+              if (event.event === "status") {
+                const detail = event.data.detail ?? formatDeepSearchPhase(event.data.phase);
+                updateProjectMessages(
+                  project.id,
+                  (prev) =>
+                    prev.map((message) =>
+                      message.id === pipelineStatusId
+                        ? { ...message, content: detail }
+                        : message,
+                    ),
+                );
+                return;
+              }
+
+              if (event.event === "papers") {
+                updateProjectSnapshot(
+                  project.id,
+                  (snapshot) => ({
+                    ...snapshot,
+                    queries: event.data.queries,
+                    papers: event.data.papers,
+                    selectedPaperIds: [],
+                    messages: snapshot.messages.map((message) =>
+                      message.id === pipelineStatusId
+                        ? {
+                          ...message,
+                          content: `Found ${event.data.ranked_count} ranked paper${event.data.ranked_count === 1 ? "" : "s"}. Summarizing related papers…`,
+                        }
+                        : message,
+                    ),
+                  }),
+                  (snapshot) => {
+                    setQueries(event.data.queries);
+                    setPapers(event.data.papers);
+                    setSelectedPaperIds([]);
+                    setMessages(snapshot.messages);
+                  },
+                );
+                return;
+              }
+
+              if (event.event === "summary") {
+                const updatedPaper = pipelineSummaryPaper(event.data);
+                updateProjectSnapshot(
+                  project.id,
+                  (snapshot) => ({
+                    ...snapshot,
+                    papers: patchProjectPaper(snapshot.papers, updatedPaper),
+                  }),
+                  () => setPapers((current) => patchProjectPaper(current, updatedPaper)),
+                );
+                return;
+              }
+
+              if (event.event === "done") {
+                completedRun = event.data;
+                updateProjectSnapshot(
+                  project.id,
+                  (snapshot) => ({
+                    ...snapshot,
+                    runSummary: event.data,
+                    queries: event.data.queries,
+                  }),
+                  (snapshot) => {
+                    setRunSummary(event.data);
+                    setQueries(snapshot.queries);
+                  },
+                );
+                return;
+              }
+
+              if (event.event === "error") {
+                streamedError = event.data.detail;
+                updateProjectMessages(
+                  project.id,
+                  (prev) =>
+                    prev.map((message) =>
+                      message.id === pipelineStatusId
+                        ? { ...message, content: `Error: ${event.data.detail}` }
+                        : message,
+                    ),
+                );
+              }
+            },
           });
+
+          if (streamedError) {
+            throw new Error(streamedError);
+          }
+          if (!completedRun) {
+            throw new Error("The pipeline stream ended before the run was completed.");
+          }
           notifyCreditBalanceChanged();
-          setRunSummary(runResponse);
-          setQueries(runResponse.queries);
 
           const nextPapers = await fetchProjectPapers(project.id);
-          setPapers(nextPapers);
 
           const nextSelectedPaperIds: string[] = [];
-          setSelectedPaperIds(nextSelectedPaperIds);
-
-          setMessages((prev) => prev.filter((m) => m.id !== pipelineStatusId));
-
-          if (nextPapers.length === 0) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: uid(),
-                role: "assistant",
-                kind: "status",
-                content:
-                  runResponse.errors.length > 0
-                    ? `Pipeline finished with errors: ${runResponse.errors.join("; ")}`
-                    : "The pipeline finished but did not return any ranked papers. Try refining your topic.",
-                createdAt: now(),
-              },
-            ]);
-            return;
-          }
+          updateProjectSnapshot(
+            project.id,
+            (snapshot) => ({
+              ...snapshot,
+              papers: nextPapers,
+              selectedPaperIds: nextSelectedPaperIds,
+              messages: snapshot.messages.filter((m) => m.id !== pipelineStatusId),
+            }),
+            (snapshot) => {
+              setPapers(snapshot.papers);
+              setSelectedPaperIds(snapshot.selectedPaperIds);
+              setMessages(snapshot.messages);
+            },
+          );
 
           await streamProjectChatTurn({
             projectId: project.id,
@@ -1853,7 +2254,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         const nextSelectedPaperIds = normalizeSelectedPaperIds(selectedPaperIds, papers);
         if (!arePaperIdListsEqual(selectedPaperIds, nextSelectedPaperIds)) {
-          setSelectedPaperIds(nextSelectedPaperIds);
+          updateProjectSnapshot(
+            activeProject.id,
+            (snapshot) => ({ ...snapshot, selectedPaperIds: nextSelectedPaperIds }),
+            (snapshot) => setSelectedPaperIds(snapshot.selectedPaperIds),
+          );
         }
 
         if (!conversation) {
@@ -1874,18 +2279,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       } catch (err: any) {
         const detail = userFacingErrorMessage(err, "Something went wrong.");
         setError(detail);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: uid(),
-            role: "assistant",
-            kind: "status",
-            content: `Error: ${detail}`,
-            createdAt: now(),
-          },
-        ]);
+        const errorMessage: ChatMessage = {
+          id: uid(),
+          role: "assistant",
+          kind: "status",
+          content: `Error: ${detail}`,
+          createdAt: now(),
+        };
+        if (targetProjectId && projectSnapshotsRef.current[targetProjectId]) {
+          updateProjectMessages(targetProjectId, (prev) => [...prev, errorMessage]);
+        } else {
+          setMessages((prev) => [...prev, errorMessage]);
+        }
       } finally {
-        setBusy(false);
+        if (targetProjectId) {
+          setProjectBusy(targetProjectId, false);
+        } else {
+          setWorkspaceBusy(false);
+        }
       }
     },
     [
@@ -1893,11 +2304,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       chatMode,
       conversation,
       fetchProjectPapers,
+      messages,
       papers,
       pendingDeepSearchPlan,
+      queries,
       refreshProjects,
+      runSummary,
+      saveProjectSnapshot,
       selectedPaperIds,
+      setProjectBusy,
       streamProjectChatTurn,
+      updateProjectMessages,
+      updateProjectSnapshot,
       userFacingErrorMessage,
     ],
   );
