@@ -618,3 +618,88 @@ async def test_reader_agent_ranks_papers_and_records_summary_failures(
     assert any(summary.has_error for summary in persisted_summaries)
     assert any(not summary.has_error for summary in persisted_summaries)
     assert {paper.status for paper in persisted_papers} == {"summarized", "summary_error"}
+
+
+async def test_reader_agent_commits_ranked_status_before_streaming_summaries(
+    session_factory,
+    sample_project,
+) -> None:
+    async with session_factory() as session:
+        project = (
+            await session.execute(select(Project).where(Project.id == sample_project["id"]))
+        ).scalar_one()
+        project.summary_limit = 2
+
+        reliable_paper = Paper(
+            project_id=project.id,
+            title="Reliable Paper",
+            authors=["Jane Doe"],
+            year=2024,
+            abstract="This paper introduces a reliable ranking pipeline for multi-agent retrieval." * 3,
+            doi="10.1000/reliable",
+            source="semantic_scholar",
+            status="candidate",
+            relevance_score=None,
+        )
+        unstable_paper = Paper(
+            project_id=project.id,
+            title="Unstable Paper",
+            authors=["John Doe"],
+            year=2024,
+            abstract="This paper studies unstable summaries in retrieval pipelines." * 3,
+            doi="10.1000/unstable",
+            source="arxiv",
+            status="candidate",
+            relevance_score=None,
+        )
+        session.add_all([reliable_paper, unstable_paper])
+        await session.commit()
+
+        reader = ReaderAgent(
+            embedding_service=FakeEmbeddingService(
+                [
+                    [1.0, 0.0],
+                    [1.0, 0.0],
+                    [0.1, 1.0],
+                ]
+            ),
+            summary_generator=FakeSummaryGenerator(),
+            summary_concurrency=1,
+        )
+
+        ranking_result = await reader.rank_project_papers(session=session, project=project)
+        ranked_papers = (
+            await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ).scalars().all()
+        assert ranking_result.candidate_count == 2
+        assert [paper.title for paper in ranking_result.ranked_papers] == [
+            "Reliable Paper",
+            "Unstable Paper",
+        ]
+        assert {paper.status for paper in ranked_papers} == {"ranked"}
+        assert all(paper.summary is None for paper in ranking_result.ranked_papers)
+
+        summary_updates: list[tuple[str, str]] = []
+        async for summary_result in reader.stream_summary_results(
+            session=session,
+            project=project,
+            ranked_papers=ranking_result.ranked_papers,
+        ):
+            summary_updates.append((summary_result.paper.title, summary_result.paper.status))
+            persisted_papers = (
+                await session.execute(select(Paper).where(Paper.project_id == project.id))
+            ).scalars().all()
+            persisted_summaries = (
+                await session.execute(select(Summary).join(Paper).where(Paper.project_id == project.id))
+            ).scalars().all()
+            if len(summary_updates) == 1:
+                assert {paper.status for paper in persisted_papers} == {"summarized", "ranked"}
+                assert len(persisted_summaries) == 1
+            else:
+                assert {paper.status for paper in persisted_papers} == {"summarized", "summary_error"}
+                assert len(persisted_summaries) == 2
+
+    assert summary_updates == [
+        ("Reliable Paper", "summarized"),
+        ("Unstable Paper", "summary_error"),
+    ]
