@@ -1,8 +1,14 @@
+import json
 from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
 
+from backend.agents.pipeline import (
+    PipelinePapersEventData,
+    PipelineStreamEvent,
+    PipelineSummaryEventData,
+)
 from backend.agents.state import AgentState
 from backend.api.dependencies import get_paper_citation_service, get_pipeline_service
 from backend.db.models import AIUsageEvent, Paper, Project, ReferenceFile, Summary, User
@@ -14,6 +20,23 @@ from backend.services.paper_citations import (
     CitationProviderError,
     CitationResolutionError,
 )
+
+
+def parse_sse_events(response_text: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for frame in response_text.strip().split("\n\n"):
+        event_name = "message"
+        data_lines: list[str] = []
+        for line in frame.splitlines():
+            if not line or line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_name = line.removeprefix("event:").strip()
+            if line.startswith("data:"):
+                data_lines.append(line.removeprefix("data:").strip())
+        if data_lines:
+            events.append((event_name, json.loads("\n".join(data_lines))))
+    return events
 
 
 @pytest.mark.asyncio
@@ -201,6 +224,109 @@ async def test_run_project_pipeline_returns_completed_result(
     assert payload["candidate_count"] == 1
     assert payload["ranked_count"] == 1
     assert payload["summary_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_project_pipeline_emits_papers_before_summaries(
+    app,
+    client,
+    auth_headers,
+    sample_project,
+) -> None:
+    class FakePipelineService:
+        async def stream_project(self, *, session, project):
+            yield PipelineStreamEvent("status", {"phase": "searching"})
+            yield PipelineStreamEvent("status", {"phase": "ranking"})
+            paper = Paper(
+                project_id=project.id,
+                title="Progressive Ranking",
+                authors=["Jane Doe"],
+                year=2025,
+                abstract="A paper about progressive literature review ranking.",
+                doi="10.1000/progressive",
+                source="semantic_scholar",
+                status="ranked",
+                relevance_score=98.5,
+            )
+            session.add(paper)
+            await session.commit()
+
+            yield PipelineStreamEvent(
+                "papers",
+                PipelinePapersEventData(
+                    project_id=project.id,
+                    queries=["progressive related papers"],
+                    candidate_count=1,
+                    ranked_count=1,
+                    ranked_papers=[paper],
+                ),
+            )
+
+            yield PipelineStreamEvent("status", {"phase": "summarizing"})
+            summary = Summary(
+                paper_id=paper.id,
+                problem="Slow first-message discovery",
+                method="Stream ranked papers before summaries finish",
+                result="Users can inspect candidates sooner",
+                relevance_to_topic="Directly relevant to progressive paper discovery.",
+                has_error=False,
+                error_message=None,
+            )
+            session.add(summary)
+            paper.summary = summary
+            paper.status = "summarized"
+            await session.commit()
+
+            yield PipelineStreamEvent("summary", PipelineSummaryEventData(paper=paper))
+            yield PipelineStreamEvent("status", {"phase": "completed"})
+            yield PipelineStreamEvent(
+                "done",
+                AgentState(
+                    project_id=project.id,
+                    topic=project.topic_description,
+                    queries=["progressive related papers"],
+                    raw_papers=[{"id": paper.id}],
+                    ranked_papers=[{"id": paper.id}],
+                    summaries=[{"paper_id": paper.id}],
+                    qa_flags=["Only 1 ranked papers were available after filtering and ranking."],
+                    errors=[],
+                ),
+            )
+
+    app.dependency_overrides[get_pipeline_service] = lambda: FakePipelineService()
+    response = await client.post(f"/projects/{sample_project['id']}/run/stream", headers=auth_headers)
+    app.dependency_overrides.pop(get_pipeline_service, None)
+
+    assert response.status_code == 200
+    events = parse_sse_events(response.text)
+    event_names = [event_name for event_name, _payload in events]
+    assert event_names[:2] == ["status", "status"]
+    assert event_names.index("papers") < event_names.index("summary")
+    assert event_names[-1] == "done"
+
+    status_payloads = [payload for event_name, payload in events if event_name == "status"]
+    assert [payload["phase"] for payload in status_payloads] == [
+        "searching",
+        "ranking",
+        "summarizing",
+        "completed",
+    ]
+
+    papers_payload = next(payload for event_name, payload in events if event_name == "papers")
+    assert papers_payload["queries"] == ["progressive related papers"]
+    assert papers_payload["project_id"] == sample_project["id"]
+    assert papers_payload["candidate_count"] == 1
+    assert papers_payload["ranked_count"] == 1
+    assert papers_payload["papers"][0]["status"] == "ranked"
+    assert papers_payload["papers"][0]["summary"] is None
+
+    summary_payload = next(payload for event_name, payload in events if event_name == "summary")
+    assert summary_payload["paper"]["status"] == "summarized"
+    assert summary_payload["paper"]["summary"]["problem"] == "Slow first-message discovery"
+
+    done_payload = next(payload for event_name, payload in events if event_name == "done")
+    assert done_payload["status"] == "completed"
+    assert done_payload["summary_count"] == 1
 
 
 @pytest.mark.asyncio
