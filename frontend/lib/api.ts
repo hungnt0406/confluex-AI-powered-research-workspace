@@ -507,6 +507,21 @@ export type ProjectConversationStreamEvent =
   | { event: "done"; data: ProjectConversation }
   | { event: "error"; data: { detail: string } };
 
+export type ProjectPipelinePapersEventData = {
+  project_id: string;
+  queries: string[];
+  candidate_count: number;
+  ranked_count: number;
+  papers: ProjectPaper[];
+};
+
+export type ProjectPipelineStreamEvent =
+  | { event: "status"; data: { phase: string; detail?: string } }
+  | { event: "papers"; data: ProjectPipelinePapersEventData }
+  | { event: "summary"; data: { paper: ProjectPaper } | ProjectPaper }
+  | { event: "done"; data: RunPipelineResponse }
+  | { event: "error"; data: { detail: string } };
+
 export type DeepSearchSource = {
   id: string;
   run_id: string;
@@ -589,6 +604,20 @@ export type DeepSearchStreamEvent =
 
 export type AuthResponse = { access_token: string; token_type: string; user: AuthUser };
 
+function parseSseFrame<TEvent>(frame: string): TEvent | null {
+  const lines = frame.split(/\r?\n/);
+  let eventName = "message";
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
+  }
+  if (!dataLines.length) return null;
+  const data = JSON.parse(dataLines.join("\n"));
+  return { event: eventName, data } as TEvent;
+}
+
 export async function streamProjectConversation(
   path: string,
   options: {
@@ -631,6 +660,52 @@ export async function streamProjectConversation(
     if (!dataLines.length) return;
     const data = JSON.parse(dataLines.join("\n")); console.log("SSE EVENT:", eventName, data);
     options.onEvent({ event: eventName, data } as ProjectConversationStreamEvent);
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) flushFrame(frame);
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) flushFrame(buffer);
+}
+
+export async function streamProjectPipeline(
+  projectId: string,
+  options: {
+    token: string;
+    onEvent: (event: ProjectPipelineStreamEvent) => void;
+  },
+): Promise<void> {
+  const path = `/projects/${projectId}/run/stream`;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${options.token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response);
+  }
+
+  if (!response.body) {
+    throw new Error("Streaming response body was not available.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const flushFrame = (frame: string) => {
+    const event = parseSseFrame<ProjectPipelineStreamEvent>(frame);
+    if (event) options.onEvent(event);
   };
 
   while (true) {
@@ -739,6 +814,18 @@ export interface WriterSectionRead {
   updated_at: string;
 }
 
+export interface WriterSourcePaper {
+  id: string;
+  title: string;
+  authors: string[];
+  year: number | null;
+  source: string;
+  source_paper_id: string | null;
+  source_url: string | null;
+  pdf_url: string | null;
+  reference_file_id: string | null;
+}
+
 export interface WriterDocumentRead {
   id: string;
   project_id: string;
@@ -749,6 +836,7 @@ export interface WriterDocumentRead {
   citation_style: string;
   preamble: string | null;
   source_paper_ids_json: string[];
+  source_papers: WriterSourcePaper[];
   status: string;
   created_at: string;
   updated_at: string;
