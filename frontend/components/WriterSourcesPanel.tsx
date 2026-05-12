@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import {
   SourceCandidate,
   WriterDocumentRead,
+  WriterSourcePaper,
   ReferenceFileRead,
   attachSource,
   removeSource,
@@ -16,6 +17,57 @@ interface WriterSourcesPanelProps {
   document: WriterDocumentRead;
   token: string;
   onDocumentUpdate: (doc: WriterDocumentRead) => void;
+}
+
+function sourceLabel(source: WriterSourcePaper | null, paperId: string) {
+  return source?.title?.trim() || paperId;
+}
+
+function sourceMeta(source: WriterSourcePaper | null) {
+  if (!source) return null;
+  const authors = source.authors.slice(0, 2).join(", ");
+  const year = source.year ? String(source.year) : null;
+  const provider =
+    source.source === "semantic_scholar"
+      ? "Semantic Scholar"
+      : source.source === "user_upload"
+        ? "Uploaded PDF"
+        : source.source.replace(/_/g, " ");
+  return [authors, year, provider].filter(Boolean).join(" · ");
+}
+
+function sourceFromCandidate(paperId: string, candidate: SourceCandidate): WriterSourcePaper {
+  return {
+    id: paperId,
+    title: candidate.title,
+    authors: candidate.authors,
+    year: candidate.year,
+    source: candidate.source,
+    source_paper_id: candidate.source_paper_id,
+    source_url: candidate.source_url,
+    pdf_url: candidate.pdf_url,
+    reference_file_id: null,
+  };
+}
+
+function sourceFromReferenceFile(paperId: string, reference: ReferenceFileRead): WriterSourcePaper {
+  return {
+    id: paperId,
+    title: reference.extracted_title || reference.original_filename,
+    authors: reference.extracted_authors,
+    year: reference.extracted_year,
+    source: "user_upload",
+    source_paper_id: reference.id,
+    source_url: null,
+    pdf_url: null,
+    reference_file_id: reference.id,
+  };
+}
+
+function upsertSourcePaper(sources: WriterSourcePaper[], source: WriterSourcePaper) {
+  const existingIndex = sources.findIndex((item) => item.id === source.id);
+  if (existingIndex === -1) return [...sources, source];
+  return sources.map((item, index) => (index === existingIndex ? source : item));
 }
 
 function SourceCard({
@@ -116,6 +168,7 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
   const [uploadStatus, setUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const attachedSourceById = new Map(document.source_papers.map((source) => [source.id, source]));
   const handlePdfUpload = useCallback(async (file: File) => {
     setUploading(true);
     setUploadStatus(null);
@@ -132,6 +185,10 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
         source_paper_ids_json: existingIds.includes(result.linked_paper_id)
           ? existingIds
           : [...existingIds, result.linked_paper_id],
+        source_papers: upsertSourcePaper(
+          document.source_papers,
+          sourceFromReferenceFile(result.linked_paper_id, result),
+        ),
       });
       setUploadStatus({ type: "success", message: `"${file.name}" attached successfully.` });
     } catch (err) {
@@ -172,6 +229,7 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
           source_paper_ids_json: existingIds.includes(paperId)
             ? existingIds
             : [...existingIds, paperId],
+          source_papers: upsertSourcePaper(document.source_papers, sourceFromCandidate(paperId, candidate)),
         });
         setAttachedCandidateIds((prev) => ({ ...prev, [key]: paperId }));
       }
@@ -196,6 +254,7 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
       onDocumentUpdate({
         ...document,
         source_paper_ids_json: (document.source_paper_ids_json ?? []).filter((id) => id !== paperId),
+        source_papers: document.source_papers.filter((source) => source.id !== paperId),
       });
       setAttachedCandidateIds((prev) =>
         Object.fromEntries(Object.entries(prev).filter(([, attachedId]) => attachedId !== paperId)),
@@ -222,29 +281,38 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
           <p className="text-[11px] text-hint">No sources attached yet.</p>
         ) : (
           <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
-            {[...attachedIds].map((paperId) => (
-              <div
-                key={paperId}
-                className="flex items-center justify-between gap-2 rounded-lg border border-outline/15 bg-surface-container-lowest px-2.5 py-1.5"
-              >
-                <p className="truncate text-[10px] text-on-surface font-mono">{paperId}</p>
-                <button
-                  type="button"
-                  onClick={() => void handleRemove(paperId)}
-                  disabled={removingIds.has(paperId)}
-                  className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full text-hint hover:text-error hover:bg-error/10 transition-colors disabled:opacity-50"
-                  aria-label={`Remove source ${paperId}`}
+            {[...attachedIds].map((paperId) => {
+              const source = attachedSourceById.get(paperId) ?? null;
+              const label = sourceLabel(source, paperId);
+              const meta = sourceMeta(source);
+              return (
+                <div
+                  key={paperId}
+                  title={source ? paperId : undefined}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-outline/15 bg-surface-container-lowest px-2.5 py-1.5"
                 >
-                  {removingIds.has(paperId) ? (
-                    <span className="material-symbols-outlined animate-spin" style={{ fontSize: "12px" }}>
-                      progress_activity
-                    </span>
-                  ) : (
-                    <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>close</span>
-                  )}
-                </button>
-              </div>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-medium text-on-surface">{label}</p>
+                    {meta && <p className="truncate text-[9px] text-hint">{meta}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRemove(paperId)}
+                    disabled={removingIds.has(paperId)}
+                    className="shrink-0 flex items-center justify-center w-5 h-5 rounded-full text-hint hover:text-error hover:bg-error/10 transition-colors disabled:opacity-50"
+                    aria-label={`Remove source ${label}`}
+                  >
+                    {removingIds.has(paperId) ? (
+                      <span className="material-symbols-outlined animate-spin" style={{ fontSize: "12px" }}>
+                        progress_activity
+                      </span>
+                    ) : (
+                      <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>close</span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
