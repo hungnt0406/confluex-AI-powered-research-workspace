@@ -150,6 +150,28 @@ class ProjectPaperRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PipelineStreamStatusEvent(BaseModel):
+    """Status update emitted during discovery pipeline streaming."""
+
+    phase: Literal["searching", "ranking", "summarizing", "completed"]
+
+
+class PipelineStreamPapersEvent(BaseModel):
+    """Ranked papers emitted once ranking has committed."""
+
+    project_id: str
+    queries: list[str]
+    candidate_count: int
+    ranked_count: int
+    papers: list[ProjectPaperRead]
+
+
+class PipelineStreamSummaryEvent(BaseModel):
+    """Per-paper summary update emitted after each summary attempt persists."""
+
+    paper: ProjectPaperRead
+
+
 class CitationGraphPaperRead(BaseModel):
     """Serialized related-paper payload returned from citation graph lookups."""
 
