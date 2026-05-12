@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.agents.pipeline import PipelineStreamEvent
 from backend.agents.state import AgentState
 from backend.api.dependencies import get_deep_search_service, get_pipeline_service
 from backend.config import get_settings
@@ -203,6 +204,104 @@ async def test_pipeline_route_refunds_debit_when_pipeline_raises(
 
 
 @pytest.mark.asyncio
+async def test_pipeline_stream_debits_credits_on_done(
+    app,
+    client,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user, project = await create_user_and_project(
+        session_factory,
+        email="quota-stream-success@example.com",
+        credit_balance=50,
+    )
+    headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+    class FakePipelineService:
+        async def stream_project(self, *, session, project):
+            yield PipelineStreamEvent("status", {"phase": "searching"})
+            yield PipelineStreamEvent(
+                "done",
+                AgentState(
+                    project_id=project.id,
+                    topic=project.topic_description,
+                    queries=["stream quota"],
+                    raw_papers=[],
+                    ranked_papers=[],
+                    summaries=[],
+                    qa_flags=[],
+                    errors=[],
+                ),
+            )
+
+    app.dependency_overrides[get_pipeline_service] = lambda: FakePipelineService()
+    response = await client.post(f"/projects/{project.id}/run/stream", headers=headers)
+    app.dependency_overrides.pop(get_pipeline_service, None)
+
+    assert response.status_code == 200
+    assert "event: done" in response.text
+
+    async with session_factory() as session:
+        persisted_user = await session.get(User, user.id)
+        transactions = list(
+            (
+                await session.execute(
+                    select(CreditTransaction).where(CreditTransaction.user_id == user.id)
+                )
+            ).scalars()
+        )
+
+    assert persisted_user is not None
+    assert persisted_user.credit_balance == 30
+    assert [(tx.kind, tx.delta, tx.feature) for tx in transactions] == [
+        ("consume", -20, "pipeline_run"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_stream_refunds_debit_when_stream_raises(
+    app,
+    client,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    user, project = await create_user_and_project(
+        session_factory,
+        email="quota-stream-refund@example.com",
+        credit_balance=50,
+    )
+    headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+    class FailingPipelineService:
+        async def stream_project(self, *, session, project):
+            yield PipelineStreamEvent("status", {"phase": "searching"})
+            raise RuntimeError("pipeline stream exploded")
+
+    app.dependency_overrides[get_pipeline_service] = lambda: FailingPipelineService()
+    response = await client.post(f"/projects/{project.id}/run/stream", headers=headers)
+    app.dependency_overrides.pop(get_pipeline_service, None)
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert "pipeline stream exploded" in response.text
+
+    async with session_factory() as session:
+        persisted_user = await session.get(User, user.id)
+        transactions = list(
+            (
+                await session.execute(
+                    select(CreditTransaction).where(CreditTransaction.user_id == user.id)
+                )
+            ).scalars()
+        )
+
+    assert persisted_user is not None
+    assert persisted_user.credit_balance == 50
+    assert {(tx.kind, tx.delta, tx.feature) for tx in transactions} == {
+        ("consume", -20, "pipeline_run"),
+        ("refund", 20, "pipeline_run"),
+    }
+
+
+@pytest.mark.asyncio
 async def test_deep_search_stream_refunds_debit_when_service_emits_error(
     app,
     client,
@@ -216,7 +315,7 @@ async def test_deep_search_stream_refunds_debit_when_service_emits_error(
     headers = {"Authorization": f"Bearer {create_access_token(user.id)}"}
 
     class FailingDeepSearchService:
-        async def stream_run(self, *, session, project, question, selected_papers):
+        async def stream_run(self, *, session, project, question, selected_papers, mode):
             yield DeepSearchStreamEvent("error", {"detail": "deep search exploded"})
 
     app.dependency_overrides[get_deep_search_service] = lambda: FailingDeepSearchService()
