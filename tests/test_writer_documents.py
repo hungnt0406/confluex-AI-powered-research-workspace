@@ -1433,6 +1433,62 @@ class TestWriterDocumentRouter:
         assert response.status_code == 200
         assert response.json()["id"] == doc_id
 
+    async def test_get_document_endpoint_includes_attached_source_metadata(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        writer_project: dict[str, str],
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        create_resp = await client.post(
+            f"/projects/{writer_project['id']}/writer/documents",
+            json={"topic": "test topic", "title": "Test"},
+            headers=writer_auth_headers,
+        )
+        doc_id = create_resp.json()["id"]
+
+        async with session_factory() as session:
+            paper = Paper(
+                project_id=writer_project["id"],
+                title="Human-readable attached source",
+                authors=["A. Scholar"],
+                year=2025,
+                abstract="A source abstract.",
+                source="semantic_scholar",
+                source_paper_id="S2-123",
+                source_url="https://example.com/paper",
+                pdf_url="https://example.com/paper.pdf",
+                status="candidate",
+            )
+            session.add(paper)
+            await session.flush()
+            doc = await session.get(WriterDocument, doc_id)
+            assert doc is not None
+            doc.source_paper_ids_json = [paper.id]
+            await session.commit()
+
+        response = await client.get(
+            f"/writer/documents/{doc_id}",
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source_paper_ids_json"] == [paper.id]
+        assert data["source_papers"] == [
+            {
+                "id": paper.id,
+                "title": "Human-readable attached source",
+                "authors": ["A. Scholar"],
+                "year": 2025,
+                "source": "semantic_scholar",
+                "source_paper_id": "S2-123",
+                "source_url": "https://example.com/paper",
+                "pdf_url": "https://example.com/paper.pdf",
+                "reference_file_id": None,
+            }
+        ]
+
     async def test_update_document_endpoint(
         self,
         client: AsyncClient,
