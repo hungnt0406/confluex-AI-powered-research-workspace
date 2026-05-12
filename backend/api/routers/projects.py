@@ -9,6 +9,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
 
+from backend.agents.pipeline import (
+    PipelinePapersEventData,
+    PipelineStreamEvent,
+    PipelineSummaryEventData,
+)
+from backend.agents.state import AgentState
 from backend.api.dependencies import (
     CurrentUser,
     DbSession,
@@ -34,6 +40,10 @@ from backend.api.schemas.projects import (
     PaperConversationMessageCreate,
     PaperConversationRead,
     PaperConversationSummaryRead,
+    PaperSummaryRead,
+    PipelineStreamPapersEvent,
+    PipelineStreamStatusEvent,
+    PipelineStreamSummaryEvent,
     ProjectConversationCreate,
     ProjectConversationMessageCreate,
     ProjectConversationRead,
@@ -132,6 +142,78 @@ def deep_search_stream_payload(event: DeepSearchStreamEvent) -> Any:
         run = cast(DeepSearchRun, event.data)
         return DeepSearchRunRead.from_run(run).model_dump(mode="json")
     return event.data
+
+
+def pipeline_state_to_response(state: AgentState) -> RunPipelineResponse:
+    """Build the canonical synchronous pipeline response from graph state."""
+
+    return RunPipelineResponse(
+        status="completed",
+        project_id=state.project_id,
+        queries=state.queries,
+        candidate_count=len(state.raw_papers),
+        ranked_count=len(state.ranked_papers),
+        summary_count=len(state.summaries),
+        qa_flags=state.qa_flags,
+        errors=state.errors,
+    )
+
+
+def pipeline_stream_payload(event: PipelineStreamEvent) -> Any:
+    """Serialize a discovery pipeline stream event payload."""
+
+    if event.event == "status":
+        return PipelineStreamStatusEvent.model_validate(event.data).model_dump(mode="json")
+    if event.event == "papers":
+        papers_payload = cast(PipelinePapersEventData, event.data)
+        return PipelineStreamPapersEvent(
+            project_id=papers_payload.project_id,
+            queries=papers_payload.queries,
+            candidate_count=papers_payload.candidate_count,
+            ranked_count=papers_payload.ranked_count,
+            papers=[
+                project_paper_read_from_model(paper)
+                for paper in papers_payload.ranked_papers
+            ],
+        ).model_dump(mode="json")
+    if event.event == "summary":
+        summary_payload = cast(PipelineSummaryEventData, event.data)
+        return PipelineStreamSummaryEvent(
+            paper=project_paper_read_from_model(summary_payload.paper),
+        ).model_dump(mode="json")
+    if event.event == "done":
+        state = cast(AgentState, event.data)
+        return pipeline_state_to_response(state).model_dump(mode="json")
+    return event.data
+
+
+def project_paper_read_from_model(paper: Paper) -> ProjectPaperRead:
+    """Serialize one paper without triggering async lazy loads for optional summary state."""
+
+    loaded_summary = paper.__dict__.get("summary")
+    return ProjectPaperRead(
+        id=paper.id,
+        project_id=paper.project_id,
+        reference_file_id=paper.reference_file_id,
+        title=paper.title,
+        authors=list(paper.authors),
+        year=paper.year,
+        abstract=paper.abstract,
+        doi=paper.doi,
+        source=paper.source,
+        source_paper_id=paper.source_paper_id,
+        source_url=paper.source_url,
+        pdf_url=paper.pdf_url,
+        citation_count=paper.citation_count,
+        reference_count=paper.reference_count,
+        status=paper.status,
+        relevance_score=paper.relevance_score,
+        summary=(
+            PaperSummaryRead.model_validate(loaded_summary)
+            if loaded_summary is not None
+            else None
+        ),
+    )
 
 
 def sse_headers() -> dict[str, str]:
@@ -472,15 +554,54 @@ async def queue_project_pipeline(
     except Exception:
         await guard.rollback()
         raise
-    return RunPipelineResponse(
-        status="completed",
-        project_id=project.id,
-        queries=state.queries,
-        candidate_count=len(state.raw_papers),
-        ranked_count=len(state.ranked_papers),
-        summary_count=len(state.summaries),
-        qa_flags=state.qa_flags,
-        errors=state.errors,
+    return pipeline_state_to_response(state)
+
+
+@router.post(
+    "/{project_id}/run/stream",
+    status_code=status.HTTP_200_OK,
+)
+async def stream_project_pipeline(
+    project_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    pipeline_service: PipelineServiceDependency,
+) -> StreamingResponse:
+    """Stream discovery pipeline progress as ranked papers and summaries become available."""
+
+    project = await get_owned_project_or_404(session, current_user.id, project_id)
+    guard = await require_credits(
+        get_settings().credit_cost_pipeline_run,
+        feature="pipeline_run",
+        current_user=current_user,
+        session=session,
+    )
+    start_usage_collection()
+
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in pipeline_service.stream_project(session=session, project=project):
+                if event.event == "error":
+                    await guard.rollback()
+                    yield encode_sse_event("error", pipeline_stream_payload(event), pad=True)
+                    return
+                if event.event == "done":
+                    await flush_project_usage_events(
+                        session=session,
+                        current_user=current_user,
+                        project=project,
+                    )
+                    await guard.commit()
+                yield encode_sse_event(event.event, pipeline_stream_payload(event), pad=True)
+        except Exception as error:
+            await guard.rollback()
+            yield encode_sse_event("error", {"detail": str(error)}, pad=True)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        status_code=status.HTTP_200_OK,
+        headers=sse_headers(),
     )
 
 
