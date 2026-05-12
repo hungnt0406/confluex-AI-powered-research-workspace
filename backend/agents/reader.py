@@ -1,11 +1,13 @@
 import asyncio
 import re
-from dataclasses import dataclass
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.agents.searcher import serialize_paper_record
 from backend.agents.state import AgentState
@@ -64,6 +66,15 @@ class SummaryGenerationResult:
         return self.payload is None
 
 
+@dataclass
+class RankingResult:
+    """Result of ranking all current project papers."""
+
+    candidate_count: int
+    ranked_papers: list[Paper]
+    errors: list[str] = field(default_factory=list)
+
+
 class SummaryGenerator(Protocol):
     """Protocol for structured summary generation."""
 
@@ -107,61 +118,101 @@ class ReaderAgent:
     ) -> dict[str, Any]:
         """Rank candidate papers and write structured summaries."""
 
-        result = await session.execute(select(Paper).where(Paper.project_id == project.id))
+        ranking_result = await self.rank_project_papers(session=session, project=project)
+        summary_payloads, summary_errors = await self.summarize_ranked_papers(
+            session=session,
+            project=project,
+            ranked_papers=ranking_result.ranked_papers,
+        )
+
+        return {
+            "ranked_papers": [
+                serialize_paper_record(paper) for paper in ranking_result.ranked_papers
+            ],
+            "summaries": summary_payloads,
+            "errors": [*state.errors, *ranking_result.errors, *summary_errors],
+        }
+
+    async def rank_project_papers(
+        self,
+        *,
+        session: AsyncSession,
+        project: Project,
+    ) -> RankingResult:
+        """Rank current project papers and persist ranked status before summaries."""
+
+        result = await session.execute(
+            select(Paper)
+            .options(selectinload(Paper.summary))
+            .where(Paper.project_id == project.id)
+        )
         candidate_papers = list(result.scalars().all())
 
         if not candidate_papers:
-            return {
-                "ranked_papers": [],
-                "summaries": [],
-                "errors": [*state.errors, "No candidate papers were available for ranking."],
-            }
+            return RankingResult(
+                candidate_count=0,
+                ranked_papers=[],
+                errors=["No candidate papers were available for ranking."],
+            )
 
-        ranked_papers, ranking_errors = await self.rank_papers(project.topic_description, candidate_papers)
+        ranked_papers, ranking_errors = await self.rank_papers(
+            project.topic_description,
+            candidate_papers,
+        )
         top_papers = ranked_papers[: project.summary_limit]
 
         for paper in top_papers:
             paper.status = "ranked"
 
-        summary_results = await self._summarize_papers(project.topic_description, top_papers)
-        summary_errors = [
-            result.error_message for result in summary_results if result.error_message is not None
-        ]
+        await session.commit()
+        return RankingResult(
+            candidate_count=len(candidate_papers),
+            ranked_papers=top_papers,
+            errors=ranking_errors,
+        )
+
+    async def stream_summary_results(
+        self,
+        *,
+        session: AsyncSession,
+        project: Project,
+        ranked_papers: list[Paper],
+    ) -> AsyncIterator[SummaryGenerationResult]:
+        """Persist ranked-paper summaries one by one and yield each updated paper."""
+
+        if not ranked_papers:
+            return
+
+        async for summary_result in self._stream_summary_generation(
+            project.topic_description,
+            ranked_papers,
+        ):
+            self._persist_summary_result(session=session, summary_result=summary_result)
+            await session.commit()
+            yield summary_result
+
+    async def summarize_ranked_papers(
+        self,
+        *,
+        session: AsyncSession,
+        project: Project,
+        ranked_papers: list[Paper],
+    ) -> tuple[list[dict[str, object]], list[str]]:
+        """Collect per-paper summary updates for synchronous pipeline runs."""
 
         summary_payloads: list[dict[str, object]] = []
-        for summary_result in summary_results:
-            payload = summary_result.payload
-            summary_record = Summary(
-                paper_id=summary_result.paper.id,
-                problem=payload.problem if payload is not None else None,
-                method=payload.method if payload is not None else None,
-                result=payload.result if payload is not None else None,
-                relevance_to_topic=payload.relevance_to_topic if payload is not None else None,
-                has_error=summary_result.has_error,
-                error_message=summary_result.error_message,
-            )
-            session.add(summary_record)
-            summary_result.paper.summary = summary_record
-            summary_result.paper.status = "summary_error" if summary_result.has_error else "summarized"
-            summary_payloads.append(
-                {
-                    "paper_id": summary_result.paper.id,
-                    "problem": summary_record.problem,
-                    "method": summary_record.method,
-                    "result": summary_record.result,
-                    "relevance_to_topic": summary_record.relevance_to_topic,
-                    "has_error": summary_record.has_error,
-                    "error_message": summary_record.error_message,
-                }
-            )
+        summary_errors: list[str] = []
 
-        await session.commit()
+        async for summary_result in self.stream_summary_results(
+            session=session,
+            project=project,
+            ranked_papers=ranked_papers,
+        ):
+            summary_payloads.append(self._serialize_summary_result(summary_result))
+            if summary_result.error_message is not None:
+                summary_errors.append(summary_result.error_message)
 
-        return {
-            "ranked_papers": [serialize_paper_record(paper) for paper in top_papers],
-            "summaries": summary_payloads,
-            "errors": [*state.errors, *ranking_errors, *summary_errors],
-        }
+        return summary_payloads, summary_errors
 
     async def rank_papers(
         self,
@@ -203,20 +254,68 @@ class ReaderAgent:
 
         return ranked_papers, ranking_errors
 
-    async def _summarize_papers(
+    def _persist_summary_result(
+        self,
+        *,
+        session: AsyncSession,
+        summary_result: SummaryGenerationResult,
+    ) -> None:
+        payload = summary_result.payload
+        summary_record = summary_result.paper.summary
+        if summary_record is None:
+            summary_record = Summary(paper_id=summary_result.paper.id)
+            session.add(summary_record)
+            summary_result.paper.summary = summary_record
+
+        summary_record.problem = payload.problem if payload is not None else None
+        summary_record.method = payload.method if payload is not None else None
+        summary_record.result = payload.result if payload is not None else None
+        summary_record.relevance_to_topic = (
+            payload.relevance_to_topic if payload is not None else None
+        )
+        summary_record.has_error = summary_result.has_error
+        summary_record.error_message = summary_result.error_message
+        summary_result.paper.status = "summary_error" if summary_result.has_error else "summarized"
+
+    def _serialize_summary_result(
+        self,
+        summary_result: SummaryGenerationResult,
+    ) -> dict[str, object]:
+        summary_record = summary_result.paper.summary
+        if summary_record is None:
+            raise RuntimeError("Summary result was serialized before persistence.")
+
+        return {
+            "paper_id": summary_result.paper.id,
+            "problem": summary_record.problem,
+            "method": summary_record.method,
+            "result": summary_record.result,
+            "relevance_to_topic": summary_record.relevance_to_topic,
+            "has_error": summary_record.has_error,
+            "error_message": summary_record.error_message,
+        }
+
+    async def _stream_summary_generation(
         self,
         topic_description: str,
         ranked_papers: list[Paper],
-    ) -> list[SummaryGenerationResult]:
+    ) -> AsyncIterator[SummaryGenerationResult]:
         semaphore = asyncio.Semaphore(self.summary_concurrency)
 
         async def summarize_single_paper(paper: Paper) -> SummaryGenerationResult:
             async with semaphore:
                 return await self._summarize_paper_with_retry(topic_description, paper)
 
-        return await asyncio.gather(
-            *(summarize_single_paper(paper) for paper in ranked_papers),
-        )
+        tasks = [asyncio.create_task(summarize_single_paper(paper)) for paper in ranked_papers]
+        try:
+            for task in asyncio.as_completed(tasks):
+                yield await task
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _summarize_paper_with_retry(
         self,
