@@ -30,11 +30,11 @@ def test_frontend_deep_search_requires_plan_approval_before_streaming() -> None:
     assert "startDeepSearchPlan" in chat_provider
     assert "editDeepSearchPlan" in chat_provider
     assert "Here's a research plan for that topic." in chat_provider
-    assert "if (chatMode === \"deep_search\")" in chat_provider
+    assert 'if (chatMode === "deep_search" || chatMode === "deep_research_max")' in chat_provider
     assert "setPendingDeepSearchPlan(planMessage.deepSearchPlan);" in chat_provider
     assert "await streamDeepSearchTurn({" not in chat_provider[
         chat_provider.index("const submitMessage = useCallback") : chat_provider.index("const value = useMemo<ChatState>")
-    ].split("if (chatMode === \"deep_search\")", 1)[1].split("return;", 1)[0]
+    ].split('if (chatMode === "deep_search" || chatMode === "deep_research_max")', 1)[1].split("return;", 1)[0]
     assert "DeepSearchPlanCard" in chat_workspace
     assert "Start research" in chat_workspace
     assert "Edit plan" in chat_workspace
@@ -55,8 +55,8 @@ def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     assert "completeDeepSearchThinking" in chat_provider
     assert "DeepSearch: ${formatDeepSearchPhase(event.data.phase)}" not in chat_provider
     assert 'if (event.event === "activity")' in chat_provider
-    assert "appendDeepSearchThinkingSource(thinkingMessageId, event.data);" in chat_provider
-    assert "completeDeepSearchThinking(thinkingMessageId);" in chat_provider
+    assert "appendDeepSearchThinkingSourceToState(message.thinking, event.data)" in chat_provider
+    assert "completeDeepSearchThinkingState(message.thinking)" in chat_provider
     assert "DeepSearchThinkingPanel" in chat_workspace
     assert "Show thinking" in chat_workspace
     assert "Researching websites" in chat_provider
@@ -105,7 +105,7 @@ def test_frontend_deep_search_avoids_empty_answer_placeholder() -> None:
     ]
 
     assert "ensureDeepSearchAnswerMessage" in chat_provider
-    assert "setMessages((prev) => [...prev, thinkingMessage]);" in stream_turn
+    assert "updateDeepSearchMessages((prev) => [...prev, thinkingMessage]);" in stream_turn
     assert "content: \"\"," not in stream_turn.split("await streamDeepSearchRun", 1)[0]
     assert "const targetMessageId = ensureDeepSearchAnswerMessage();" in stream_turn
     assert "const targetMessageId = ensureDeepSearchAnswerMessage(event.data.report_body);" in stream_turn
@@ -147,6 +147,32 @@ def test_frontend_restored_chat_sort_handles_invalid_timestamps() -> None:
     assert "Number.POSITIVE_INFINITY" in chat_provider
     assert "left.sortKey < right.sortKey" in chat_provider
     assert "left.index - right.index" in chat_provider
+
+
+def test_frontend_project_streams_are_scoped_to_project_snapshots() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    stream_turn = chat_provider[
+        chat_provider.index("const streamProjectChatTurn = useCallback")
+        : chat_provider.index("const streamDeepSearchTurn = useCallback")
+    ]
+    select_project = chat_provider[
+        chat_provider.index("const selectProject = useCallback")
+        : chat_provider.index("useEffect(() => {", chat_provider.index("const selectProject = useCallback"))
+    ]
+    submit_message = chat_provider[
+        chat_provider.index("const submitMessage = useCallback")
+        : chat_provider.index("const value = useMemo<ChatState>")
+    ]
+
+    assert "type ProjectChatSnapshot" in chat_provider
+    assert "projectSnapshotsRef" in chat_provider
+    assert "const cachedSnapshot = projectSnapshotsRef.current[projectId]" in select_project
+    assert "applyProjectSnapshot(cachedSnapshot);" in select_project
+    assert "updateProjectSnapshot(" in stream_turn
+    assert "projectId," in stream_turn
+    assert "setConversation(event.data);" not in stream_turn
+    assert "setProjectBusy(targetProjectId, true);" in submit_message
+    assert "setProjectBusy(targetProjectId, false);" in submit_message
 
 
 def test_frontend_deep_search_sources_render_in_context_panel() -> None:
@@ -251,7 +277,7 @@ def test_frontend_deep_search_accepts_heartbeat_stage_update_events() -> None:
     assert "deepSearchActivityEventType(activity)" in chat_provider
     assert "deepSearchActivityMessage(activity)" in chat_provider
     assert 'if (event.event === "activity")' in chat_provider
-    assert "applyDeepSearchThinkingActivity(thinkingMessageId, event.data);" in chat_provider
+    assert "applyDeepSearchThinkingActivityToState(message.thinking, event.data)" in chat_provider
 
 
 def test_frontend_citation_graph_caches_previews_and_imports() -> None:
