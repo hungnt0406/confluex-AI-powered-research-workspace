@@ -31,6 +31,19 @@ def test_writer_sources_panel_supports_pdf_upload_attach_by_paper_id() -> None:
     assert "`/writer/documents/${documentId}/sources/attach-paper`" in api_client
 
 
+def test_writer_sources_panel_renders_attached_source_labels() -> None:
+    sources_panel = (REPO_ROOT / "frontend/components/WriterSourcesPanel.tsx").read_text()
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "export interface WriterSourcePaper" in api_client
+    assert "source_papers: WriterSourcePaper[];" in api_client
+    assert "function sourceLabel(source: WriterSourcePaper | null, paperId: string)" in sources_panel
+    assert "const attachedSourceById = new Map(document.source_papers.map((source) => [source.id, source]));" in sources_panel
+    assert "const label = sourceLabel(source, paperId);" in sources_panel
+    assert "{label}" in sources_panel
+    assert "font-mono\">{paperId}" not in sources_panel
+
+
 def test_writer_page_does_not_show_document_skeletons_without_project() -> None:
     writer_page = (REPO_ROOT / "frontend/app/writer/page.tsx").read_text()
 
