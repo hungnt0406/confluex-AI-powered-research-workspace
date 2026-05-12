@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.dependencies import (
     CurrentUser,
@@ -32,7 +34,9 @@ from backend.api.schemas.writer_documents import (
     WriterDocumentUpdate,
     WriterSectionDraftResponse,
     WriterSectionRead,
+    WriterSourcePaperRead,
 )
+from backend.db.models import Paper, WriterDocument
 from backend.services.writer_documents import (
     WriterDocumentNotFoundError,
     WriterDocumentPermissionError,
@@ -64,6 +68,29 @@ def _forbidden() -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
 
 
+async def _serialize_writer_document(
+    session: AsyncSession,
+    doc: WriterDocument,
+) -> WriterDocumentRead:
+    payload = WriterDocumentRead.model_validate(doc)
+    if not doc.source_paper_ids_json:
+        return payload
+
+    result = await session.execute(
+        select(Paper).where(
+            Paper.project_id == doc.project_id,
+            Paper.id.in_(doc.source_paper_ids_json),
+        )
+    )
+    papers_by_id = {paper.id: paper for paper in result.scalars().all()}
+    payload.source_papers = [
+        WriterSourcePaperRead.model_validate(papers_by_id[paper_id])
+        for paper_id in doc.source_paper_ids_json
+        if paper_id in papers_by_id
+    ]
+    return payload
+
+
 @router.post(
     "/projects/{project_id}/writer/documents",
     response_model=WriterDocumentRead,
@@ -85,7 +112,7 @@ async def create_writer_document(
         paper_type=body.paper_type,
         citation_style=body.citation_style,
     )
-    return WriterDocumentRead.model_validate(doc)
+    return await _serialize_writer_document(session, doc)
 
 
 @router.get(
@@ -120,7 +147,7 @@ async def get_writer_document(
         raise _not_found(str(err)) from err
     except WriterDocumentPermissionError:
         raise _forbidden() from None
-    return WriterDocumentRead.model_validate(doc)
+    return await _serialize_writer_document(session, doc)
 
 
 @router.patch(
@@ -147,7 +174,7 @@ async def update_writer_document(
         raise _not_found(str(err)) from err
     except WriterDocumentPermissionError:
         raise _forbidden() from None
-    return WriterDocumentRead.model_validate(doc)
+    return await _serialize_writer_document(session, doc)
 
 
 @router.delete(
@@ -221,7 +248,7 @@ async def apply_outline(
         raise _not_found(str(err)) from err
     except WriterDocumentPermissionError:
         raise _forbidden() from None
-    return WriterDocumentRead.model_validate(doc)
+    return await _serialize_writer_document(session, doc)
 
 
 @router.get(
