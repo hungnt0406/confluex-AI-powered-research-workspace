@@ -47,6 +47,26 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-12T21:50:14+07:00
+- **Request:** Replace raw Writer attached-source UUIDs with human-readable source names in the sources panel.
+- **Files changed:** `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/lib/api.ts`, `frontend/components/WriterSourcesPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Added ordered `source_papers` metadata to writer document responses and updated the Writer sources panel to render attached source titles, author/year/provider context, and UUID tooltips only as fallback detail. Verification passed for focused writer pytest, targeted Ruff, and frontend TypeScript.
+
+### 2026-05-12T11:24:45+07:00
+- **Request:** Implement the frontend portion of progressive related-paper discovery for the first standard chat message.
+- **Files changed:** `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ContextPanel.tsx`, `tests/test_frontend_pipeline_static.py`, `JOURNAL.md`.
+- **Current status:** Added a typed `streamProjectPipeline` SSE helper, changed first-message standard chat to create the project, consume `/projects/{id}/run/stream`, populate papers on the `papers` event, patch individual papers on `summary`, reconcile on `done`, then start the existing project chat stream with `paperIds: []` while keeping the composer busy. Related-paper cards now show a compact `Summary pending` state for ranked unsummarized papers while preserving summary toggles and summary-error rendering. Verification passed for `uv run pytest tests/test_frontend_pipeline_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`; the broader Deep Search static suite still has its existing unrelated `deep_research_max` assertion mismatch.
+
+### 2026-05-12T11:48:21+07:00
+- **Request:** Integrate the backend and frontend progressive related-paper pipeline changes from subagents and verify the full handoff plan.
+- **Files changed:** `backend/agents/pipeline.py`, `backend/agents/reader.py`, `backend/api/routers/projects.py`, `backend/api/schemas/projects.py`, `frontend/lib/api.ts`, `frontend/components/ChatProvider.tsx`, `frontend/components/ContextPanel.tsx`, `tests/test_projects.py`, `tests/test_quota_enforcement.py`, `tests/test_searcher_reader.py`, `tests/test_frontend_pipeline_static.py`, `README.md`, `frontend/README.md`, `docs/feature-map.md`, `JOURNAL.md`.
+- **Current status:** Aligned the streaming `papers` event contract across backend and frontend, confirmed ranked papers are emitted before summaries, kept `/projects/{id}/run` compatible, preserved stream credit debit/refund behavior, and documented the first-message progressive pipeline flow. Verification passed for focused backend/frontend pytest, targeted Ruff, backend mypy, and frontend TypeScript. `tests/test_frontend_deep_search_static.py` still has its pre-existing static assertion mismatch that expects only `if (chatMode === "deep_search")` while the code supports `deep_research_max` too.
+
+### 2026-05-12T11:57:43+07:00
+- **Request:** Remove the "Summary pending" badge from related-paper cards because it overflowed the context panel.
+- **Files changed:** `frontend/components/ContextPanel.tsx`, `tests/test_frontend_pipeline_static.py`, `frontend/README.md`, `JOURNAL.md`.
+- **Current status:** Removed the pending-summary pill so ranked papers without summaries render as normal paper cards until the summary toggle appears. Updated the frontend static regression and README wording. Verification passed for `uv run pytest tests/test_frontend_pipeline_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
 ### 2026-05-10T21:33:54+07:00
 - **Request:** Push the changed and new files from `feature/writer-workspace-mvp`, create PRs, and merge them into `main` following `PULL_REQUEST.md`.
 - **Files changed:** All remaining changed/new files on `feature/writer-workspace-mvp`; committed one file per commit and grouped PRs into two-file batches.
@@ -1293,3 +1313,13 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Push the current changed files, create PRs following `PULL_REQUEST.md`, and merge them into `main`.
 - **Files changed:** `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
 - **Current status:** Installed the repository pre-push hook, reviewed the pending Writer-related diffs, fixed a Ruff import-order issue found during PR preparation, and began the required per-file commit and PR merge workflow.
+
+## 2026-05-12T11:34:16+07:00
+- **Request:** Implement the backend portion of the progressive related-papers pipeline: keep `POST /projects/{id}/run`, add `POST /projects/{id}/run/stream` SSE, split ranking from summaries, and preserve credit semantics.
+- **Files changed:** `backend/agents/pipeline.py`, `backend/agents/reader.py`, `backend/api/routers/projects.py`, `backend/api/schemas/projects.py`, `tests/test_projects.py`, `tests/test_quota_enforcement.py`, `tests/test_searcher_reader.py`, `README.md`, `docs/feature-map.md`, `JOURNAL.md`.
+- **Current status:** Added a request-scoped discovery stream that emits `status`, `papers`, `summary`, `done`, and `error`; ranking now commits `status=ranked` before summaries, while summaries persist one paper at a time as `summarized` or `summary_error`. `/projects/{id}/run` still returns the same blocking response shape, and the focused backend verification passed with targeted pytest, Ruff, and backend mypy.
+
+## 2026-05-12T22:45:16+07:00
+- **Request:** Prevent an in-flight project chat response from being interrupted or redirected when the user opens another project.
+- **Files changed:** `frontend/components/ChatProvider.tsx`, `frontend/README.md`, `tests/test_frontend_deep_search_static.py`, `tests/test_frontend_pipeline_static.py`, `JOURNAL.md`.
+- **Current status:** Added per-project chat snapshots, project-scoped stream updates, cached project reactivation, and active-project busy tracking so standard chat and Deep Search streams continue updating their originating project while another project is visible. Verification passed for frontend TypeScript and the focused frontend static regression tests.
