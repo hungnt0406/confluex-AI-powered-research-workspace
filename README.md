@@ -112,6 +112,7 @@ npm run dev
 - `PATCH /projects/{id}`
 - `DELETE /projects/{id}`
 - `POST /projects/{id}/run`
+- `POST /projects/{id}/run/stream`
 - `GET /projects/{id}/papers`
 - `GET /projects/{id}/papers/{paper_id}/citation-graph`
 - `POST /projects/{id}/papers/import-citation`
@@ -133,6 +134,7 @@ npm run dev
 - `GET /pipeline/health`
 
 `POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
+`POST /projects/{id}/run/stream` runs the same discovery pipeline over `text/event-stream`, emitting `status`, `papers`, `summary`, `done`, and `error` events so ranked related papers can appear before all summaries finish. The `papers` event is emitted after ranking commits, and each `summary` event reflects one newly persisted paper summary or summary error.
 `PATCH /projects/{id}` renames an owned project without changing any of its persisted papers, conversations, or writer outputs.
 `DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
 `GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist. The same allowlist bypasses credit debits for paid research endpoints.
