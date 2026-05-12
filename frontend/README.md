@@ -41,8 +41,8 @@ npm run dev:reset
   3. After upload: `GET /projects/{id}/papers` refreshes the right panel; uploaded papers are marked with an `Uploaded PDF` badge and are not auto-selected.
 - First user message without an active project:
   1. `POST /projects` (title = first 120 chars, topic = full message, citation_format = APA).
-  2. `POST /projects/{id}/run` — Searcher → Reader pipeline; queries + counts shown in the right context panel.
-  3. `GET /projects/{id}/papers` — ranked papers populate the right panel with no paper selected by default.
+  2. `POST /projects/{id}/run/stream` — Searcher → Reader pipeline over SSE; the `papers` event populates the right panel as soon as ranking commits, while `summary` events update individual cards progressively.
+  3. `GET /projects/{id}/papers` — final reconciliation after the stream finishes; ranked papers remain unselected by default, and summaries appear on cards as each paper is summarized.
   4. `POST /projects/{id}/conversations/stream` — starts a project-scoped chat with `paper_ids: []` for a streamed general answer until papers are selected.
 - Admin usage monitor: `/admin/usage` checks `GET /admin/access`, then reads `GET /admin/token-usage` as a global dashboard for allowlisted admins with preset or custom date ranges and a full-range recent activity table. `/admin/usage/users` reuses the same endpoint for selected-user analysis with a searchable user picker, a `user_id` query string deep link, and a user log that shows project chat prompts when available.
 - Follow-up messages: `POST /projects/{id}/conversations/{conversation_id}/messages/stream` appends streamed assistant tokens to the same thread, carrying the current selected `paper_ids`.
@@ -55,7 +55,7 @@ npm run dev:reset
   5. With an active project that has no discovered related papers yet, approved Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
   6. The stream renders an expandable `Show thinking` panel with the full research path visible immediately, advances the active phase from `status` events, keeps a live elapsed timer/progress shimmer while waiting for the next backend event, creates the final answer bubble only when report text is available, and shows `source` / `done` event citations in the right context panel below `Related Papers`. Deep Search backend frames include SSE padding comments so small status updates are less likely to be buffered until the end of the run.
 - If a gated feature returns HTTP 402 with `required` and `balance`, the workspace shows a top-up CTA linking to the Deep Search top-up credit pack instead of only showing a generic error.
-- Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh.
+- Selecting a project in the sidebar re-hydrates ranked papers, restores the latest saved grounded project conversation, restores the last selected paper set from localStorage when possible, preserves intentionally empty selections, and restores the last-open project after refresh. In-flight chat and Deep Search streams stay attached to their originating project, so browsing another project does not erase or redirect the pending answer.
 - Each recent project row now exposes a hover/focus overflow menu for rename and delete actions.
 
 ## Files
