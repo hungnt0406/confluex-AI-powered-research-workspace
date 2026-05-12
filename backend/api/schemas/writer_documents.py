@@ -38,6 +38,20 @@ class WriterSectionRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WriterSourcePaperRead(BaseModel):
+    id: str
+    title: str
+    authors: list[str]
+    year: int | None
+    source: str
+    source_paper_id: str | None
+    source_url: str | None
+    pdf_url: str | None
+    reference_file_id: str | None
+
+    model_config = {"from_attributes": True}
+
+
 class WriterDocumentRead(BaseModel):
     id: str
     project_id: str
@@ -48,6 +62,7 @@ class WriterDocumentRead(BaseModel):
     citation_style: str
     preamble: str | None
     source_paper_ids_json: list[str]
+    source_papers: list[WriterSourcePaperRead] = Field(default_factory=list)
     status: str
     created_at: datetime
     updated_at: datetime
