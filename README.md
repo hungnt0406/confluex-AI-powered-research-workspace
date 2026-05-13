@@ -19,6 +19,7 @@ The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema,
 - Project-scoped multi-paper grounded conversations for the main chat workspace
 - Project-scoped Deep Search mode with plan approval, visible thinking/progress, persisted runs, Tavily web search fallback, academic/project evidence, report streaming, source capture, and QA flags
 - User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
+- User-owned writer documents that can start without a project, attach their own sources, upload PDFs, approve section outlines, and optionally import project papers as document sources
 - Sepay/VietQR credit top-ups with payment orders, webhook confirmation, user credit ledger, signup credit grants, and quota enforcement on expensive research operations
 - Project-scoped OpenRouter token usage telemetry with aggregate API
 - Admin-only OpenRouter token usage monitoring across all users/projects
@@ -128,6 +129,17 @@ npm run dev
 - `POST /projects/{id}/conversations/{conversation_id}/messages/stream`
 - `POST /projects/{id}/writer/generate`
 - `GET /projects/{id}/writer/outputs/{output_id}`
+- `POST /writer/documents`
+- `GET /writer/documents`
+- `POST /projects/{id}/writer/documents`
+- `GET /projects/{id}/writer/documents`
+- `GET /writer/documents/{document_id}`
+- `PATCH /writer/documents/{document_id}`
+- `DELETE /writer/documents/{document_id}`
+- `POST /writer/documents/{document_id}/sources/upload`
+- `POST /writer/documents/{document_id}/sources/import-project`
+- `POST /writer/documents/{document_id}/sources/attach`
+- `POST /writer/documents/{document_id}/sources/attach-paper`
 - `POST /projects/{id}/deep-search/stream`
 - `GET /projects/{id}/deep-search-runs`
 - `GET /projects/{id}/deep-search-runs/{run_id}`
@@ -154,6 +166,7 @@ npm run dev
 `GET /projects/{id}/deep-search-runs` and `GET /projects/{id}/deep-search-runs/{run_id}` expose persisted Deep Search run summaries, sources, reports, warnings, and QA flags.
 `POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
 `GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
+Writer document routes under `/writer/documents` are user-owned and do not require an active project. Project-scoped writer document routes remain for compatibility and optional project association. Document sources live in `writer_document_sources`; source PDFs and search/manual attachments can create user-owned papers without a project, while `/sources/import-project` copies selected papers from an owned project into the writer document source set. Section drafts require an approved section outline first. Research-paper Methods and Results outlines use explicit LaTeX subsections for empirical protocol, baselines, metrics, findings, comparisons, errors, runtime, and robustness; survey-paper Methods and Results outlines use review-protocol and comparative-synthesis subsections for scope, literature selection, taxonomy, benchmark coverage, evaluation dimensions, cross-method findings, domain evidence, trade-offs, and gaps.
 
 ## Quality gates
 
@@ -177,7 +190,7 @@ TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literatu
 - Reference PDF uploads prefer local PyMuPDF text extraction and only fall back to the live PDF parser when local extraction cannot produce usable text.
 - Project chat streaming waits up to `PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS` seconds for the first live answer token before falling back to the deterministic local answer; the default is 60 seconds.
 - Deep Search uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. The stream also emits user-facing `activity` events so the thinking panel can show planned research paths, source counts, and source references while the run is in progress. Final reports ask the writer to attach URL-backed Markdown citations to factual sentences, and the chat UI renders those links as compact source buttons with hover previews. If `TAVILY_API_KEY` is missing, web search is skipped with a persisted warning while academic/project evidence still runs.
-- Writer workspace source suggestions and auto-draft source fetching locally filter, dedupe, and rank candidates before drafting. Manual suggestions fetch 7 arXiv candidates plus 12 Tavily web candidates, auto-draft fetches 12 Tavily candidates for the active section and falls back to 7 arXiv candidates when no Tavily source can be used; both keep at most 7 sources. When `XIAOMI_MIMO_API_KEY` is set, source ranking uses Xiaomi MiMo through `WRITER_SOURCE_RANKER_MODEL` and `XIAOMI_MIMO_BASE_URL`; missing credentials or provider failures fall back to deterministic local ranking without OpenRouter.
+- Writer workspace source suggestions and auto-draft source fetching locally filter, dedupe, and rank candidates before drafting. Manual suggestions fetch 7 arXiv candidates plus 12 Tavily web candidates, auto-draft fetches 12 Tavily candidates for the active section and falls back to 7 arXiv candidates when no Tavily source can be used; both keep at most 7 sources. Writer documents are owned by the user, not by project chat state; projects are optional source providers. Section drafting is gated on an approved section outline, and research/survey Methods and Results drafts preserve approved LaTeX subsection structure. When `XIAOMI_MIMO_API_KEY` is set, source ranking uses Xiaomi MiMo through `WRITER_SOURCE_RANKER_MODEL` and `XIAOMI_MIMO_BASE_URL`; missing credentials or provider failures fall back to deterministic local ranking without OpenRouter.
 - Writer generation uses `WRITER_GENERATION_TIMEOUT_SECONDS` for live draft requests; the default is 60 seconds because section drafts can include several source abstracts and take longer than smaller structured-output calls.
 - Credit costs default to 20 credits for discovery pipeline runs, 80 for Deep Search, 40 for writer output, 2 for paper-chat follow-ups, and 5 for reference PDF uploads. Insufficient balances return HTTP 402 with `required` and `balance` fields.
 - Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
