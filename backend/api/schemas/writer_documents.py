@@ -54,7 +54,8 @@ class WriterSourcePaperRead(BaseModel):
 
 class WriterDocumentRead(BaseModel):
     id: str
-    project_id: str
+    user_id: str
+    project_id: str | None
     title: str
     topic: str
     thesis: str | None
@@ -73,7 +74,8 @@ class WriterDocumentRead(BaseModel):
 
 class WriterDocumentSummaryRead(BaseModel):
     id: str
-    project_id: str
+    user_id: str
+    project_id: str | None
     title: str
     topic: str
     paper_type: str
@@ -92,6 +94,16 @@ class OutlineApplyRequest(BaseModel):
     outline_by_section: dict[str, str] = Field(
         description="Map of section_id -> outline_text"
     )
+
+
+class SectionOutlineProposeResponse(BaseModel):
+    section_id: str
+    outline_text: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SectionOutlineApplyRequest(BaseModel):
+    outline_text: str = Field(min_length=1)
 
 
 class SectionInputsUpdate(BaseModel):
@@ -145,6 +157,16 @@ class SourceAttachResponse(BaseModel):
 
 class AttachPaperIdRequest(BaseModel):
     paper_id: str
+
+
+class ProjectSourceImportRequest(BaseModel):
+    project_id: str
+    paper_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class ProjectSourceImportResponse(BaseModel):
+    paper_ids: list[str]
+    imported_count: int
 
 
 class AssembleResponse(BaseModel):
