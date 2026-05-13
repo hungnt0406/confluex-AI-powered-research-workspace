@@ -241,7 +241,8 @@ class ReferenceFileRead(BaseModel):
     """Serialized project reference file metadata."""
 
     id: str
-    project_id: str
+    user_id: str | None
+    project_id: str | None
     original_filename: str
     content_type: str | None
     byte_size: int
@@ -261,6 +262,7 @@ class ReferenceFileRead(BaseModel):
         paper = reference.paper
         return cls(
             id=reference.id,
+            user_id=reference.user_id,
             project_id=reference.project_id,
             original_filename=reference.original_filename,
             content_type=reference.content_type,

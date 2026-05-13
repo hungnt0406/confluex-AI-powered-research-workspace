@@ -95,7 +95,8 @@ CREATE INDEX IF NOT EXISTS ix_payment_orders_status_expires_at
 
 CREATE TABLE IF NOT EXISTS reference_files (
     id VARCHAR(36) PRIMARY KEY,
-    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(36) REFERENCES projects(id) ON DELETE CASCADE,
     original_filename VARCHAR(500) NOT NULL,
     content_type VARCHAR(255),
     byte_size INTEGER NOT NULL,
@@ -113,12 +114,14 @@ CREATE TABLE IF NOT EXISTS reference_files (
     CONSTRAINT uq_reference_files_project_sha256 UNIQUE (project_id, sha256)
 );
 
+CREATE INDEX IF NOT EXISTS ix_reference_files_user_id ON reference_files (user_id);
 CREATE INDEX IF NOT EXISTS ix_reference_files_project_id ON reference_files (project_id);
 CREATE INDEX IF NOT EXISTS ix_reference_files_sha256 ON reference_files (sha256);
 
 CREATE TABLE IF NOT EXISTS papers (
     id VARCHAR(36) PRIMARY KEY,
-    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id VARCHAR(36) REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(36) REFERENCES projects(id) ON DELETE CASCADE,
     title VARCHAR(500) NOT NULL,
     authors JSONB NOT NULL DEFAULT '[]'::jsonb,
     year INTEGER,
@@ -135,6 +138,7 @@ CREATE TABLE IF NOT EXISTS papers (
     relevance_score DOUBLE PRECISION
 );
 
+CREATE INDEX IF NOT EXISTS ix_papers_user_id ON papers (user_id);
 CREATE INDEX IF NOT EXISTS ix_papers_project_id ON papers (project_id);
 CREATE INDEX IF NOT EXISTS ix_papers_reference_file_id ON papers (reference_file_id);
 
@@ -290,7 +294,8 @@ CREATE INDEX IF NOT EXISTS ix_writer_outputs_project_id ON writer_outputs (proje
 -- Writer workspace tables (added 2026-05-09)
 CREATE TABLE IF NOT EXISTS writer_documents (
     id VARCHAR(36) PRIMARY KEY,
-    project_id VARCHAR(36) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(36) REFERENCES projects(id) ON DELETE SET NULL,
     title VARCHAR(500) NOT NULL DEFAULT 'Untitled Paper',
     topic TEXT NOT NULL,
     thesis TEXT,
@@ -304,7 +309,27 @@ CREATE TABLE IF NOT EXISTS writer_documents (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS ix_writer_documents_user_id ON writer_documents (user_id);
 CREATE INDEX IF NOT EXISTS ix_writer_documents_project_id ON writer_documents (project_id);
+
+CREATE TABLE IF NOT EXISTS writer_document_sources (
+    id VARCHAR(36) PRIMARY KEY,
+    writer_document_id VARCHAR(36) NOT NULL REFERENCES writer_documents(id) ON DELETE CASCADE,
+    paper_id VARCHAR(36) REFERENCES papers(id) ON DELETE SET NULL,
+    source_origin VARCHAR(64) NOT NULL DEFAULT 'manual',
+    notes TEXT,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_writer_document_sources_document_paper UNIQUE (writer_document_id, paper_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_writer_document_sources_writer_document_id
+    ON writer_document_sources (writer_document_id);
+CREATE INDEX IF NOT EXISTS ix_writer_document_sources_paper_id
+    ON writer_document_sources (paper_id);
+CREATE INDEX IF NOT EXISTS ix_writer_document_sources_document_order
+    ON writer_document_sources (writer_document_id, order_index);
 
 CREATE TABLE IF NOT EXISTS writer_sections (
     id VARCHAR(36) PRIMARY KEY,
