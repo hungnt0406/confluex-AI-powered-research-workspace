@@ -35,6 +35,11 @@ const MonacoEditor = dynamic(
 
 type RightTab = "questions" | "sources" | "qa";
 
+const WRITER_OUTLINE_PANEL_WIDTH = 220;
+const WRITER_EDITOR_MIN_WIDTH = 280;
+const WRITER_RIGHT_PANEL_MIN_WIDTH = 360;
+const WRITER_RIGHT_PANEL_MAX_WIDTH = 720;
+
 interface WriterWorkspaceProps {
   initialDocument: WriterDocumentRead;
   token: string;
@@ -182,6 +187,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
     initialDocument.sections[0]?.id ?? null,
   );
   const [rightTab, setRightTab] = useState<RightTab>("questions");
+  const [rightPanelWidth, setRightPanelWidth] = useState<number>(480);
   const [editorContent, setEditorContent] = useState<string>("");
   const [proposingOutline, setProposingOutline] = useState(false);
   const [savingOutline, setSavingOutline] = useState(false);
@@ -201,9 +207,88 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string>("");
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const rightPanelDraggingRef = useRef(false);
+  const rightPanelStartXRef = useRef(0);
+  const rightPanelStartWidthRef = useRef(0);
 
   const activeSection = document.sections.find((s) => s.id === activeSectionId) ?? null;
-  const chatHref = `/chat?project=${document.project_id}`;
+  const chatHref = document.project_id ? `/chat?project=${document.project_id}` : "/writer";
+
+  const clampRightPanelWidth = useCallback((width: number) => {
+    const viewportMax =
+      window.innerWidth - WRITER_OUTLINE_PANEL_WIDTH - WRITER_EDITOR_MIN_WIDTH;
+    const maxWidth = Math.max(
+      WRITER_RIGHT_PANEL_MIN_WIDTH,
+      Math.min(WRITER_RIGHT_PANEL_MAX_WIDTH, viewportMax),
+    );
+    return Math.round(Math.min(Math.max(width, WRITER_RIGHT_PANEL_MIN_WIDTH), maxWidth));
+  }, []);
+
+  const handleRightPanelMouseMove = useCallback(
+    (event: MouseEvent) => {
+      if (!rightPanelDraggingRef.current) return;
+      const delta = rightPanelStartXRef.current - event.clientX;
+      setRightPanelWidth(clampRightPanelWidth(rightPanelStartWidthRef.current + delta));
+    },
+    [clampRightPanelWidth],
+  );
+
+  const handleRightPanelMouseUp = useCallback(() => {
+    if (!rightPanelDraggingRef.current) return;
+    rightPanelDraggingRef.current = false;
+    window.document.body.style.userSelect = "";
+    window.document.body.style.cursor = "";
+    window.removeEventListener("mousemove", handleRightPanelMouseMove);
+    window.removeEventListener("mouseup", handleRightPanelMouseUp);
+  }, [handleRightPanelMouseMove]);
+
+  const handleRightPanelMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      rightPanelDraggingRef.current = true;
+      rightPanelStartXRef.current = event.clientX;
+      rightPanelStartWidthRef.current = rightPanelWidth;
+      window.document.body.style.userSelect = "none";
+      window.document.body.style.cursor = "col-resize";
+      window.addEventListener("mousemove", handleRightPanelMouseMove);
+      window.addEventListener("mouseup", handleRightPanelMouseUp);
+    },
+    [handleRightPanelMouseMove, handleRightPanelMouseUp, rightPanelWidth],
+  );
+
+  const handleRightPanelKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setRightPanelWidth((width) => clampRightPanelWidth(width + 32));
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setRightPanelWidth((width) => clampRightPanelWidth(width - 32));
+      }
+    },
+    [clampRightPanelWidth],
+  );
+
+  useEffect(() => {
+    setRightPanelWidth(clampRightPanelWidth(window.innerWidth * 0.4));
+    const handleResize = () => {
+      setRightPanelWidth((width) => clampRightPanelWidth(width));
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [clampRightPanelWidth]);
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("mousemove", handleRightPanelMouseMove);
+      window.removeEventListener("mouseup", handleRightPanelMouseUp);
+      if (rightPanelDraggingRef.current) {
+        window.document.body.style.userSelect = "";
+        window.document.body.style.cursor = "";
+      }
+    };
+  }, [handleRightPanelMouseMove, handleRightPanelMouseUp]);
 
   // Sync editor content when active section changes
   useEffect(() => {
@@ -364,8 +449,8 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Link
             href={chatHref}
-            aria-label="Back to chat workspace"
-            title="Back to chat workspace"
+            aria-label={document.project_id ? "Back to chat workspace" : "Back to writer documents"}
+            title={document.project_id ? "Back to chat workspace" : "Back to writer documents"}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-primary/10 transition-colors"
           >
             <svg
@@ -570,8 +655,23 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
           </div>
         </div>
 
-        {/* Right: Tabbed Panel (300px) */}
-        <div className="flex w-[300px] shrink-0 flex-col overflow-hidden border-l border-outline/20">
+        {/* Right: Resizable tabbed panel */}
+        <div
+          className="relative flex shrink-0 flex-col overflow-hidden border-l border-outline/20"
+          style={{ width: `${rightPanelWidth}px` }}
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize writer side panel"
+            aria-valuemin={WRITER_RIGHT_PANEL_MIN_WIDTH}
+            aria-valuemax={WRITER_RIGHT_PANEL_MAX_WIDTH}
+            aria-valuenow={rightPanelWidth}
+            tabIndex={0}
+            onMouseDown={handleRightPanelMouseDown}
+            onKeyDown={handleRightPanelKeyDown}
+            className="absolute left-0 top-0 z-20 h-full w-2 -translate-x-1 cursor-col-resize outline-none transition-colors hover:bg-primary/30 focus:bg-primary/30"
+          />
           {/* Tab bar */}
           <div className="flex h-9 shrink-0 items-stretch border-b border-outline/20 bg-surface-container">
             {RIGHT_TABS.map((tab) => (
@@ -600,6 +700,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             {rightTab === "questions" && (
               <WriterQuestionsPanel
                 documentId={document.id}
+                documentPaperType={document.paper_type}
                 activeSection={activeSection}
                 token={token}
                 onSectionUpdate={handleSectionUpdate}
