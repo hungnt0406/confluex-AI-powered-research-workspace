@@ -19,6 +19,14 @@ class FakeQueryPlanner:
         return self.payload
 
 
+class OfflineQueryPlanner:
+    def is_configured(self) -> bool:
+        return False
+
+    async def generate_json(self, *, system_prompt, user_prompt, schema, max_tokens=1024, feature=None):
+        raise AssertionError("Offline query planner should not be called.")
+
+
 class CapturingQueryPlanner(FakeQueryPlanner):
     def __init__(self, payload):
         super().__init__(payload)
@@ -305,6 +313,24 @@ async def test_searcher_sanitizes_boolean_queries_and_salvages_short_batches() -
     assert queries[0].query == "vision transformer medical image segmentation 3D imaging volumetric data"
     assert len(queries[0].focus) <= 255
     assert len(queries) >= 5
+
+
+async def test_searcher_fallback_queries_keep_long_topics_within_search_limit() -> None:
+    long_topic = (
+        "Research the current state of real-time high-speed object tracking in computer vision. "
+        "Compare classical tracking, deep learning trackers, tracking-by-detection, and "
+        "event-camera methods. Identify key papers, datasets, evaluation metrics, open problems, "
+        "and the most promising future research direction. Include citations and source-backed "
+        "conclusions."
+    )
+    searcher = SearcherAgent(llm_service=OfflineQueryPlanner(), search_clients=[])
+
+    queries, errors = await searcher.expand_queries(long_topic)
+
+    assert errors == []
+    assert 5 <= len(queries) <= 8
+    assert all(3 <= len(query.query) <= 255 for query in queries)
+    assert any(query.query.endswith("survey") for query in queries)
 
 
 async def test_searcher_query_expansion_receives_uploaded_reference_context() -> None:
