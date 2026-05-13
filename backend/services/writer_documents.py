@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from backend.agents.writer import WriterPaperContext
 from backend.agents.writer_section import (
@@ -26,8 +27,12 @@ from backend.agents.writer_section import (
 from backend.config import get_settings
 from backend.db.models import (
     Paper,
+    PaperChunk,
     Project,
+    ReferenceFile,
+    Summary,
     WriterDocument,
+    WriterDocumentSource,
     WriterSection,
     WriterSectionVersion,
     generate_identifier,
@@ -48,6 +53,9 @@ MAX_SECTION_VERSIONS = 5
 WRITER_TAVILY_SOURCE_POOL = 12
 WRITER_ARXIV_SOURCE_POOL = 7
 WRITER_SOURCE_LIMIT = 7
+DRAFT_OUTLINE_REQUIRED_MESSAGE = "Approve a section outline before drafting."
+STRUCTURED_METHODS_OUTLINE_REQUIRED_MESSAGE = "Approve a structured Methods outline before drafting."
+STRUCTURED_RESULTS_OUTLINE_REQUIRED_MESSAGE = "Approve a structured Results outline before drafting."
 ARXIV_ID_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)")
 ARXIV_ID_VALUE_RE = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$", re.IGNORECASE)
 TODO_PATTERN = re.compile(r"\\todo\{[^}]*\}")
@@ -83,6 +91,102 @@ SOURCE_RANKER_SCHEMA: dict[str, Any] = {
     },
     "required": ["ranked_candidates", "warnings"],
     "additionalProperties": False,
+}
+RESEARCH_SECTION_OUTLINES: dict[str, str] = {
+    "abstract": (
+        "Summarize the research problem, empirical method, key results, and contribution. "
+        "Draft this after the main sections are stable."
+    ),
+    "intro": (
+        "Frame the empirical problem and motivation.\n"
+        "State the research gap.\n"
+        "Define the contribution and research questions.\n"
+        "Preview the experimental approach."
+    ),
+    "related_work": (
+        "Organize prior work by method family or problem setting.\n"
+        "Compare the most relevant baselines.\n"
+        "Identify the gap that motivates this research paper."
+    ),
+    "methods": "\n".join(
+        [
+            r"\subsection{Study Design and Experimental Setup}",
+            r"\subsection{Datasets, Materials, or Participants}",
+            r"\subsection{Proposed Method}",
+            r"\subsection{Baselines and Comparators}",
+            r"\subsection{Evaluation Metrics}",
+            r"\subsection{Implementation Details}",
+            r"\subsection{Reproducibility and Limitations}",
+        ]
+    ),
+    "results": "\n".join(
+        [
+            r"\subsection{Primary Quantitative Findings}",
+            r"\subsection{Baseline and Comparator Results}",
+            r"\subsection{Ablation or Sensitivity Analysis}",
+            r"\subsection{Qualitative Findings and Error Cases}",
+            r"\subsection{Efficiency and Runtime Results}",
+            r"\subsection{Robustness and Statistical Evidence}",
+        ]
+    ),
+    "discussion": (
+        "Interpret the results relative to the research questions.\n"
+        "Explain limitations and threats to validity.\n"
+        "State practical or scientific implications."
+    ),
+    "conclusion": (
+        "Restate the main finding and contribution.\n"
+        "Summarize the evidence supporting the contribution.\n"
+        "Identify focused future work."
+    ),
+}
+SURVEY_SECTION_OUTLINES: dict[str, str] = {
+    "abstract": (
+        "Summarize the survey scope, method taxonomy, evaluation dimensions, main comparative findings, "
+        "and implications for future work."
+    ),
+    "intro": (
+        "Introduce the surveyed domain and motivation.\n"
+        "Define the scope and research questions.\n"
+        "Summarize why a comparative survey is needed.\n"
+        "Preview the survey organization."
+    ),
+    "related_work": (
+        "Position this survey against prior surveys and benchmark papers.\n"
+        "Explain what earlier reviews covered.\n"
+        "Identify the coverage gap addressed by this survey."
+    ),
+    "methods": "\n".join(
+        [
+            r"\subsection{Survey Scope and Research Questions}",
+            r"\subsection{Literature Search and Selection Criteria}",
+            r"\subsection{Tracking Method Taxonomy}",
+            r"\subsection{Benchmark and Dataset Coverage}",
+            r"\subsection{Evaluation Dimensions}",
+            r"\subsection{Comparative Synthesis Procedure}",
+            r"\subsection{Limitations of the Review Methodology}",
+        ]
+    ),
+    "results": "\n".join(
+        [
+            r"\subsection{Comparative Findings by Method Family}",
+            r"\subsection{Performance Under High-Speed Conditions}",
+            r"\subsection{Benchmark and Dataset Trends}",
+            r"\subsection{Accuracy, Robustness, and Latency Trade-offs}",
+            r"\subsection{Domain-Specific Evidence}",
+            r"\subsection{Key Result Patterns and Gaps}",
+        ]
+    ),
+    "discussion": (
+        "Interpret cross-method trends and unresolved challenges.\n"
+        "Discuss limitations of the surveyed evidence.\n"
+        "Explain implications for deployment and future research."
+    ),
+    "conclusion": (
+        "Summarize the main survey conclusions.\n"
+        "Restate the practical takeaways by method family.\n"
+        "Identify open problems and future directions."
+    ),
 }
 logger = logging.getLogger(__name__)
 
@@ -165,14 +269,27 @@ class WriterDocumentService:
         self,
         *,
         session: AsyncSession,
-        project_id: str,
+        user_id: str | None = None,
+        project_id: str | None = None,
         title: str,
         topic: str,
         thesis: str | None,
         paper_type: str = "imrad",
         citation_style: str = "ieee",
     ) -> WriterDocument:
+        owner_id = user_id
+        if project_id is not None:
+            project = await session.get(Project, project_id)
+            if project is None:
+                raise WriterDocumentNotFoundError(f"Project '{project_id}' not found.")
+            if owner_id is not None and project.user_id != owner_id:
+                raise WriterDocumentPermissionError("Access denied.")
+            owner_id = project.user_id
+        if owner_id is None:
+            raise WriterDocumentPermissionError("A writer document owner is required.")
+
         doc = WriterDocument(
+            user_id=owner_id,
             project_id=project_id,
             title=title,
             topic=topic,
@@ -203,7 +320,11 @@ class WriterDocumentService:
         await session.commit()
         result = await session.execute(
             select(WriterDocument)
-            .options(selectinload(WriterDocument.sections), selectinload(WriterDocument.project))
+            .options(
+                selectinload(WriterDocument.sections),
+                selectinload(WriterDocument.project),
+                selectinload(WriterDocument.sources).selectinload(WriterDocumentSource.paper),
+            )
             .where(WriterDocument.id == doc_id)
         )
         return result.scalar_one()
@@ -217,13 +338,17 @@ class WriterDocumentService:
     ) -> WriterDocument:
         result = await session.execute(
             select(WriterDocument)
-            .options(selectinload(WriterDocument.sections), selectinload(WriterDocument.project))
+            .options(
+                selectinload(WriterDocument.sections),
+                selectinload(WriterDocument.project),
+                selectinload(WriterDocument.sources).selectinload(WriterDocumentSource.paper),
+            )
             .where(WriterDocument.id == document_id)
         )
         doc = result.scalar_one_or_none()
         if doc is None:
             raise WriterDocumentNotFoundError(f"Writer document '{document_id}' not found.")
-        if doc.project.user_id != user_id:
+        if doc.user_id != user_id:
             raise WriterDocumentPermissionError("Access denied.")
         return doc
 
@@ -231,13 +356,32 @@ class WriterDocumentService:
         self,
         *,
         session: AsyncSession,
-        project_id: str,
+        user_id: str | None = None,
+        project_id: str | None = None,
     ) -> list[WriterDocument]:
-        result = await session.execute(
+        if project_id is not None:
+            project = await session.get(Project, project_id)
+            if project is None:
+                raise WriterDocumentNotFoundError(f"Project '{project_id}' not found.")
+            if user_id is not None and project.user_id != user_id:
+                raise WriterDocumentPermissionError("Access denied.")
+            owner_id = project.user_id
+        elif user_id is not None:
+            owner_id = user_id
+        else:
+            raise WriterDocumentPermissionError("A writer document owner is required.")
+
+        statement = (
             select(WriterDocument)
             .options(selectinload(WriterDocument.sections))
-            .where(WriterDocument.project_id == project_id)
+            .where(WriterDocument.user_id == owner_id)
             .order_by(WriterDocument.created_at.desc())
+        )
+        if project_id is not None:
+            statement = statement.where(WriterDocument.project_id == project_id)
+
+        result = await session.execute(
+            statement
         )
         return list(result.scalars().all())
 
@@ -283,11 +427,55 @@ class WriterDocumentService:
         outline: dict[str, str] = {}
         for section in doc.sections:
             outline[section.id] = self._default_outline_text(
+                paper_type=doc.paper_type,
                 section_type=section.section_type,
                 topic=doc.topic,
                 thesis=doc.thesis,
             )
         return outline
+
+    async def propose_section_outline(
+        self,
+        *,
+        session: AsyncSession,
+        section_id: str,
+        user_id: str,
+    ) -> tuple[WriterSection, str]:
+        section, doc = await self._load_section_with_doc(
+            session=session,
+            section_id=section_id,
+            user_id=user_id,
+        )
+        outline = self._default_outline_text(
+            paper_type=doc.paper_type,
+            section_type=section.section_type,
+            topic=doc.topic,
+            thesis=doc.thesis,
+        )
+        return section, outline
+
+    async def approve_section_outline(
+        self,
+        *,
+        session: AsyncSession,
+        section_id: str,
+        user_id: str,
+        outline_text: str,
+    ) -> WriterSection:
+        normalized_outline = outline_text.strip()
+        if not normalized_outline:
+            raise ValueError("Section outline cannot be empty.")
+        section, doc = await self._load_section_with_doc(
+            session=session,
+            section_id=section_id,
+            user_id=user_id,
+        )
+        section.outline_text = normalized_outline
+        section.status = "awaiting_input"
+        doc.status = "drafting"
+        await session.commit()
+        await session.refresh(section)
+        return section
 
     async def apply_outline(
         self,
@@ -345,10 +533,14 @@ class WriterDocumentService:
         section, doc = await self._load_section_with_doc(
             session=session, section_id=section_id, user_id=user_id
         )
+        if not (section.outline_text or "").strip():
+            raise ValueError(DRAFT_OUTLINE_REQUIRED_MESSAGE)
+        if self._requires_structured_methods_outline(doc=doc, section=section):
+            raise ValueError(STRUCTURED_METHODS_OUTLINE_REQUIRED_MESSAGE)
+        if self._requires_structured_results_outline(doc=doc, section=section):
+            raise ValueError(STRUCTURED_RESULTS_OUTLINE_REQUIRED_MESSAGE)
 
-        papers = await self._load_source_papers(
-            session=session, project_id=doc.project_id, paper_ids=doc.source_paper_ids_json
-        )
+        papers = await self._load_document_source_papers(session=session, doc=doc)
 
         # Auto-search on every draft to supplement attached sources.
         auto_papers, auto_warnings = await self._auto_fetch_source_papers(
@@ -367,6 +559,7 @@ class WriterDocumentService:
 
         draft_result = await self.section_agent.draft_section(
             section_id=section_id,
+            paper_type=doc.paper_type,
             section_type=section.section_type,
             title=section.title,
             outline_text=section.outline_text,
@@ -475,11 +668,7 @@ class WriterDocumentService:
             if section_doc.id != doc.id:
                 raise WriterSectionNotFoundError(f"Section '{section_id}' not found.")
 
-        attached_papers = await self._load_source_papers(
-            session=session,
-            project_id=doc.project_id,
-            paper_ids=doc.source_paper_ids_json,
-        )
+        attached_papers = await self._load_document_source_papers(session=session, doc=doc)
 
         candidates: list[dict[str, Any]] = []
         warnings: list[str] = []
@@ -536,14 +725,20 @@ class WriterDocumentService:
         if existing_conditions:
             existing_result = await session.execute(
                 select(Paper)
-                .where(Paper.project_id == doc.project_id, or_(*existing_conditions))
+                .where(
+                    self._paper_access_filter(doc),
+                    or_(*existing_conditions),
+                )
                 .limit(1)
             )
             existing_paper = existing_result.scalar_one_or_none()
             if existing_paper is not None:
-                if existing_paper.id not in doc.source_paper_ids_json:
-                    doc.source_paper_ids_json = [*doc.source_paper_ids_json, existing_paper.id]
-                    await session.commit()
+                await self._attach_paper_to_document(
+                    session=session,
+                    doc=doc,
+                    paper=existing_paper,
+                    source_origin=str(candidate.get("source") or "existing"),
+                )
                 return existing_paper.id, False, "Source already attached."
 
         pdf_url = candidate.get("pdf_url")
@@ -563,22 +758,27 @@ class WriterDocumentService:
                 pass
 
         if pdf_fetched and pdf_bytes:
-            project = await session.get(Project, doc.project_id)
-            if project is None:
-                return None, True, "Project not found."
+            project = await session.get(Project, doc.project_id) if doc.project_id else None
             filename = f"{arxiv_id or 'paper'}.pdf"
             try:
                 ref_file = await self.reference_file_service.create_reference_file(
                     session=session,
                     project=project,
+                    user_id=doc.user_id,
                     filename=filename,
                     content_type="application/pdf",
                     content=pdf_bytes,
                 )
                 paper_id = ref_file.paper.id if ref_file.paper else None
-                if paper_id and paper_id not in doc.source_paper_ids_json:
-                    doc.source_paper_ids_json = [*doc.source_paper_ids_json, paper_id]
-                    await session.commit()
+                if paper_id:
+                    paper = await session.get(Paper, paper_id)
+                    if paper is not None:
+                        await self._attach_paper_to_document(
+                            session=session,
+                            doc=doc,
+                            paper=paper,
+                            source_origin=str(candidate.get("source") or "upload"),
+                        )
                 return paper_id, False, "Source attached and PDF fetched."
             except Exception:
                 pass
@@ -590,7 +790,8 @@ class WriterDocumentService:
         abstract = candidate.get("abstract")
         paper = Paper(
             id=generate_identifier(),
-            project_id=doc.project_id,
+            user_id=doc.user_id,
+            project_id=None,
             title=title,
             authors=list(authors),
             year=int(year) if year else None,
@@ -602,9 +803,13 @@ class WriterDocumentService:
             status="candidate",
         )
         session.add(paper)
-        if paper.id not in doc.source_paper_ids_json:
-            doc.source_paper_ids_json = [*doc.source_paper_ids_json, paper.id]
-        await session.commit()
+        await session.flush()
+        await self._attach_paper_to_document(
+            session=session,
+            doc=doc,
+            paper=paper,
+            source_origin=str(candidate.get("source") or "writer_attach"),
+        )
         return paper.id, False, "Source attached (metadata only — PDF unavailable)."
 
     async def remove_source(
@@ -616,6 +821,14 @@ class WriterDocumentService:
         paper_id: str,
     ) -> None:
         doc = await self.get_document(session=session, document_id=document_id, user_id=user_id)
+        rows = await session.execute(
+            select(WriterDocumentSource).where(
+                WriterDocumentSource.writer_document_id == doc.id,
+                WriterDocumentSource.paper_id == paper_id,
+            )
+        )
+        for row in rows.scalars().all():
+            await session.delete(row)
         doc.source_paper_ids_json = [p for p in doc.source_paper_ids_json if p != paper_id]
         await session.commit()
 
@@ -635,10 +848,9 @@ class WriterDocumentService:
     ) -> AssembleResult:
         doc = await self.get_document(session=session, document_id=document_id, user_id=user_id)
         cited_ids_from_drafts = self._extract_cited_paper_ids_from_sections(doc.sections)
-        paper_ids = self._ordered_unique([*doc.source_paper_ids_json, *cited_ids_from_drafts])
-        papers = await self._load_source_papers(
-            session=session, project_id=doc.project_id, paper_ids=paper_ids
-        )
+        source_paper_ids = await self._document_source_paper_ids(session=session, doc=doc)
+        paper_ids = self._ordered_unique([*source_paper_ids, *cited_ids_from_drafts])
+        papers = await self._load_papers_by_ids(session=session, paper_ids=paper_ids)
         loaded_paper_ids = {paper.id for paper in papers}
         missing_citation_ids = [
             paper_id
@@ -666,7 +878,7 @@ class WriterDocumentService:
 
         for missing_id in missing_citation_ids:
             warnings.append(
-                f"Citation '{missing_id}' has no matching project paper; no reference was generated."
+                f"Citation '{missing_id}' has no matching writer source; no reference was generated."
             )
 
         bib_entries = list(citation_bundle.bibtex_entries_by_paper_id.values())
@@ -680,9 +892,15 @@ class WriterDocumentService:
         )
 
         doc.bib_text = bib_text
-        doc.source_paper_ids_json = self._ordered_unique(
-            [*doc.source_paper_ids_json, *[paper.id for paper in papers]]
-        )
+        for paper in papers:
+            await self._attach_paper_to_document(
+                session=session,
+                doc=doc,
+                paper=paper,
+                source_origin="draft_citation",
+                commit=False,
+            )
+        doc.source_paper_ids_json = self._ordered_unique([paper.id for paper in papers])
         doc.status = "ready"
         await session.commit()
 
@@ -720,6 +938,9 @@ class WriterDocumentService:
             .options(
                 selectinload(WriterSection.document).selectinload(WriterDocument.project),
                 selectinload(WriterSection.document).selectinload(WriterDocument.sections),
+                selectinload(WriterSection.document)
+                .selectinload(WriterDocument.sources)
+                .selectinload(WriterDocumentSource.paper),
             )
             .where(WriterSection.id == section_id)
         )
@@ -727,7 +948,7 @@ class WriterDocumentService:
         if section is None:
             raise WriterSectionNotFoundError(f"Section '{section_id}' not found.")
         doc = section.document
-        if doc.project.user_id != user_id:
+        if doc.user_id != user_id:
             raise WriterDocumentPermissionError("Access denied.")
         return section, doc
 
@@ -755,11 +976,39 @@ class WriterDocumentService:
             for old in all_versions[MAX_SECTION_VERSIONS:]:
                 await session.delete(old)
 
-    async def _load_source_papers(
+    async def _document_source_paper_ids(
         self,
         *,
         session: AsyncSession,
-        project_id: str,
+        doc: WriterDocument,
+    ) -> list[str]:
+        result = await session.execute(
+            select(WriterDocumentSource.paper_id)
+            .where(
+                WriterDocumentSource.writer_document_id == doc.id,
+                WriterDocumentSource.paper_id.is_not(None),
+            )
+            .order_by(WriterDocumentSource.order_index.asc())
+        )
+        source_ids = [paper_id for paper_id in result.scalars().all() if paper_id]
+        doc.source_paper_ids_json = self._ordered_unique(
+            [*(doc.source_paper_ids_json or []), *source_ids]
+        )
+        return doc.source_paper_ids_json
+
+    async def _load_document_source_papers(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+    ) -> list[Paper]:
+        paper_ids = await self._document_source_paper_ids(session=session, doc=doc)
+        return await self._load_papers_by_ids(session=session, paper_ids=paper_ids)
+
+    async def _load_papers_by_ids(
+        self,
+        *,
+        session: AsyncSession,
         paper_ids: list[str],
     ) -> list[Paper]:
         if not paper_ids:
@@ -767,10 +1016,139 @@ class WriterDocumentService:
         result = await session.execute(
             select(Paper)
             .options(selectinload(Paper.summary))
-            .where(Paper.project_id == project_id, Paper.id.in_(paper_ids))
+            .where(Paper.id.in_(paper_ids))
         )
         papers_by_id = {p.id: p for p in result.scalars().all()}
         return [papers_by_id[pid] for pid in paper_ids if pid in papers_by_id]
+
+    def _paper_access_filter(self, doc: WriterDocument) -> ColumnElement[bool]:
+        conditions = [Paper.user_id == doc.user_id]
+        if doc.project_id is not None:
+            conditions.append(Paper.project_id == doc.project_id)
+        return or_(*conditions)
+
+    async def _attach_paper_to_document(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+        paper: Paper,
+        source_origin: str,
+        notes: str | None = None,
+        commit: bool = True,
+    ) -> None:
+        result = await session.execute(
+            select(WriterDocumentSource).where(
+                WriterDocumentSource.writer_document_id == doc.id,
+                WriterDocumentSource.paper_id == paper.id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            order_index = len(await self._document_source_paper_ids(session=session, doc=doc))
+            session.add(
+                WriterDocumentSource(
+                    writer_document_id=doc.id,
+                    paper_id=paper.id,
+                    source_origin=source_origin,
+                    notes=notes,
+                    order_index=order_index,
+                )
+            )
+        elif notes and not existing.notes:
+            existing.notes = notes
+
+        if paper.id not in doc.source_paper_ids_json:
+            doc.source_paper_ids_json = [*doc.source_paper_ids_json, paper.id]
+        if commit:
+            await session.commit()
+
+    async def _can_use_paper(
+        self,
+        *,
+        session: AsyncSession,
+        doc: WriterDocument,
+        user_id: str,
+        paper: Paper,
+    ) -> bool:
+        if paper.user_id == user_id and paper.project_id is None:
+            return True
+        if paper.project_id is not None and paper.project_id == doc.project_id:
+            project = await session.get(Project, paper.project_id)
+            return project is not None and project.user_id == user_id
+        return False
+
+    async def _copy_project_paper_for_document(
+        self,
+        *,
+        session: AsyncSession,
+        source_paper: Paper,
+        user_id: str,
+    ) -> Paper:
+        existing_result = await session.execute(
+            select(Paper)
+            .options(selectinload(Paper.summary), selectinload(Paper.chunks))
+            .where(
+                Paper.user_id == user_id,
+                Paper.project_id.is_(None),
+                Paper.source == "project_import",
+                Paper.source_paper_id == source_paper.id,
+            )
+            .limit(1)
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        imported = Paper(
+            id=generate_identifier(),
+            user_id=user_id,
+            project_id=None,
+            title=source_paper.title,
+            authors=list(source_paper.authors),
+            year=source_paper.year,
+            abstract=source_paper.abstract,
+            doi=source_paper.doi,
+            source="project_import",
+            source_paper_id=source_paper.id,
+            source_url=source_paper.source_url,
+            pdf_url=source_paper.pdf_url,
+            citation_count=source_paper.citation_count,
+            reference_count=source_paper.reference_count,
+            status=source_paper.status,
+            relevance_score=source_paper.relevance_score,
+        )
+        session.add(imported)
+        await session.flush()
+
+        if source_paper.summary is not None:
+            session.add(
+                Summary(
+                    paper_id=imported.id,
+                    problem=source_paper.summary.problem,
+                    method=source_paper.summary.method,
+                    result=source_paper.summary.result,
+                    relevance_to_topic=source_paper.summary.relevance_to_topic,
+                    has_error=source_paper.summary.has_error,
+                    error_message=source_paper.summary.error_message,
+                )
+            )
+
+        for chunk in source_paper.chunks:
+            session.add(
+                PaperChunk(
+                    paper_id=imported.id,
+                    chunk_index=chunk.chunk_index,
+                    page_start=chunk.page_start,
+                    page_end=chunk.page_end,
+                    section_title=chunk.section_title,
+                    content=chunk.content,
+                    embedding_json=list(chunk.embedding_json),
+                )
+            )
+
+        await session.flush()
+        return imported
 
     async def _build_paper_contexts(
         self,
@@ -971,7 +1349,8 @@ class WriterDocumentService:
             source_paper_id = self._clean_optional_string(candidate.get("source_paper_id"))
             paper = Paper(
                 id=generate_identifier(),
-                project_id=doc.project_id,
+                user_id=doc.user_id,
+                project_id=None,
                 title=str(candidate.get("title") or "Untitled"),
                 authors=list(candidate.get("authors") or []),
                 year=int(candidate["year"]) if candidate.get("year") else None,
@@ -989,11 +1368,15 @@ class WriterDocumentService:
             return []
 
         new_ids = [p.id for p in new_papers]
-        doc.source_paper_ids_json = [
-            *doc.source_paper_ids_json,
-            *[pid for pid in new_ids if pid not in doc.source_paper_ids_json],
-        ]
         await session.flush()
+        for paper in new_papers:
+            await self._attach_paper_to_document(
+                session=session,
+                doc=doc,
+                paper=paper,
+                source_origin=str(paper.source or "auto_search"),
+                commit=False,
+            )
 
         # Re-query with selectinload so Paper.summary is eagerly loaded (avoids MissingGreenlet)
         reloaded = await session.execute(
@@ -1425,12 +1808,97 @@ class WriterDocumentService:
         paper = await session.get(Paper, paper_id)
         if paper is None:
             raise WriterDocumentNotFoundError(f"Paper '{paper_id}' not found.")
-        if paper.project_id != doc.project_id:
+        if not await self._can_use_paper(session=session, doc=doc, user_id=user_id, paper=paper):
             raise WriterDocumentPermissionError("Paper does not belong to this writer document.")
-        if paper_id not in doc.source_paper_ids_json:
-            doc.source_paper_ids_json = [*doc.source_paper_ids_json, paper_id]
-            await session.commit()
+        await self._attach_paper_to_document(
+            session=session,
+            doc=doc,
+            paper=paper,
+            source_origin="manual",
+        )
         return paper_id
+
+    async def import_project_sources(
+        self,
+        *,
+        session: AsyncSession,
+        document_id: str,
+        user_id: str,
+        project_id: str,
+        paper_ids: list[str],
+    ) -> list[str]:
+        """Import owned project papers as document-owned source copies."""
+
+        doc = await self.get_document(session=session, document_id=document_id, user_id=user_id)
+        project = await session.get(Project, project_id)
+        if project is None:
+            raise WriterDocumentNotFoundError(f"Project '{project_id}' not found.")
+        if project.user_id != user_id:
+            raise WriterDocumentPermissionError("Access denied.")
+
+        unique_paper_ids = self._ordered_unique(paper_ids)
+        result = await session.execute(
+            select(Paper)
+            .options(
+                selectinload(Paper.summary),
+                selectinload(Paper.chunks),
+            )
+            .where(Paper.project_id == project_id, Paper.id.in_(unique_paper_ids))
+        )
+        papers_by_id = {paper.id: paper for paper in result.scalars().all()}
+        missing_ids = [paper_id for paper_id in unique_paper_ids if paper_id not in papers_by_id]
+        if missing_ids:
+            raise WriterDocumentNotFoundError("One or more project papers were not found.")
+
+        imported_ids: list[str] = []
+        for source_paper_id in unique_paper_ids:
+            imported = await self._copy_project_paper_for_document(
+                session=session,
+                source_paper=papers_by_id[source_paper_id],
+                user_id=user_id,
+            )
+            await self._attach_paper_to_document(
+                session=session,
+                doc=doc,
+                paper=imported,
+                source_origin="project_import",
+                notes=f"Imported from project {project_id} paper {source_paper_id}",
+                commit=False,
+            )
+            imported_ids.append(imported.id)
+
+        await session.commit()
+        return imported_ids
+
+    async def upload_source_pdf(
+        self,
+        *,
+        session: AsyncSession,
+        document_id: str,
+        user_id: str,
+        filename: str,
+        content_type: str | None,
+        content: bytes,
+    ) -> ReferenceFile:
+        """Upload a PDF directly into a writer document source library."""
+
+        doc = await self.get_document(session=session, document_id=document_id, user_id=user_id)
+        ref_file = await self.reference_file_service.create_reference_file(
+            session=session,
+            project=None,
+            user_id=doc.user_id,
+            filename=filename,
+            content_type=content_type,
+            content=content,
+        )
+        if ref_file.paper is not None:
+            await self._attach_paper_to_document(
+                session=session,
+                doc=doc,
+                paper=ref_file.paper,
+                source_origin="upload",
+            )
+        return ref_file
 
     async def _fetch_arxiv_candidates(
         self, query: str, *, limit: int = WRITER_ARXIV_SOURCE_POOL
@@ -1447,10 +1915,29 @@ class WriterDocumentService:
     def _default_outline_text(
         self,
         *,
+        paper_type: str = "imrad",
         section_type: str,
         topic: str,
         thesis: str | None,
     ) -> str:
+        normalized_paper_type = paper_type.strip().lower()
+        if normalized_paper_type == "research" and section_type in RESEARCH_SECTION_OUTLINES:
+            outline = RESEARCH_SECTION_OUTLINES[section_type]
+            if section_type not in {"methods", "results"}:
+                focus = f" Topic: {topic}."
+                if thesis:
+                    focus += f" Thesis: {thesis}."
+                return f"{outline}{focus}"
+            return outline
+        if normalized_paper_type == "survey" and section_type in SURVEY_SECTION_OUTLINES:
+            outline = SURVEY_SECTION_OUTLINES[section_type]
+            if section_type not in {"methods", "results"}:
+                focus = f" Topic: {topic}."
+                if thesis:
+                    focus += f" Thesis: {thesis}."
+                return f"{outline}{focus}"
+            return outline
+
         base = f"Discuss '{topic}'"
         if thesis:
             base += f" with focus on: {thesis}"
@@ -1464,6 +1951,28 @@ class WriterDocumentService:
             "conclusion": f"Summarize contributions and future directions for {topic}.",
         }
         return templates.get(section_type, base)
+
+    def _requires_structured_methods_outline(
+        self,
+        *,
+        doc: WriterDocument,
+        section: WriterSection,
+    ) -> bool:
+        paper_type = doc.paper_type.strip().lower()
+        if paper_type not in {"research", "survey"} or section.section_type != "methods":
+            return False
+        return r"\subsection{" not in (section.outline_text or "")
+
+    def _requires_structured_results_outline(
+        self,
+        *,
+        doc: WriterDocument,
+        section: WriterSection,
+    ) -> bool:
+        paper_type = doc.paper_type.strip().lower()
+        if paper_type not in {"research", "survey"} or section.section_type != "results":
+            return False
+        return r"\subsection{" not in (section.outline_text or "")
 
     def _substitute_citation_keys(
         self, text: str, citation_keys: dict[str, str]

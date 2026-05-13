@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.agents.writer_section import SectionDraftResult
-from backend.db.models import Paper, Project, User, WriterDocument
+from backend.db.models import Paper, Project, User, WriterDocument, WriterDocumentSource
 from backend.security import hash_password
 from backend.services.tavily import ACADEMIC_DOMAINS, TavilySearchResponse, TavilySearchResult
 from backend.services.writer_documents import (
@@ -133,8 +133,10 @@ class FakeSourceRankerClient:
 class CapturingSectionAgent:
     def __init__(self) -> None:
         self.context_ids: list[str] = []
+        self.calls: list[dict[str, object]] = []
 
     async def draft_section(self, **kwargs: object) -> SectionDraftResult:
+        self.calls.append(kwargs)
         paper_contexts = kwargs["paper_contexts"]
         self.context_ids = [context.paper_id for context in paper_contexts]  # type: ignore[attr-defined]
         return SectionDraftResult(
@@ -146,6 +148,196 @@ class CapturingSectionAgent:
 
 
 class TestWriterDocumentService:
+    async def test_create_standalone_document_is_user_owned_without_project(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                user_id=writer_user["id"],
+                project_id=None,
+                title="Standalone Survey",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="survey",
+                citation_style="ieee",
+            )
+
+        assert doc.user_id == writer_user["id"]
+        assert doc.project_id is None
+        assert doc.title == "Standalone Survey"
+        assert len(doc.sections) == 7
+
+    async def test_standalone_document_sources_are_document_owned(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fail_download_pdf(*args: object, **kwargs: object) -> bytes:
+            raise RuntimeError("network timeout")
+
+        monkeypatch.setattr("backend.services.writer_documents.download_pdf", fail_download_pdf)
+
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                user_id=writer_user["id"],
+                project_id=None,
+                title="Standalone",
+                topic="high-speed tracking",
+                thesis=None,
+            )
+            paper_id, requires_upload, _ = await svc.attach_source(
+                session=session,
+                document_id=doc.id,
+                user_id=writer_user["id"],
+                candidate={
+                    "title": "Standalone Source",
+                    "authors": ["A. Researcher"],
+                    "year": 2025,
+                    "abstract": "Evidence for standalone drafting.",
+                    "source": "tavily",
+                    "source_url": "https://example.com/standalone",
+                    "pdf_url": "https://example.com/standalone.pdf",
+                },
+            )
+            assert paper_id is not None
+            link_rows = list(
+                (
+                    await session.execute(
+                        select(WriterDocumentSource).where(
+                            WriterDocumentSource.writer_document_id == doc.id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            paper = await session.get(Paper, paper_id)
+
+        assert requires_upload is False
+        assert paper is not None
+        assert paper.user_id == writer_user["id"]
+        assert paper.project_id is None
+        assert len(link_rows) == 1
+        assert link_rows[0].paper_id == paper_id
+        assert link_rows[0].source_origin == "tavily"
+
+    async def test_draft_section_uses_document_sources_without_project(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+    ) -> None:
+        tavily = FakeTavilyService([])
+        section_agent = CapturingSectionAgent()
+        svc = WriterDocumentService(
+            tavily_service=tavily,
+            embedding_service=FakeEmbeddingService(),
+            section_agent=section_agent,
+        )
+
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                user_id=writer_user["id"],
+                project_id=None,
+                title="Standalone",
+                topic="clinical retrieval",
+                thesis=None,
+            )
+            paper = Paper(
+                user_id=writer_user["id"],
+                project_id=None,
+                title="Standalone Evidence",
+                authors=[],
+                source="manual",
+                abstract="Standalone evidence.",
+                status="candidate",
+            )
+            session.add(paper)
+            await session.flush()
+            await svc.attach_paper_id(
+                session=session,
+                document_id=doc.id,
+                user_id=writer_user["id"],
+                paper_id=paper.id,
+            )
+            intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            intro_section.outline_text = "Frame the clinical retrieval problem."
+            await session.flush()
+
+            section, warnings = await svc.draft_section(
+                session=session,
+                section_id=intro_section.id,
+                user_id=writer_user["id"],
+            )
+
+        assert section.draft_latex
+        assert warnings == []
+        assert section_agent.context_ids == [paper.id]
+
+    async def test_import_project_sources_copies_owned_project_papers_to_document(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            project_paper = Paper(
+                project_id=writer_project["id"],
+                title="Project Source",
+                authors=["A. Author"],
+                year=2024,
+                abstract="Project evidence.",
+                source="semantic_scholar",
+                source_paper_id="S2-1",
+                source_url="https://example.com/project-source",
+                status="candidate",
+            )
+            session.add(project_paper)
+            await session.flush()
+            doc = await svc.create_document(
+                session=session,
+                user_id=writer_user["id"],
+                project_id=None,
+                title="Standalone",
+                topic="tracking",
+                thesis=None,
+            )
+            imported_ids = await svc.import_project_sources(
+                session=session,
+                document_id=doc.id,
+                user_id=writer_user["id"],
+                project_id=writer_project["id"],
+                paper_ids=[project_paper.id],
+            )
+            imported = await session.get(Paper, imported_ids[0])
+            source_rows = list(
+                (
+                    await session.execute(
+                        select(WriterDocumentSource).where(
+                            WriterDocumentSource.writer_document_id == doc.id
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        assert imported is not None
+        assert imported.id != project_paper.id
+        assert imported.user_id == writer_user["id"]
+        assert imported.project_id is None
+        assert imported.title == "Project Source"
+        assert source_rows[0].paper_id == imported.id
+        assert source_rows[0].source_origin == "project_import"
+
     async def test_create_document_creates_seven_sections(
         self, session_factory: async_sessionmaker[AsyncSession], writer_project: dict[str, str]
     ) -> None:
@@ -245,6 +437,295 @@ class TestWriterDocumentService:
         for outline_text in outline.values():
             assert isinstance(outline_text, str)
             assert len(outline_text) > 0
+
+    async def test_research_methods_section_outline_uses_subsections(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Research Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="research",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            section_id = methods_section.id
+
+        async with session_factory() as session:
+            _, outline = await svc.propose_section_outline(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+            )
+
+        assert r"\subsection{Study Design and Experimental Setup}" in outline
+        assert r"\subsection{Proposed Method}" in outline
+        assert r"\subsection{Evaluation Metrics}" in outline
+
+    async def test_survey_methods_section_outline_uses_review_protocol_subsections(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Survey Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="survey",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            section_id = methods_section.id
+
+        async with session_factory() as session:
+            _, outline = await svc.propose_section_outline(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+            )
+
+        assert r"\subsection{Survey Scope and Research Questions}" in outline
+        assert r"\subsection{Literature Search and Selection Criteria}" in outline
+        assert r"\subsection{Tracking Method Taxonomy}" in outline
+        assert "Describe the methodology used" not in outline
+
+    async def test_research_results_section_outline_uses_result_subsections(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Research Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="research",
+            )
+            results_section = next(s for s in doc.sections if s.section_type == "results")
+            section_id = results_section.id
+
+        async with session_factory() as session:
+            _, outline = await svc.propose_section_outline(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+            )
+
+        assert r"\subsection{Primary Quantitative Findings}" in outline
+        assert r"\subsection{Baseline and Comparator Results}" in outline
+        assert r"\subsection{Qualitative Findings and Error Cases}" in outline
+        assert "Present quantitative and qualitative results" not in outline
+
+    async def test_survey_results_section_outline_uses_comparative_subsections(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Survey Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="survey",
+            )
+            results_section = next(s for s in doc.sections if s.section_type == "results")
+            section_id = results_section.id
+
+        async with session_factory() as session:
+            _, outline = await svc.propose_section_outline(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+            )
+
+        assert r"\subsection{Comparative Findings by Method Family}" in outline
+        assert r"\subsection{Performance Under High-Speed Conditions}" in outline
+        assert r"\subsection{Accuracy, Robustness, and Latency Trade-offs}" in outline
+        assert "Present comparative patterns" not in outline
+
+    async def test_survey_methods_draft_rejects_generic_one_line_outline(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Survey Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="survey",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            methods_section.outline_text = "Describe the methodology used in the survey study."
+            await session.commit()
+            section_id = methods_section.id
+
+        async with session_factory() as session:
+            with pytest.raises(ValueError, match="Approve a structured Methods outline"):
+                await svc.draft_section(
+                    session=session,
+                    section_id=section_id,
+                    user_id=writer_user["id"],
+                )
+
+    async def test_survey_results_draft_rejects_generic_one_line_outline(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Survey Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="survey",
+            )
+            results_section = next(s for s in doc.sections if s.section_type == "results")
+            results_section.outline_text = "Present comparative patterns across method families."
+            await session.commit()
+            section_id = results_section.id
+
+        async with session_factory() as session:
+            with pytest.raises(ValueError, match="Approve a structured Results outline"):
+                await svc.draft_section(
+                    session=session,
+                    section_id=section_id,
+                    user_id=writer_user["id"],
+                )
+
+    async def test_approve_section_outline_persists_single_section(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Research Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="research",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            section_id = methods_section.id
+
+        outline = r"\subsection{Proposed Method}"
+        async with session_factory() as session:
+            section = await svc.approve_section_outline(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+                outline_text=outline,
+            )
+
+        assert section.outline_text == outline
+        assert section.status == "awaiting_input"
+
+    async def test_draft_section_requires_approved_outline(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        svc = WriterDocumentService()
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Research Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="research",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            section_id = methods_section.id
+
+        async with session_factory() as session:
+            with pytest.raises(ValueError, match="Approve a section outline before drafting"):
+                await svc.draft_section(
+                    session=session,
+                    section_id=section_id,
+                    user_id=writer_user["id"],
+                )
+
+    async def test_draft_section_passes_approved_outline_to_section_agent(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        writer_user: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        capturing_agent = CapturingSectionAgent()
+        svc = WriterDocumentService(
+            section_agent=capturing_agent,
+            embedding_service=FakeEmbeddingService(),
+            tavily_service=FakeTavilyService([]),
+        )
+        outline = r"\subsection{Proposed Method}"
+        async with session_factory() as session:
+            doc = await svc.create_document(
+                session=session,
+                project_id=writer_project["id"],
+                title="Research Paper",
+                topic="high-speed object tracking",
+                thesis=None,
+                paper_type="research",
+            )
+            methods_section = next(s for s in doc.sections if s.section_type == "methods")
+            paper = Paper(
+                project_id=writer_project["id"],
+                title="Tracking Method Paper",
+                authors=["A. Researcher"],
+                year=2025,
+                abstract="A paper about tracking methods.",
+                source="manual",
+                status="candidate",
+            )
+            session.add(paper)
+            await session.flush()
+            doc.source_paper_ids_json = [paper.id]
+            methods_section.outline_text = outline
+            await session.commit()
+            section_id = methods_section.id
+
+        async with session_factory() as session:
+            await svc.draft_section(
+                session=session,
+                section_id=section_id,
+                user_id=writer_user["id"],
+            )
+
+        assert capturing_agent.calls
+        assert capturing_agent.calls[0]["outline_text"] == outline
+        assert capturing_agent.calls[0]["paper_type"] == "research"
 
     async def test_apply_outline_persists_and_sets_status(
         self,
@@ -1000,6 +1481,7 @@ class TestWriterDocumentService:
                 thesis=None,
             )
             intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            intro_section.outline_text = "Frame the clinical question answering problem."
             existing = Paper(
                 project_id=writer_project["id"],
                 title="Existing Paper",
@@ -1020,17 +1502,17 @@ class TestWriterDocumentService:
                 user_id=writer_user["id"],
             )
 
+            reloaded = await svc.get_document(
+                session=session, document_id=doc.id, user_id=writer_user["id"]
+            )
             papers = list(
                 (
                     await session.execute(
-                        select(Paper).where(Paper.project_id == writer_project["id"])
+                        select(Paper).where(Paper.id.in_(reloaded.source_paper_ids_json))
                     )
                 )
                 .scalars()
                 .all()
-            )
-            reloaded = await svc.get_document(
-                session=session, document_id=doc.id, user_id=writer_user["id"]
             )
 
         source_urls = [paper.source_url for paper in papers]
@@ -1089,6 +1571,7 @@ class TestWriterDocumentService:
                 thesis="RAG improves QA.",
             )
             intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            intro_section.outline_text = "Frame the clinical retrieval problem."
             await svc.submit_section_inputs(
                 session=session,
                 section_id=intro_section.id,
@@ -1175,6 +1658,7 @@ class TestWriterDocumentService:
                 thesis=None,
             )
             intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            intro_section.outline_text = "Frame the clinical retrieval problem."
             section, warnings = await svc.draft_section(
                 session=session,
                 section_id=intro_section.id,
@@ -1186,7 +1670,7 @@ class TestWriterDocumentService:
             stored_papers = list(
                 (
                     await session.execute(
-                        select(Paper).where(Paper.project_id == writer_project["id"])
+                        select(Paper).where(Paper.id.in_(reloaded.source_paper_ids_json))
                     )
                 )
                 .scalars()
@@ -1225,6 +1709,7 @@ class TestWriterDocumentService:
                 thesis=None,
             )
             intro_section = next(s for s in doc.sections if s.section_type == "intro")
+            intro_section.outline_text = "Frame the clinical retrieval problem."
             section, warnings = await svc.draft_section(
                 session=session,
                 section_id=intro_section.id,
@@ -1375,6 +1860,93 @@ class TestWriterDocumentService:
 
 
 class TestWriterDocumentRouter:
+    async def test_create_standalone_document_endpoint(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+    ) -> None:
+        response = await client.post(
+            "/writer/documents",
+            json={
+                "topic": "high-speed moving object tracking",
+                "title": "Independent Survey",
+                "paper_type": "survey",
+            },
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["project_id"] is None
+        assert data["title"] == "Independent Survey"
+        assert len(data["sections"]) == 7
+
+    async def test_list_standalone_writer_documents_endpoint(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+    ) -> None:
+        await client.post(
+            "/writer/documents",
+            json={"topic": "test topic", "title": "Standalone Test"},
+            headers=writer_auth_headers,
+        )
+
+        response = await client.get("/writer/documents", headers=writer_auth_headers)
+
+        assert response.status_code == 200
+        assert [doc["title"] for doc in response.json()] == ["Standalone Test"]
+
+    async def test_import_project_sources_rejects_other_users_project(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        create_resp = await client.post(
+            "/writer/documents",
+            json={"topic": "test topic", "title": "Standalone"},
+            headers=writer_auth_headers,
+        )
+        doc_id = create_resp.json()["id"]
+
+        async with session_factory() as session:
+            other_user = User(
+                email="other-project-owner@example.com",
+                hashed_password=hash_password("writerpass"),
+                credit_balance=100_000,
+            )
+            session.add(other_user)
+            await session.flush()
+            other_project = Project(
+                user_id=other_user.id,
+                title="Other Project",
+                topic_description="Other topic",
+                citation_format="ieee",
+                year_start=2018,
+                candidate_limit=20,
+                summary_limit=10,
+            )
+            session.add(other_project)
+            await session.flush()
+            paper = Paper(
+                project_id=other_project.id,
+                title="Other Paper",
+                authors=[],
+                source="semantic_scholar",
+                status="candidate",
+            )
+            session.add(paper)
+            await session.commit()
+
+        response = await client.post(
+            f"/writer/documents/{doc_id}/sources/import-project",
+            json={"project_id": other_project.id, "paper_ids": [paper.id]},
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 403
+
     async def test_create_document_endpoint(
         self,
         client: AsyncClient,
@@ -1576,6 +2148,83 @@ class TestWriterDocumentRouter:
         )
         assert response.status_code == 200
         assert response.json()["status"] == "drafting"
+
+    async def test_section_outline_propose_endpoint(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        create_resp = await client.post(
+            f"/projects/{writer_project['id']}/writer/documents",
+            json={"topic": "object tracking", "title": "Tracking Paper", "paper_type": "research"},
+            headers=writer_auth_headers,
+        )
+        doc = create_resp.json()
+        doc_id = doc["id"]
+        methods_section = next(s for s in doc["sections"] if s["section_type"] == "methods")
+        section_id = methods_section["id"]
+
+        response = await client.post(
+            f"/writer/documents/{doc_id}/sections/{section_id}/outline/propose",
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["section_id"] == section_id
+        assert r"\subsection{Proposed Method}" in data["outline_text"]
+
+    async def test_section_outline_approve_endpoint(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        create_resp = await client.post(
+            f"/projects/{writer_project['id']}/writer/documents",
+            json={"topic": "object tracking", "title": "Tracking Paper", "paper_type": "research"},
+            headers=writer_auth_headers,
+        )
+        doc = create_resp.json()
+        doc_id = doc["id"]
+        methods_section = next(s for s in doc["sections"] if s["section_type"] == "methods")
+        section_id = methods_section["id"]
+        outline = r"\subsection{Proposed Method}"
+
+        response = await client.put(
+            f"/writer/documents/{doc_id}/sections/{section_id}/outline",
+            json={"outline_text": outline},
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["outline_text"] == outline
+        assert response.json()["status"] == "awaiting_input"
+
+    async def test_draft_section_endpoint_requires_approved_outline(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        writer_project: dict[str, str],
+    ) -> None:
+        create_resp = await client.post(
+            f"/projects/{writer_project['id']}/writer/documents",
+            json={"topic": "object tracking", "title": "Tracking Paper", "paper_type": "research"},
+            headers=writer_auth_headers,
+        )
+        doc = create_resp.json()
+        doc_id = doc["id"]
+        methods_section = next(s for s in doc["sections"] if s["section_type"] == "methods")
+        section_id = methods_section["id"]
+
+        response = await client.post(
+            f"/writer/documents/{doc_id}/sections/{section_id}/draft",
+            headers=writer_auth_headers,
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Approve a section outline before drafting."
 
     async def test_section_questions_endpoint(
         self,
