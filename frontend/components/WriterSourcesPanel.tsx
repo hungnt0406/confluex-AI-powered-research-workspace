@@ -9,8 +9,7 @@ import {
   attachSource,
   removeSource,
   suggestSources,
-  uploadProjectReferenceFile,
-  attachPaperById,
+  uploadWriterDocumentSource,
 } from "@/lib/api";
 
 interface WriterSourcesPanelProps {
@@ -173,12 +172,11 @@ export function WriterSourcesPanel({ document, token, onDocumentUpdate }: Writer
     setUploading(true);
     setUploadStatus(null);
     try {
-      const result: ReferenceFileRead = await uploadProjectReferenceFile(document.project_id, file, token);
+      const result: ReferenceFileRead = await uploadWriterDocumentSource(document.id, file, token);
       if (!result.linked_paper_id) {
         setUploadStatus({ type: "error", message: "PDF uploaded but paper extraction failed" });
         return;
       }
-      await attachPaperById(document.id, result.linked_paper_id, token);
       const existingIds = document.source_paper_ids_json ?? [];
       onDocumentUpdate({
         ...document,
