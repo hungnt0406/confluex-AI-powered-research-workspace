@@ -47,6 +47,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-13T12:04:26+07:00
+- **Request:** Make sidebar project clicks leave the Writer page and open the independent project chat workspace.
+- **Files changed:** `frontend/components/Sidebar.tsx`, `frontend/README.md`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Added project-row routing to `/chat?project=...` from non-chat routes while preserving the existing chat-page project hydration flow, documented the split, and added a focused frontend static regression. Verification passed for the full Writer static test file and frontend TypeScript.
+
 ### 2026-05-12T21:50:14+07:00
 - **Request:** Replace raw Writer attached-source UUIDs with human-readable source names in the sources panel.
 - **Files changed:** `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/lib/api.ts`, `frontend/components/WriterSourcesPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
@@ -1324,10 +1329,20 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/components/ChatProvider.tsx`, `frontend/README.md`, `tests/test_frontend_deep_search_static.py`, `tests/test_frontend_pipeline_static.py`, `JOURNAL.md`.
 - **Current status:** Added per-project chat snapshots, project-scoped stream updates, cached project reactivation, and active-project busy tracking so standard chat and Deep Search streams continue updating their originating project while another project is visible. Verification passed for frontend TypeScript and the focused frontend static regression tests.
 
+## 2026-05-13T10:11:30+07:00
+- **Request:** Make the Writer workspace independent from projects using the cleaner long-term model, without pushing changes.
+- **Files changed:** `backend/db/models.py`, `backend/db/migrations/versions/20260513_01_standalone_writer_documents.py`, `database_schema.sql`, `backend/services/writer_documents.py`, `backend/services/reference_files.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `backend/api/schemas/projects.py`, `frontend/lib/api.ts`, `frontend/app/writer/page.tsx`, `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterSourcesPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/feature-map.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Writer documents are now user-owned and can be created/listed without an active project. Added `writer_document_sources`, direct writer PDF upload, standalone/user-owned source papers, optional project-paper import with source copying, and compatibility for existing project-backed document routes. Frontend Writer no longer blocks on active project and uploads PDFs directly to the writer document. Verification passed for focused Writer backend/static tests.
+
 ## 2026-05-13T17:10:00+07:00
 - **Request:** Understand the project and implement suitable evaluation metrics for the AI agents and AI chatbot.
 - **Files changed:** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `README.md`, `JOURNAL.md`.
 - **Current status:** Added a deterministic `backend.eval.metrics` module (golden search hit/recall, Reader summary success and field coverage, Deep Search citation-warning rate via `verify_report_claims`, paper-chat format/grounding-leak and lexical support scores, Writer QA severity counts and health score). Exposed `count_report_claim_sentences` for consistent denominators. Refactored opt-in `tests/test_search_quality.py` to use the shared search helpers. Verification passed for Ruff, mypy on `backend/eval` and `deep_search`, and `pytest tests/test_eval_metrics.py`.
+
+## 2026-05-13T17:22:10+07:00
+- **Request:** Save and implement the Writer section-outline approval plan so section drafts, especially research Methods drafts, follow an approved paper-type outline before generation.
+- **Files changed:** `plans/in-progress/section-outline-approval-before-draft.md`, `backend/agents/writer_section.py`, `backend/services/writer_documents.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/lib/api.ts`, `frontend/app/writer/page.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_section_agent.py`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/feature-map.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`.
+- **Current status:** Saved the implementation plan, added section-level outline propose/approve APIs, blocked section drafting until an outline is approved, made `paper_type=research` Methods outlines render required LaTeX subsections, and gated the frontend Draft action behind outline approval. Focused backend and frontend static tests are passing; full focused verification and TypeScript checks are next.
 
 ## 2026-05-13T18:45:00+07:00
 - **Request:** How to run test sample prompts to get outputs of all evaluation metrics.
@@ -1339,3 +1354,28 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **PR summary — deterministic agent/chat evaluation metrics:** Introduced `backend/eval/` with pure metrics for Searcher golden hit and mean recall, Reader summary success and field coverage, Deep Search report citation hygiene (`verify_report_claims` + `citation_warning_rate`), paper-chat answer shape / page mentions / chunk–score leak detection and lexical grounding support (`token_jaccard`, `paper_chat_grounding_support`), and Writer QA severity counts plus health score. Added `count_report_claim_sentences()` on `deep_search` for verifier-aligned denominators. Refactored opt-in `tests/test_search_quality.py` to use shared search helpers. Added `scripts/run_eval_metric_samples.py` and README pointer for local metric demos without Postgres or API keys.
 - **Files changed (full PR list):** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `scripts/run_eval_metric_samples.py`, `README.md`, `JOURNAL.md`.
 - **Suggested verification before merge:** `uv run ruff check backend/eval scripts/run_eval_metric_samples.py tests/test_eval_metrics.py tests/test_search_quality.py backend/services/deep_search.py`; `uv run mypy backend/eval`; `uv run pytest tests/test_eval_metrics.py -q`; optional `uv run python scripts/run_eval_metric_samples.py`; optional live search eval `RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval` (requires network and working academic search).
+
+## 2026-05-13T20:35:42+07:00
+- **Request:** Fix survey Methods outline approval after the UI showed the old generic one-line fallback as an approved outline.
+- **Files changed:** `backend/agents/writer_section.py`, `backend/services/writer_documents.py`, `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`.
+- **Current status:** Added survey-specific Methods outline templates with review-protocol subsections, made survey/research Methods require `\subsection{...}` before drafting, and updated the UI so generic Methods one-liners are not treated as approved outlines. Verification passed with focused Writer backend/static pytest, frontend TypeScript, and targeted Ruff.
+
+## 2026-05-13T20:57:40+07:00
+- **Request:** Apply the same structured-outline behavior to Writer Results sections.
+- **Files changed:** `backend/agents/writer_section.py`, `backend/services/writer_documents.py`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_writer_section_agent.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`.
+- **Current status:** Added research and survey Results subsection templates, made generic one-line Results outlines fail the approval gate for research/survey papers, and updated fallback drafting to preserve approved Results subsections. Verification passed with focused Writer backend/static pytest, frontend TypeScript, and targeted Ruff.
+
+## 2026-05-13T21:05:44+07:00
+- **Request:** Make the Writer right-side Questions/Sources/QA panel larger, about 40% of the screen.
+- **Files changed:** `frontend/components/WriterWorkspace.tsx`, `frontend/app/writer/[documentId]/page.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Updated the loaded Writer workspace and loading skeleton to use a 40vw right panel with 360px/640px bounds. Verification passed with frontend static pytest, frontend TypeScript, and targeted Ruff.
+
+## 2026-05-13T22:20:44+07:00
+- **Request:** Make the Writer right-side Questions/Sources/QA panel adjustable by the user.
+- **Files changed:** `frontend/components/WriterWorkspace.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Replaced the fixed loaded Writer right panel width with a resizable panel initialized from 40% viewport width, including mouse drag and keyboard arrow resizing with min/max bounds. Verification passed with frontend static pytest, frontend TypeScript, and targeted Ruff.
+
+## 2026-05-13T22:30:41+07:00
+- **Request:** Fix the Deep Search/discovery failure shown as `SearchQuery query String should have at most 255 characters` when a long research prompt is used.
+- **Files changed:** `backend/agents/searcher.py`, `tests/test_searcher_reader.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added a regression for the reported long high-speed tracking prompt and changed fallback query composition to reserve room for suffix terms before creating `SearchQuery` models. Verification passed for the focused regression, full `tests/test_searcher_reader.py`, and targeted Ruff.
