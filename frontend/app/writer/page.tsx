@@ -44,17 +44,13 @@ function NewDocumentModal({ projectId, token, onCreated, onClose }: NewDocumentM
   const [title, setTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [thesis, setThesis] = useState("");
-  const [paperType, setPaperType] = useState("survey");
+  const [paperType, setPaperType] = useState("research");
   const [citationStyle, setCitationStyle] = useState("ieee");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectId) {
-      setError("No active project selected. Please open a research project first.");
-      return;
-    }
     if (!title.trim() || !topic.trim()) {
       setError("Title and topic are required.");
       return;
@@ -104,8 +100,8 @@ function NewDocumentModal({ projectId, token, onCreated, onClose }: NewDocumentM
         </div>
 
         {!projectId && (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            No active project. Select a research project from the sidebar first.
+          <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+            This paper will start as an independent writer document. You can import project sources later.
           </div>
         )}
 
@@ -207,7 +203,7 @@ function NewDocumentModal({ projectId, token, onCreated, onClose }: NewDocumentM
             </button>
             <button
               type="submit"
-              disabled={submitting || !projectId}
+              disabled={submitting}
               aria-busy={submitting}
               aria-live="polite"
               className="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -294,7 +290,7 @@ function WriterListInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!token || !activeProject) {
+    if (!token) {
       setDocuments([]);
       setLoading(false);
       setError(null);
@@ -303,14 +299,14 @@ function WriterListInner() {
     setLoading(true);
     setError(null);
     try {
-      const docs = await listWriterDocuments(activeProject.id, token);
+      const docs = await listWriterDocuments(token);
       setDocuments(docs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load documents.");
     } finally {
       setLoading(false);
     }
-  }, [token, activeProject]);
+  }, [token]);
 
   useEffect(() => {
     void refresh();
@@ -332,8 +328,7 @@ function WriterListInner() {
     router.push(`/writer/${doc.id}`);
   }, [router]);
 
-  const showProjectPickerState = !activeProject && !busy;
-  const showLoadingState = (!activeProject && busy) || (Boolean(activeProject) && loading);
+  const showLoadingState = busy || loading;
   const chatHref = activeProject ? `/chat?project=${activeProject.id}` : "/chat";
 
   return (
@@ -367,7 +362,6 @@ function WriterListInner() {
               <button
                 type="button"
                 onClick={() => setShowModal(true)}
-                disabled={!activeProject}
                 className="flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add</span>
@@ -376,15 +370,6 @@ function WriterListInner() {
             </div>
           </header>
 
-          {showProjectPickerState && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5 mb-6">
-              <p className="text-sm font-semibold text-amber-800">No project selected</p>
-              <p className="mt-1 text-xs text-amber-700">
-                Select or create a research project from the sidebar to manage writer documents.
-              </p>
-            </div>
-          )}
-
           {error && (
             <div className="mb-6 rounded-xl border border-rose-500/20 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
@@ -392,7 +377,7 @@ function WriterListInner() {
           )}
 
           {/* Document grid */}
-          {showProjectPickerState ? null : showLoadingState ? (
+          {showLoadingState ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="h-40 rounded-2xl skeleton-shimmer" />
@@ -409,12 +394,11 @@ function WriterListInner() {
               </span>
               <p className="mt-4 text-sm font-semibold text-on-surface">No papers yet</p>
               <p className="mt-1 text-xs text-on-surface-variant max-w-xs">
-                Create your first AI-assisted paper draft for this research project.
+                Create your first AI-assisted paper draft, then attach sources from uploads, search, or a project.
               </p>
               <button
                 type="button"
                 onClick={() => setShowModal(true)}
-                disabled={!activeProject}
                 className="mt-6 flex h-10 items-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add</span>
