@@ -53,6 +53,7 @@ Return only JSON that matches the requested schema.
 BOOLEAN_OPERATOR_PATTERN = re.compile(r"\b(?:AND|OR|NOT)\b", re.IGNORECASE)
 PUNCTUATION_COLLAPSE_PATTERN = re.compile(r"[\"'`(){}\[\],;:?!]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
+SEARCH_QUERY_MAX_LENGTH = 255
 _QUESTION_LEAD_WORDS = frozenset(
     {"can", "could", "describe", "do", "does", "explain", "how", "is", "are", "what", "when", "where", "which", "who", "why", "would"}
 )
@@ -99,7 +100,7 @@ REFERENCE_QUERY_STOPWORDS = {
 class SearchQuery(BaseModel):
     """A single expanded search query."""
 
-    query: str = Field(min_length=3, max_length=255)
+    query: str = Field(min_length=3, max_length=SEARCH_QUERY_MAX_LENGTH)
     focus: str = Field(min_length=1, max_length=255)
 
 
@@ -481,13 +482,13 @@ class SearcherAgent:
         normalized_topic = self._sanitize_query_text(topic)
         query_candidates = [
             (normalized_topic, "broad"),
-            (f"{normalized_topic} survey", "broad-survey"),
-            (f"{normalized_topic} systematic review", "review"),
-            (f"{normalized_topic} recent advances", "recent"),
-            (f"{normalized_topic} benchmark dataset", "dataset"),
-            (f"{normalized_topic} neural network methods", "technique"),
-            (f"{normalized_topic} application study", "application"),
-            (f"{normalized_topic} empirical evaluation", "evaluation"),
+            (self._append_query_terms(normalized_topic, "survey"), "broad-survey"),
+            (self._append_query_terms(normalized_topic, "systematic review"), "review"),
+            (self._append_query_terms(normalized_topic, "recent advances"), "recent"),
+            (self._append_query_terms(normalized_topic, "benchmark dataset"), "dataset"),
+            (self._append_query_terms(normalized_topic, "neural network methods"), "technique"),
+            (self._append_query_terms(normalized_topic, "application study"), "application"),
+            (self._append_query_terms(normalized_topic, "empirical evaluation"), "evaluation"),
         ]
         for reference_query in self._build_reference_fallback_queries(normalized_topic, reference_context):
             query_candidates.append(reference_query)
@@ -531,7 +532,10 @@ class SearcherAgent:
         for index in range(0, len(top_terms), 2):
             term_pair = " ".join(top_terms[index : index + 2])
             if term_pair:
-                queries.append((f"{normalized_topic} {term_pair}", "uploaded-reference"))
+                queries.append((
+                    self._append_query_terms(normalized_topic, term_pair),
+                    "uploaded-reference",
+                ))
 
         return queries[:3]
 
@@ -539,13 +543,13 @@ class SearcherAgent:
         normalized_topic = self._sanitize_query_text(topic)
         query_candidates = [
             (normalized_topic, "exact-name"),
-            (f"{normalized_topic} paper", "paper"),
-            (f"{normalized_topic} model", "model"),
-            (f"{normalized_topic} architecture", "architecture"),
-            (f"{normalized_topic} benchmark", "benchmark"),
-            (f"{normalized_topic} survey", "survey"),
-            (f"{normalized_topic} evaluation", "evaluation"),
-            (f"{normalized_topic} recent work", "recent"),
+            (self._append_query_terms(normalized_topic, "paper"), "paper"),
+            (self._append_query_terms(normalized_topic, "model"), "model"),
+            (self._append_query_terms(normalized_topic, "architecture"), "architecture"),
+            (self._append_query_terms(normalized_topic, "benchmark"), "benchmark"),
+            (self._append_query_terms(normalized_topic, "survey"), "survey"),
+            (self._append_query_terms(normalized_topic, "evaluation"), "evaluation"),
+            (self._append_query_terms(normalized_topic, "recent work"), "recent"),
         ]
         return self._deduplicate_queries(
             SearchQuery(query=query, focus=focus)
@@ -596,11 +600,20 @@ class SearcherAgent:
             deduplicated_queries.append(query)
         return deduplicated_queries
 
-    def _sanitize_query_text(self, text: str) -> str:
+    def _sanitize_query_text(self, text: str, *, max_length: int = SEARCH_QUERY_MAX_LENGTH) -> str:
         sanitized = BOOLEAN_OPERATOR_PATTERN.sub(" ", text)
         sanitized = PUNCTUATION_COLLAPSE_PATTERN.sub(" ", sanitized)
         sanitized = WHITESPACE_PATTERN.sub(" ", sanitized).strip()
-        return sanitized[:255]
+        return sanitized[:max_length].rstrip()
+
+    def _append_query_terms(self, base_query: str, terms: str) -> str:
+        normalized_terms = self._sanitize_query_text(terms)
+        if not normalized_terms:
+            return self._sanitize_query_text(base_query)
+
+        base_limit = max(3, SEARCH_QUERY_MAX_LENGTH - len(normalized_terms) - 1)
+        normalized_base = self._sanitize_query_text(base_query, max_length=base_limit)
+        return self._sanitize_query_text(f"{normalized_base} {normalized_terms}")
 
     def _normalize_focus(self, focus: str) -> str:
         normalized_focus = WHITESPACE_PATTERN.sub(" ", focus).strip()
