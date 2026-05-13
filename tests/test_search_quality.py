@@ -3,6 +3,7 @@ import os
 import pytest
 
 from backend.agents.searcher import SearcherAgent
+from backend.eval.metrics import mean_search_recall, search_golden_hit
 
 GOLDEN = [
     {
@@ -44,7 +45,7 @@ GOLDEN = [
 )
 async def test_search_quality_recall_at_10() -> None:
     searcher = SearcherAgent()
-    hits = 0
+    hits: list[bool] = []
 
     for test_case in GOLDEN:
         _queries, papers, _errors = await searcher.collect_candidates(
@@ -52,9 +53,12 @@ async def test_search_quality_recall_at_10() -> None:
             year_start=test_case["year_start"],
             candidate_limit=10,
         )
-        candidate_titles = {paper["title"].lower() for paper in papers[:10]}
+        candidate_titles = [str(paper["title"]) for paper in papers[:10]]
+        hits.append(
+            search_golden_hit(
+                candidate_titles=candidate_titles,
+                must_include_titles=test_case["must_include_titles"],
+            )
+        )
 
-        if any(title.lower() in candidate_titles for title in test_case["must_include_titles"]):
-            hits += 1
-
-    assert hits / len(GOLDEN) >= 0.8
+    assert mean_search_recall(hits) >= 0.8

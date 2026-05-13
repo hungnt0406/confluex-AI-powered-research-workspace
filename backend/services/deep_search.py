@@ -1885,6 +1885,12 @@ def _iter_claim_sentences(report_body: str) -> list[str]:
     return candidates
 
 
+def count_report_claim_sentences(report_body: str) -> int:
+    """Return how many sentences the Deep Search claim verifier evaluates."""
+
+    return len(_iter_claim_sentences(report_body))
+
+
 def _skip_verifier_line(line: str) -> bool:
     if not line:
         return True
