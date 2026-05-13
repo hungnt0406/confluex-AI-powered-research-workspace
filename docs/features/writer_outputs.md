@@ -2,6 +2,8 @@
 
 This document describes the user-invoked writer generation flow, citation/reference formatting, and QA validation.
 
+Note: this page covers the one-shot project writer output endpoint. The section-based writer workspace is separate: writer documents are user-owned, can be created without a project through `/writer/documents`, and use `writer_document_sources` for attached sources. Projects are optional source providers for that workspace. Workspace section drafts require an approved section outline before drafting, and research/survey Methods and Results outlines are structured as LaTeX subsections.
+
 ## HTTP Endpoints
 
 | Action | Method | Path |
