@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,14 +14,19 @@ from backend.api.dependencies import (
     DbSession,
     require_credits,
 )
+from backend.api.schemas.projects import ReferenceFileRead
 from backend.api.schemas.writer_documents import (
     AssembleResponse,
     AttachPaperIdRequest,
     OutlineApplyRequest,
     OutlineProposeResponse,
+    ProjectSourceImportRequest,
+    ProjectSourceImportResponse,
     QAReport,
     SectionInputsUpdate,
     SectionManualEdit,
+    SectionOutlineApplyRequest,
+    SectionOutlineProposeResponse,
     SectionVersionRead,
     SourceAttachRequest,
     SourceAttachResponse,
@@ -36,7 +41,13 @@ from backend.api.schemas.writer_documents import (
     WriterSectionRead,
     WriterSourcePaperRead,
 )
-from backend.db.models import Paper, WriterDocument
+from backend.config import get_settings
+from backend.db.models import Paper, WriterDocument, WriterDocumentSource
+from backend.services.ai_usage import start_usage_collection
+from backend.services.reference_files import (
+    ReferenceFileDuplicateError,
+    ReferenceFileValidationError,
+)
 from backend.services.writer_documents import (
     WriterDocumentNotFoundError,
     WriterDocumentPermissionError,
@@ -73,22 +84,66 @@ async def _serialize_writer_document(
     doc: WriterDocument,
 ) -> WriterDocumentRead:
     payload = WriterDocumentRead.model_validate(doc)
-    if not doc.source_paper_ids_json:
+    result = await session.execute(
+        select(WriterDocumentSource)
+        .where(
+            WriterDocumentSource.writer_document_id == doc.id,
+            WriterDocumentSource.paper_id.is_not(None),
+        )
+        .order_by(WriterDocumentSource.order_index.asc())
+    )
+    source_paper_ids = [row.paper_id for row in result.scalars().all() if row.paper_id]
+    if not source_paper_ids:
+        source_paper_ids = list(doc.source_paper_ids_json or [])
+    payload.source_paper_ids_json = list(source_paper_ids)
+    if not source_paper_ids:
         return payload
 
-    result = await session.execute(
-        select(Paper).where(
-            Paper.project_id == doc.project_id,
-            Paper.id.in_(doc.source_paper_ids_json),
-        )
-    )
-    papers_by_id = {paper.id: paper for paper in result.scalars().all()}
+    papers_result = await session.execute(select(Paper).where(Paper.id.in_(source_paper_ids)))
+    papers_by_id = {paper.id: paper for paper in papers_result.scalars().all()}
     payload.source_papers = [
         WriterSourcePaperRead.model_validate(papers_by_id[paper_id])
-        for paper_id in doc.source_paper_ids_json
+        for paper_id in source_paper_ids
         if paper_id in papers_by_id
     ]
     return payload
+
+
+@router.post(
+    "/writer/documents",
+    response_model=WriterDocumentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_standalone_writer_document(
+    body: WriterDocumentCreate,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+) -> WriterDocumentRead:
+    doc = await svc.create_document(
+        session=session,
+        user_id=current_user.id,
+        project_id=None,
+        title=body.title,
+        topic=body.topic,
+        thesis=body.thesis,
+        paper_type=body.paper_type,
+        citation_style=body.citation_style,
+    )
+    return await _serialize_writer_document(session, doc)
+
+
+@router.get(
+    "/writer/documents",
+    response_model=list[WriterDocumentSummaryRead],
+)
+async def list_standalone_writer_documents(
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+) -> list[WriterDocumentSummaryRead]:
+    docs = await svc.list_documents(session=session, user_id=current_user.id)
+    return [WriterDocumentSummaryRead.model_validate(d) for d in docs]
 
 
 @router.post(
@@ -103,15 +158,21 @@ async def create_writer_document(
     current_user: CurrentUser,
     svc: WriterDocumentServiceDependency,
 ) -> WriterDocumentRead:
-    doc = await svc.create_document(
-        session=session,
-        project_id=project_id,
-        title=body.title,
-        topic=body.topic,
-        thesis=body.thesis,
-        paper_type=body.paper_type,
-        citation_style=body.citation_style,
-    )
+    try:
+        doc = await svc.create_document(
+            session=session,
+            user_id=current_user.id,
+            project_id=project_id,
+            title=body.title,
+            topic=body.topic,
+            thesis=body.thesis,
+            paper_type=body.paper_type,
+            citation_style=body.citation_style,
+        )
+    except WriterDocumentNotFoundError as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
     return await _serialize_writer_document(session, doc)
 
 
@@ -125,7 +186,16 @@ async def list_writer_documents(
     current_user: CurrentUser,
     svc: WriterDocumentServiceDependency,
 ) -> list[WriterDocumentSummaryRead]:
-    docs = await svc.list_documents(session=session, project_id=project_id)
+    try:
+        docs = await svc.list_documents(
+            session=session,
+            user_id=current_user.id,
+            project_id=project_id,
+        )
+    except WriterDocumentNotFoundError as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
     return [WriterDocumentSummaryRead.model_validate(d) for d in docs]
 
 
@@ -249,6 +319,66 @@ async def apply_outline(
     except WriterDocumentPermissionError:
         raise _forbidden() from None
     return await _serialize_writer_document(session, doc)
+
+
+@router.post(
+    "/writer/documents/{document_id}/sections/{section_id}/outline/propose",
+    response_model=SectionOutlineProposeResponse,
+)
+async def propose_section_outline(
+    document_id: str,
+    section_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+) -> SectionOutlineProposeResponse:
+    guard = await require_credits(
+        OUTLINE_PROPOSE_CREDITS,
+        "writer_section_outline_propose",
+        current_user=current_user,
+        session=session,
+    )
+    try:
+        section, outline = await svc.propose_section_outline(
+            session=session,
+            section_id=section_id,
+            user_id=current_user.id,
+        )
+    except (WriterSectionNotFoundError, WriterDocumentPermissionError) as err:
+        await guard.rollback()
+        if isinstance(err, WriterSectionNotFoundError):
+            raise _not_found(str(err)) from err
+        raise _forbidden() from None
+    await guard.commit(reference_id=section_id)
+    return SectionOutlineProposeResponse(section_id=section.id, outline_text=outline)
+
+
+@router.put(
+    "/writer/documents/{document_id}/sections/{section_id}/outline",
+    response_model=WriterSectionRead,
+)
+async def approve_section_outline(
+    document_id: str,
+    section_id: str,
+    body: SectionOutlineApplyRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+) -> WriterSectionRead:
+    try:
+        section = await svc.approve_section_outline(
+            session=session,
+            section_id=section_id,
+            user_id=current_user.id,
+            outline_text=body.outline_text,
+        )
+    except WriterSectionNotFoundError as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err)) from err
+    return WriterSectionRead.model_validate(section)
 
 
 @router.get(
@@ -492,6 +622,80 @@ async def attach_paper_by_id(
     except WriterDocumentPermissionError:
         raise _forbidden() from None
     return SourceAttachResponse(paper_id=paper_id, requires_upload=False, message="Paper attached.")
+
+
+@router.post(
+    "/writer/documents/{document_id}/sources/import-project",
+    response_model=ProjectSourceImportResponse,
+)
+async def import_project_sources(
+    document_id: str,
+    body: ProjectSourceImportRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+) -> ProjectSourceImportResponse:
+    try:
+        paper_ids = await svc.import_project_sources(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            project_id=body.project_id,
+            paper_ids=body.paper_ids,
+        )
+    except (WriterDocumentNotFoundError, WriterSectionNotFoundError) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    return ProjectSourceImportResponse(paper_ids=paper_ids, imported_count=len(paper_ids))
+
+
+@router.post(
+    "/writer/documents/{document_id}/sources/upload",
+    response_model=ReferenceFileRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_writer_document_source(
+    document_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterDocumentServiceDependency,
+    file: Annotated[UploadFile, File(...)],
+) -> ReferenceFileRead:
+    content = await file.read()
+    guard = await require_credits(
+        get_settings().credit_cost_pdf_upload,
+        feature="writer_pdf_upload",
+        current_user=current_user,
+        session=session,
+    )
+    start_usage_collection()
+    try:
+        reference_file = await svc.upload_source_pdf(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            filename=file.filename or "reference.pdf",
+            content_type=file.content_type,
+            content=content,
+        )
+    except WriterDocumentNotFoundError as err:
+        await guard.rollback()
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        await guard.rollback()
+        raise _forbidden() from None
+    except ReferenceFileValidationError as err:
+        await guard.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err)) from err
+    except ReferenceFileDuplicateError as err:
+        await guard.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
+    except Exception:
+        await guard.rollback()
+        raise
+    await guard.commit(reference_id=reference_file.id)
+    return ReferenceFileRead.from_reference(reference_file)
 
 
 @router.delete(
