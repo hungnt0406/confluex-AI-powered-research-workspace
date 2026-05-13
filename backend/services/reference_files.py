@@ -269,12 +269,17 @@ class ReferenceFileService:
         self,
         *,
         session: AsyncSession,
-        project: Project,
+        project: Project | None = None,
+        user_id: str | None = None,
         filename: str,
         content_type: str | None,
         content: bytes,
     ) -> ReferenceFile:
-        """Validate, store, parse, and persist a project reference PDF."""
+        """Validate, store, parse, and persist a project or writer reference PDF."""
+
+        effective_user_id = project.user_id if project is not None else user_id
+        if effective_user_id is None:
+            raise ReferenceFileValidationError("Reference files require a user or project owner.")
 
         safe_filename = Path(filename or "reference.pdf").name
         validate_pdf_upload(
@@ -286,7 +291,8 @@ class ReferenceFileService:
 
         existing_reference = await session.execute(
             select(ReferenceFile).where(
-                ReferenceFile.project_id == project.id,
+                ReferenceFile.project_id == (project.id if project is not None else None),
+                ReferenceFile.user_id == effective_user_id,
                 ReferenceFile.sha256 == digest,
             )
         )
@@ -294,9 +300,10 @@ class ReferenceFileService:
             raise ReferenceFileDuplicateError("This reference file has already been uploaded.")
 
         reference_id = generate_identifier()
-        project_upload_dir = self.upload_dir / project.id
-        project_upload_dir.mkdir(parents=True, exist_ok=True)
-        storage_path = project_upload_dir / f"{reference_id}.pdf"
+        owner_dir = project.id if project is not None else f"writer-{effective_user_id}"
+        upload_dir = self.upload_dir / owner_dir
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        storage_path = upload_dir / f"{reference_id}.pdf"
         storage_path.write_bytes(content)
 
         fallback_title = Path(safe_filename).stem or "reference"
@@ -318,7 +325,8 @@ class ReferenceFileService:
 
         reference = ReferenceFile(
             id=reference_id,
-            project_id=project.id,
+            user_id=effective_user_id,
+            project_id=project.id if project is not None else None,
             original_filename=safe_filename,
             content_type=content_type,
             byte_size=len(content),
@@ -336,7 +344,8 @@ class ReferenceFileService:
 
         if parsed.parse_status == "parsed":
             paper = Paper(
-                project_id=project.id,
+                user_id=effective_user_id,
+                project_id=project.id if project is not None else None,
                 title=parsed.title,
                 authors=parsed.authors,
                 year=parsed.year,
