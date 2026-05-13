@@ -26,9 +26,9 @@ def test_writer_sources_panel_supports_pdf_upload_attach_by_paper_id() -> None:
     sources_panel = (REPO_ROOT / "frontend/components/WriterSourcesPanel.tsx").read_text()
     api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
 
-    assert "uploadProjectReferenceFile(document.project_id, file, token)" in sources_panel
-    assert "attachPaperById(document.id, result.linked_paper_id, token)" in sources_panel
-    assert "`/writer/documents/${documentId}/sources/attach-paper`" in api_client
+    assert "uploadWriterDocumentSource(document.id, file, token)" in sources_panel
+    assert "attachPaperById(document.id, result.linked_paper_id, token)" not in sources_panel
+    assert "`/writer/documents/${documentId}/sources/upload`" in api_client
 
 
 def test_writer_sources_panel_renders_attached_source_labels() -> None:
@@ -44,19 +44,14 @@ def test_writer_sources_panel_renders_attached_source_labels() -> None:
     assert "font-mono\">{paperId}" not in sources_panel
 
 
-def test_writer_page_does_not_show_document_skeletons_without_project() -> None:
+def test_writer_page_loads_documents_without_active_project() -> None:
     writer_page = (REPO_ROOT / "frontend/app/writer/page.tsx").read_text()
 
-    assert re.search(
-        r"if \(!token \|\| !activeProject\) {\s+"
-        r"setDocuments\(\[\]\);\s+"
-        r"setLoading\(false\);\s+"
-        r"setError\(null\);\s+"
-        r"return;",
-        writer_page,
-    )
-    assert "const showProjectPickerState = !activeProject && !busy;" in writer_page
-    assert "const showLoadingState = (!activeProject && busy) || (Boolean(activeProject) && loading);" in writer_page
+    assert "if (!token) {" in writer_page
+    assert "if (!token || !activeProject)" not in writer_page
+    assert "const docs = await listWriterDocuments(token);" in writer_page
+    assert "const showProjectPickerState" not in writer_page
+    assert "disabled={!activeProject}" not in writer_page
 
 
 def test_writer_project_route_param_drives_active_project_restore() -> None:
@@ -97,9 +92,18 @@ def test_writer_workspace_logo_links_back_to_project_chat() -> None:
     workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
 
     assert "import Link from \"next/link\";" in workspace
-    assert "const chatHref = `/chat?project=${document.project_id}`;" in workspace
+    assert "const chatHref = document.project_id ? `/chat?project=${document.project_id}` : \"/writer\";" in workspace
     assert "href={chatHref}" in workspace
-    assert "aria-label=\"Back to chat workspace\"" in workspace
+    assert "aria-label={document.project_id ? \"Back to chat workspace\" : \"Back to writer documents\"}" in workspace
+
+
+def test_writer_api_supports_standalone_documents_and_project_import() -> None:
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert '"/writer/documents"' in api_client
+    assert "projectId?: string | null" in api_client
+    assert "`/writer/documents/${documentId}/sources/import-project`" in api_client
+    assert "export async function importProjectSources" in api_client
 
 
 def test_writer_question_warnings_render_after_delay() -> None:
@@ -112,6 +116,50 @@ def test_writer_question_warnings_render_after_delay() -> None:
     assert "window.clearTimeout(warningDelayTimerRef.current);" in questions_panel
 
 
+def test_writer_api_supports_section_outline_approval() -> None:
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "export async function proposeSectionOutline" in api_client
+    assert "export async function approveSectionOutline" in api_client
+    assert "`/writer/documents/${documentId}/sections/${sectionId}/outline/propose`" in api_client
+    assert "`/writer/documents/${documentId}/sections/${sectionId}/outline`" in api_client
+    assert "json: { outline_text }" in api_client
+
+
+def test_writer_questions_panel_gates_drafting_on_approved_outline() -> None:
+    questions_panel = (REPO_ROOT / "frontend/components/WriterQuestionsPanel.tsx").read_text()
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "proposeSectionOutline" in questions_panel
+    assert "approveSectionOutline" in questions_panel
+    assert "documentPaperType={document.paper_type}" in workspace
+    assert "function isApprovedSectionOutline" in questions_panel
+    assert "documentPaperType === \"survey\"" in questions_panel
+    assert "sectionType === \"results\"" in questions_panel
+    assert "outline.includes(\"\\\\subsection{\")" in questions_panel
+    assert "Generate section outline" in questions_panel
+    assert "Approve outline" in questions_panel
+    assert "disabled={submitting || drafting || !hasApprovedOutline}" in questions_panel
+    assert "if (!activeSection || !hasApprovedOutline) return;" in questions_panel
+
+
+def test_writer_right_panel_is_resizable_from_forty_percent_default() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+    loading_page = (REPO_ROOT / "frontend/app/writer/[documentId]/page.tsx").read_text()
+
+    assert "const [rightPanelWidth, setRightPanelWidth] = useState<number>(480);" in workspace
+    assert "window.innerWidth * 0.4" in workspace
+    assert "handleRightPanelMouseDown" in workspace
+    assert "handleRightPanelKeyDown" in workspace
+    assert "Resize writer side panel" in workspace
+    assert "cursor-col-resize" in workspace
+    assert "style={{ width: `${rightPanelWidth}px` }}" in workspace
+    assert "w-[40vw] min-w-[360px] max-w-[640px]" in loading_page
+    assert "w-[40vw] min-w-[360px] max-w-[640px]" not in workspace
+    assert "w-[300px] shrink-0 flex-col" not in workspace
+    assert "w-[300px] shrink-0 border-l" not in loading_page
+
+
 def test_sidebar_writer_nav_shows_beta_badge() -> None:
     sidebar = (REPO_ROOT / "frontend/components/Sidebar.tsx").read_text()
 
@@ -119,3 +167,13 @@ def test_sidebar_writer_nav_shows_beta_badge() -> None:
     assert "Beta" in sidebar
     assert "aria-label=\"Writer beta\"" in sidebar
     assert "title=\"Writer beta\"" in sidebar
+
+
+def test_sidebar_project_clicks_route_to_project_chat() -> None:
+    sidebar = (REPO_ROOT / "frontend/components/Sidebar.tsx").read_text()
+
+    assert "import { usePathname, useRouter } from \"next/navigation\";" in sidebar
+    assert "const projectChatHref = `/chat?project=${projectId}`;" in sidebar
+    assert "router.push(projectChatHref);" in sidebar
+    assert "if (pathname !== \"/chat\")" in sidebar
+    assert "onSelect={handleSelectProject}" in sidebar
