@@ -196,6 +196,8 @@ RUN_LIVE_API_TESTS=1 uv run pytest tests/test_services.py -m integration
 RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval
 ```
 
+- Deterministic agent and chat evaluation helpers (Reader summary coverage, Deep Search citation hygiene, paper-chat format and grounding proxies, Writer QA rollups) live in `backend/eval/metrics.py` with CI-safe coverage in `tests/test_eval_metrics.py`. To print sample metric outputs locally (no DB/API): `uv run python scripts/run_eval_metric_samples.py`.
+
 ## Project hygiene
 
 - Update `JOURNAL.md` before each PR with weekly learnings and shipped work.
