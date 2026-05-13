@@ -1323,3 +1323,19 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Prevent an in-flight project chat response from being interrupted or redirected when the user opens another project.
 - **Files changed:** `frontend/components/ChatProvider.tsx`, `frontend/README.md`, `tests/test_frontend_deep_search_static.py`, `tests/test_frontend_pipeline_static.py`, `JOURNAL.md`.
 - **Current status:** Added per-project chat snapshots, project-scoped stream updates, cached project reactivation, and active-project busy tracking so standard chat and Deep Search streams continue updating their originating project while another project is visible. Verification passed for frontend TypeScript and the focused frontend static regression tests.
+
+## 2026-05-13T17:10:00+07:00
+- **Request:** Understand the project and implement suitable evaluation metrics for the AI agents and AI chatbot.
+- **Files changed:** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `README.md`, `JOURNAL.md`.
+- **Current status:** Added a deterministic `backend.eval.metrics` module (golden search hit/recall, Reader summary success and field coverage, Deep Search citation-warning rate via `verify_report_claims`, paper-chat format/grounding-leak and lexical support scores, Writer QA severity counts and health score). Exposed `count_report_claim_sentences` for consistent denominators. Refactored opt-in `tests/test_search_quality.py` to use the shared search helpers. Verification passed for Ruff, mypy on `backend/eval` and `deep_search`, and `pytest tests/test_eval_metrics.py`.
+
+## 2026-05-13T18:45:00+07:00
+- **Request:** How to run test sample prompts to get outputs of all evaluation metrics.
+- **Files changed:** `scripts/run_eval_metric_samples.py`, `README.md`, `JOURNAL.md`.
+- **Current status:** Added `scripts/run_eval_metric_samples.py` to print JSON sample outputs for every eval helper without DATABASE_URL or API keys; documented the command in README. Verified with Ruff and a local script run.
+
+## 2026-05-13T20:00:00+07:00
+- **Request:** Update `JOURNAL.md` for pull request (consolidated branch summary).
+- **PR summary — deterministic agent/chat evaluation metrics:** Introduced `backend/eval/` with pure metrics for Searcher golden hit and mean recall, Reader summary success and field coverage, Deep Search report citation hygiene (`verify_report_claims` + `citation_warning_rate`), paper-chat answer shape / page mentions / chunk–score leak detection and lexical grounding support (`token_jaccard`, `paper_chat_grounding_support`), and Writer QA severity counts plus health score. Added `count_report_claim_sentences()` on `deep_search` for verifier-aligned denominators. Refactored opt-in `tests/test_search_quality.py` to use shared search helpers. Added `scripts/run_eval_metric_samples.py` and README pointer for local metric demos without Postgres or API keys.
+- **Files changed (full PR list):** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `scripts/run_eval_metric_samples.py`, `README.md`, `JOURNAL.md`.
+- **Suggested verification before merge:** `uv run ruff check backend/eval scripts/run_eval_metric_samples.py tests/test_eval_metrics.py tests/test_search_quality.py backend/services/deep_search.py`; `uv run mypy backend/eval`; `uv run pytest tests/test_eval_metrics.py -q`; optional `uv run python scripts/run_eval_metric_samples.py`; optional live search eval `RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval` (requires network and working academic search).
