@@ -68,6 +68,7 @@ IMRAD_SECTION_DEFAULTS: list[dict[str, Any]] = [
 ]
 
 SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
+SUBSECTION_HEADING_PATTERN = re.compile(r"\\subsection\{([^}]+)\}")
 TODO_CITATION_TEMPLATE = r"\todo{{citation needed: {reason}}}"
 MAX_SECTION_SOURCE_CONTEXTS = 7
 GENERIC_FALLBACK_PREFIX = "Taken together, the selected papers form a focused evidence set"
@@ -113,6 +114,7 @@ class WriterSectionAgent:
         self,
         *,
         section_id: str,
+        paper_type: str = "imrad",
         section_type: str,
         title: str,
         outline_text: str | None,
@@ -132,6 +134,7 @@ class WriterSectionAgent:
         source_contexts = paper_contexts[:MAX_SECTION_SOURCE_CONTEXTS]
 
         instruction = self._build_instruction(
+            paper_type=paper_type,
             section_type=section_type,
             title=title,
             outline_text=outline_text,
@@ -160,6 +163,7 @@ class WriterSectionAgent:
         # read the same when the provider is unavailable. Replace it with a section-aware draft.
         if self._looks_like_generic_fallback(body_blocks, source_contexts):
             body_blocks = self._build_section_fallback_blocks(
+                paper_type=paper_type,
                 section_type=section_type,
                 title=title,
                 outline_text=outline_text,
@@ -172,6 +176,7 @@ class WriterSectionAgent:
 
         if not body_blocks and source_contexts:
             body_blocks = self._build_section_fallback_blocks(
+                paper_type=paper_type,
                 section_type=section_type,
                 title=title,
                 outline_text=outline_text,
@@ -179,6 +184,26 @@ class WriterSectionAgent:
                 paper_contexts=source_contexts,
             )
             warnings.append("LLM returned no content — using a section-specific fallback.")
+
+        if (
+            self._requires_outline_headings(
+                paper_type=paper_type,
+                section_type=section_type,
+                outline_text=outline_text,
+            )
+            and not self._body_contains_outline_headings(body_blocks, outline_text)
+        ):
+            body_blocks = self._build_section_fallback_blocks(
+                paper_type=paper_type,
+                section_type=section_type,
+                title=title,
+                outline_text=outline_text,
+                user_inputs=user_inputs,
+                paper_contexts=source_contexts,
+            )
+            warnings.append(
+                "LLM omitted approved outline structure; using a section-specific fallback."
+            )
 
         latex_parts: list[str] = [f"\\section{{{title}}}"]
         low_confidence_spans: list[LowConfidenceSpan] = []
@@ -214,15 +239,23 @@ class WriterSectionAgent:
     def _build_instruction(
         self,
         *,
+        paper_type: str = "imrad",
         section_type: str,
         title: str,
         outline_text: str | None,
         user_inputs: dict[str, str],
         paper_contexts: list[WriterPaperContext],
     ) -> str:
-        parts = [f"Write the '{title}' section (type: {section_type}) of an IMRaD LaTeX paper."]
+        parts = [
+            f"Write the '{title}' section (type: {section_type}) of a {paper_type} LaTeX paper."
+        ]
         if outline_text:
-            parts.append(f"Outline notes: {outline_text.strip()}")
+            parts.append(
+                "Approved outline:\n"
+                f"{outline_text.strip()}\n"
+                "The approved outline is mandatory. Use the approved LaTeX subsection headings "
+                "exactly when they are present, in the same order."
+            )
         questions = section_questions(section_type)
         for question in questions:
             answer = user_inputs.get(question, "").strip()
@@ -241,7 +274,7 @@ class WriterSectionAgent:
                 + "\n".join(cite_lines)
             )
         parts.append(
-            "Produce LaTeX paragraph text only (no \\section command). "
+            "Produce LaTeX section body text only (no \\section command). "
             "Ground every claim in the provided papers. "
             "Do not invent citations or facts."
         )
@@ -274,6 +307,7 @@ class WriterSectionAgent:
     def _build_section_fallback_blocks(
         self,
         *,
+        paper_type: str = "imrad",
         section_type: str,
         title: str,
         outline_text: str | None,
@@ -319,6 +353,15 @@ class WriterSectionAgent:
             return blocks
 
         if section_type == "methods":
+            if self._extract_subsection_headings(outline_text):
+                return self._build_outline_methods_fallback_blocks(
+                    paper_type=paper_type,
+                    title=title,
+                    outline_text=outline_text,
+                    user_inputs=user_inputs,
+                    paper_contexts=primary_contexts,
+                    topic_hint=topic_hint,
+                )
             method_text = self._join_evidence_segments(
                 primary_contexts,
                 field="method",
@@ -338,6 +381,15 @@ class WriterSectionAgent:
             return blocks
 
         if section_type == "results":
+            if self._extract_subsection_headings(outline_text):
+                return self._build_outline_results_fallback_blocks(
+                    paper_type=paper_type,
+                    title=title,
+                    outline_text=outline_text,
+                    user_inputs=user_inputs,
+                    paper_contexts=primary_contexts,
+                    topic_hint=topic_hint,
+                )
             result_text = self._join_evidence_segments(
                 primary_contexts,
                 field="result",
@@ -385,6 +437,256 @@ class WriterSectionAgent:
             )
         )
         return blocks
+
+    def _build_outline_results_fallback_blocks(
+        self,
+        *,
+        paper_type: str,
+        title: str,
+        outline_text: str | None,
+        user_inputs: dict[str, str],
+        paper_contexts: list[WriterPaperContext],
+        topic_hint: str,
+    ) -> list[WriterBodyBlock]:
+        headings = self._extract_subsection_headings(outline_text)
+        result_text = self._join_evidence_segments(
+            paper_contexts,
+            field="result",
+            fallback="the reported outcomes in the attached sources",
+        )
+        labels = self._join_context_labels(paper_contexts)
+        key_findings = user_inputs.get("Paste your key numbers / table / main finding.", "").strip()
+        headline = user_inputs.get("What is the headline result?", "").strip()
+
+        blocks: list[WriterBodyBlock] = []
+        for heading in headings:
+            normalized_heading = heading.lower()
+            if "primary" in normalized_heading or "quantitative" in normalized_heading:
+                detail = key_findings or result_text
+                sentence = (
+                    f"This subsection reports {self._lowercase_first(detail)} as the main empirical "
+                    f"evidence for {topic_hint}, grounded in {labels}."
+                )
+            elif "baseline" in normalized_heading or "comparator" in normalized_heading:
+                sentence = (
+                    f"This subsection compares the reported outcomes against baseline or comparator "
+                    f"methods where {labels} provide explicit evidence."
+                )
+            elif "ablation" in normalized_heading or "sensitivity" in normalized_heading:
+                sentence = (
+                    "This subsection reports ablation or sensitivity evidence only where the attached "
+                    "sources provide component-level or condition-level results."
+                )
+            elif "qualitative" in normalized_heading or "error" in normalized_heading:
+                sentence = (
+                    "This subsection summarizes qualitative findings and error cases that are explicitly "
+                    f"supported by {labels}."
+                )
+            elif "efficiency" in normalized_heading or "runtime" in normalized_heading:
+                sentence = (
+                    "This subsection reports computational cost, runtime, or latency findings only when "
+                    "those measurements appear in the selected evidence."
+                )
+            elif "robustness" in normalized_heading or "statistical" in normalized_heading:
+                sentence = (
+                    "This subsection states robustness or statistical evidence without overstating "
+                    "comparability across studies."
+                )
+            elif "method family" in normalized_heading:
+                sentence = (
+                    f"This subsection compares result patterns by method family across {labels}, "
+                    "separating classical, filter-based, and deep tracking approaches where supported."
+                )
+            elif "high-speed" in normalized_heading:
+                sentence = (
+                    "This subsection focuses on evidence for motion blur, short visibility, occlusion, "
+                    "rapid scale change, and low-frame-rate conditions."
+                )
+            elif "benchmark" in normalized_heading or "dataset" in normalized_heading:
+                sentence = (
+                    "This subsection summarizes benchmark and dataset trends while avoiding direct "
+                    "comparison of metrics that were not measured under the same protocol."
+                )
+            elif (
+                "trade-off" in normalized_heading
+                or "accuracy" in normalized_heading
+                or "latency" in normalized_heading
+            ):
+                detail = headline or "the main trade-offs reported by the attached sources"
+                sentence = (
+                    f"This subsection synthesizes {self._lowercase_first(detail)} across accuracy, "
+                    "robustness, and real-time inference constraints."
+                )
+            elif "domain-specific" in normalized_heading:
+                sentence = (
+                    "This subsection separates results from robotics, sports analytics, autonomous "
+                    "systems, surveillance, and other deployment domains when the evidence supports it."
+                )
+            elif "gap" in normalized_heading or "pattern" in normalized_heading:
+                sentence = (
+                    "This subsection closes the results section by identifying recurring patterns and "
+                    "evidence gaps that the discussion can interpret."
+                )
+            else:
+                sentence = (
+                    f"This subsection develops the approved {paper_type} {title} outline point for "
+                    f"{topic_hint} using {labels} as the grounding source set."
+                )
+            blocks.append(
+                WriterBodyBlock(
+                    text=f"\\subsection{{{heading}}}\n{sentence}",
+                    paper_ids=[context.paper_id for context in paper_contexts],
+                )
+            )
+        return blocks
+
+    def _build_outline_methods_fallback_blocks(
+        self,
+        *,
+        paper_type: str,
+        title: str,
+        outline_text: str | None,
+        user_inputs: dict[str, str],
+        paper_contexts: list[WriterPaperContext],
+        topic_hint: str,
+    ) -> list[WriterBodyBlock]:
+        headings = self._extract_subsection_headings(outline_text)
+        method_text = self._join_evidence_segments(
+            paper_contexts,
+            field="method",
+            fallback="the methodological evidence available in the attached sources",
+        )
+        labels = self._join_context_labels(paper_contexts)
+        dataset = user_inputs.get("What dataset(s) did you use?", "").strip()
+        approach = user_inputs.get("What model/algorithm/approach?", "").strip()
+        baselines = user_inputs.get("What are the baselines?", "").strip()
+        metrics = user_inputs.get("What is the evaluation metric?", "").strip()
+
+        blocks: list[WriterBodyBlock] = []
+        for heading in headings:
+            normalized_heading = heading.lower()
+            if "study design" in normalized_heading or "experimental setup" in normalized_heading:
+                sentence = (
+                    f"This subsection defines the empirical setup for {topic_hint}, using {labels} "
+                    "to ground the experimental design and the assumptions that constrain the study."
+                )
+            elif "dataset" in normalized_heading or "material" in normalized_heading or "participant" in normalized_heading:
+                detail = dataset or "the datasets, materials, or participants specified by the attached evidence"
+                sentence = (
+                    f"This subsection should document {detail} and explain how the selected sources support "
+                    "the data or material choices."
+                )
+            elif (
+                "proposed method" in normalized_heading
+                or (
+                    "method" in normalized_heading
+                    and "taxonomy" not in normalized_heading
+                    and "methodology" not in normalized_heading
+                )
+            ):
+                detail = approach or method_text
+                sentence = (
+                    f"This subsection describes {self._lowercase_first(detail)} while keeping the method "
+                    f"grounded in {labels}."
+                )
+            elif "baseline" in normalized_heading or "comparator" in normalized_heading:
+                detail = baselines or "the baselines and comparators available in the source evidence"
+                sentence = (
+                    f"This subsection compares against {detail} and separates the proposed approach from "
+                    "reference methods."
+                )
+            elif "metric" in normalized_heading:
+                detail = metrics or "the evaluation metrics reported or implied by the selected papers"
+                sentence = (
+                    f"This subsection defines {detail} so that the results can be interpreted consistently."
+                )
+            elif "implementation" in normalized_heading:
+                sentence = (
+                    "This subsection records implementation choices only where they are supported by the "
+                    "source evidence or the researcher's saved inputs."
+                )
+            elif "reproducibility" in normalized_heading or "limitation" in normalized_heading:
+                sentence = (
+                    "This subsection states the reproducibility conditions and methodological limitations "
+                    "that follow from the available evidence."
+                )
+            elif "survey scope" in normalized_heading or "research question" in normalized_heading:
+                sentence = (
+                    f"This subsection defines the survey scope for {topic_hint} and states the research "
+                    f"questions that organize the comparison across {labels}."
+                )
+            elif "literature search" in normalized_heading or "selection criteria" in normalized_heading:
+                sentence = (
+                    "This subsection describes how literature is searched, screened, and selected so the "
+                    "review protocol is explicit and reproducible."
+                )
+            elif "taxonomy" in normalized_heading:
+                sentence = (
+                    f"This subsection organizes the surveyed methods into a taxonomy grounded in {labels} "
+                    "and the methodological distinctions reported by the selected sources."
+                )
+            elif "benchmark" in normalized_heading or "dataset coverage" in normalized_heading:
+                detail = dataset or "the benchmark and dataset coverage reported in the source evidence"
+                sentence = (
+                    f"This subsection documents {detail} so the survey can compare results across "
+                    "general and domain-specific evaluation settings."
+                )
+            elif "evaluation dimension" in normalized_heading:
+                detail = metrics or "accuracy, robustness, latency, occlusion handling, and real-time constraints"
+                sentence = (
+                    f"This subsection defines {detail} as the dimensions used to compare methods."
+                )
+            elif "comparative synthesis" in normalized_heading:
+                sentence = (
+                    "This subsection explains how evidence is synthesized across method families, benchmarks, "
+                    "and deployment constraints without treating incomparable results as directly equivalent."
+                )
+            else:
+                sentence = (
+                    f"This subsection develops the approved {paper_type} {title} outline point for "
+                    f"{topic_hint} using {labels} as the grounding source set."
+                )
+            blocks.append(
+                WriterBodyBlock(
+                    text=f"\\subsection{{{heading}}}\n{sentence}",
+                    paper_ids=[context.paper_id for context in paper_contexts],
+                )
+            )
+        return blocks
+
+    def _requires_outline_headings(
+        self,
+        *,
+        paper_type: str,
+        section_type: str,
+        outline_text: str | None,
+    ) -> bool:
+        return (
+            paper_type in {"research", "survey"}
+            and section_type in {"methods", "results"}
+            and bool(self._extract_subsection_headings(outline_text))
+        )
+
+    def _body_contains_outline_headings(
+        self,
+        body_blocks: list[WriterBodyBlock],
+        outline_text: str | None,
+    ) -> bool:
+        headings = self._extract_subsection_headings(outline_text)
+        if not headings:
+            return True
+        body_text = "\n".join(block.text for block in body_blocks)
+        return all(f"\\subsection{{{heading}}}" in body_text for heading in headings)
+
+    def _extract_subsection_headings(self, outline_text: str | None) -> list[str]:
+        if not outline_text:
+            return []
+        headings: list[str] = []
+        for match in SUBSECTION_HEADING_PATTERN.finditer(outline_text):
+            heading = match.group(1).strip()
+            if heading and heading not in headings:
+                headings.append(heading)
+        return headings
 
     def _fallback_topic_hint(
         self,
