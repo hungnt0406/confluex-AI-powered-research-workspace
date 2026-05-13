@@ -47,6 +47,11 @@ class User(Base):
     )
 
     projects: Mapped[list[Project]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    writer_documents: Mapped[list[WriterDocument]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="WriterDocument.created_at.desc()",
+    )
     credit_transactions: Mapped[list[CreditTransaction]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -155,7 +160,6 @@ class Project(Base):
     )
     writer_documents: Mapped[list[WriterDocument]] = relationship(
         back_populates="project",
-        cascade="all, delete-orphan",
         order_by="WriterDocument.created_at.desc()",
     )
 
@@ -198,7 +202,16 @@ class ReferenceFile(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
     original_filename: Mapped[str] = mapped_column(String(500))
     content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     byte_size: Mapped[int] = mapped_column(Integer)
@@ -221,7 +234,8 @@ class ReferenceFile(Base):
         nullable=False,
     )
 
-    project: Mapped[Project] = relationship(back_populates="reference_files")
+    user: Mapped[User | None] = relationship()
+    project: Mapped[Project | None] = relationship(back_populates="reference_files")
     paper: Mapped[Paper | None] = relationship(
         back_populates="reference_file",
         uselist=False,
@@ -232,7 +246,16 @@ class Paper(Base):
     __tablename__ = "papers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
     title: Mapped[str] = mapped_column(String(500))
     authors: Mapped[list[str]] = mapped_column(JSON, default=list)
     year: Mapped[int | None] = mapped_column(nullable=True)
@@ -253,7 +276,8 @@ class Paper(Base):
     status: Mapped[str] = mapped_column(String(32), default="candidate", server_default="candidate")
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    project: Mapped[Project] = relationship(back_populates="papers")
+    user: Mapped[User | None] = relationship()
+    project: Mapped[Project | None] = relationship(back_populates="papers")
     reference_file: Mapped[ReferenceFile | None] = relationship(back_populates="paper")
     document: Mapped[PaperDocument | None] = relationship(
         back_populates="paper",
@@ -276,6 +300,9 @@ class Paper(Base):
         uselist=False,
     )
     deep_search_sources: Mapped[list[DeepSearchSource]] = relationship(
+        back_populates="paper",
+    )
+    writer_document_sources: Mapped[list[WriterDocumentSource]] = relationship(
         back_populates="paper",
     )
 
@@ -511,7 +538,12 @@ class WriterDocument(Base):
     __tablename__ = "writer_documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
-    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     title: Mapped[str] = mapped_column(String(500), default="Untitled Paper")
     topic: Mapped[str] = mapped_column(Text)
     thesis: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -531,12 +563,56 @@ class WriterDocument(Base):
         nullable=False,
     )
 
-    project: Mapped[Project] = relationship(back_populates="writer_documents")
+    user: Mapped[User] = relationship(back_populates="writer_documents")
+    project: Mapped[Project | None] = relationship(back_populates="writer_documents")
     sections: Mapped[list[WriterSection]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
         order_by="WriterSection.order_index",
     )
+    sources: Mapped[list[WriterDocumentSource]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="WriterDocumentSource.order_index",
+    )
+
+
+class WriterDocumentSource(Base):
+    __tablename__ = "writer_document_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "writer_document_id",
+            "paper_id",
+            name="uq_writer_document_sources_document_paper",
+        ),
+        Index("ix_writer_document_sources_document_order", "writer_document_id", "order_index"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    writer_document_id: Mapped[str] = mapped_column(
+        ForeignKey("writer_documents.id", ondelete="CASCADE"),
+        index=True,
+    )
+    paper_id: Mapped[str | None] = mapped_column(
+        ForeignKey("papers.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    source_origin: Mapped[str] = mapped_column(String(64), default="manual", server_default="manual")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    document: Mapped[WriterDocument] = relationship(back_populates="sources")
+    paper: Mapped[Paper | None] = relationship(back_populates="writer_document_sources")
 
 
 class WriterSection(Base):
