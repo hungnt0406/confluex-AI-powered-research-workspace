@@ -47,7 +47,7 @@ function WriterDocumentLoader({ documentId, token }: { documentId: string; token
             ))}
           </div>
           <div className="flex-1 bg-stone-950" />
-          <div className="w-[300px] shrink-0 border-l border-outline/20 p-3 space-y-2">
+          <div className="w-[40vw] min-w-[360px] max-w-[640px] shrink-0 border-l border-outline/20 p-3 space-y-2">
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-16 rounded-xl skeleton-shimmer" />
             ))}
