@@ -289,6 +289,7 @@ class TestWriterSectionAgentOffline:
     def test_instruction_includes_notes_without_inline_cite_demand(self) -> None:
         agent = WriterSectionAgent()
         instruction = agent._build_instruction(
+            paper_type="research",
             section_type="intro",
             title="Introduction",
             outline_text="Motivate the gap.",
@@ -302,6 +303,91 @@ class TestWriterSectionAgentOffline:
         assert "do NOT write \\cite in text" in instruction
         assert "reference only" not in instruction.lower()
         assert "Cite every factual claim" not in instruction
+
+    def test_research_methods_instruction_requires_approved_outline(self) -> None:
+        agent = WriterSectionAgent()
+        instruction = agent._build_instruction(
+            paper_type="research",
+            section_type="methods",
+            title="Methods",
+            outline_text=(
+                r"\subsection{Study Design and Experimental Setup}"
+                "\n"
+                r"\subsection{Proposed Method}"
+            ),
+            user_inputs={
+                "What dataset(s) did you use?": "TrackingNet",
+                "What model/algorithm/approach?": "Transformer tracker",
+            },
+            paper_contexts=[make_paper_context("p1")],
+        )
+
+        assert "The approved outline is mandatory" in instruction
+        assert r"\subsection{Study Design and Experimental Setup}" in instruction
+        assert "Use the approved LaTeX subsection headings" in instruction
+
+    async def test_research_methods_fallback_preserves_approved_subsections(self) -> None:
+        agent = make_offline_section_agent()
+        result = await agent.draft_section(
+            section_id="sec-research-methods",
+            paper_type="research",
+            section_type="methods",
+            title="Methods",
+            outline_text=(
+                r"\subsection{Study Design and Experimental Setup}"
+                "\n"
+                r"\subsection{Proposed Method}"
+                "\n"
+                r"\subsection{Evaluation Metrics}"
+            ),
+            user_inputs={
+                "What dataset(s) did you use?": "TrackingNet",
+                "What model/algorithm/approach?": "Transformer tracker",
+                "What is the evaluation metric?": "Success and precision",
+            },
+            paper_contexts=[
+                make_paper_context("p1", title="Transformer Tracking"),
+                make_paper_context("p2", title="Tracking Benchmarks"),
+            ],
+            citation_style="ieee",
+        )
+
+        assert r"\section{Methods}" in result.draft_latex
+        assert r"\subsection{Study Design and Experimental Setup}" in result.draft_latex
+        assert r"\subsection{Proposed Method}" in result.draft_latex
+        assert r"\subsection{Evaluation Metrics}" in result.draft_latex
+        assert r"\cite{p1,p2}" in result.draft_latex
+
+    async def test_survey_results_fallback_preserves_approved_subsections(self) -> None:
+        agent = make_offline_section_agent()
+        result = await agent.draft_section(
+            section_id="sec-survey-results",
+            paper_type="survey",
+            section_type="results",
+            title="Results",
+            outline_text=(
+                r"\subsection{Comparative Findings by Method Family}"
+                "\n"
+                r"\subsection{Performance Under High-Speed Conditions}"
+                "\n"
+                r"\subsection{Accuracy, Robustness, and Latency Trade-offs}"
+            ),
+            user_inputs={
+                "Paste your key numbers / table / main finding.": "Transformer trackers improve robustness but increase latency.",
+                "What is the headline result?": "No single tracker dominates every high-speed condition.",
+            },
+            paper_contexts=[
+                make_paper_context("p1", title="Fast Object Tracking", result="Siamese trackers improve accuracy."),
+                make_paper_context("p2", title="Robust Tracking Survey", result="Kalman-only tracking drifts under non-linear motion."),
+            ],
+            citation_style="ieee",
+        )
+
+        assert r"\section{Results}" in result.draft_latex
+        assert r"\subsection{Comparative Findings by Method Family}" in result.draft_latex
+        assert r"\subsection{Performance Under High-Speed Conditions}" in result.draft_latex
+        assert r"\subsection{Accuracy, Robustness, and Latency Trade-offs}" in result.draft_latex
+        assert r"\cite{p1,p2}" in result.draft_latex
 
     async def test_offline_fallback_is_section_specific_not_reused_generic_text(self) -> None:
         contexts = [
