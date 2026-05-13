@@ -4,19 +4,41 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import {
   WriterSectionRead,
   getSectionQuestions,
+  proposeSectionOutline,
+  approveSectionOutline,
   submitSectionInputs,
   draftSection,
 } from "@/lib/api";
 
 interface WriterQuestionsPanelProps {
   documentId: string;
+  documentPaperType: string;
   activeSection: WriterSectionRead | null;
   token: string;
   onSectionUpdate: (section: WriterSectionRead) => void;
 }
 
+function isApprovedSectionOutline(
+  outlineText: string | null | undefined,
+  sectionType: string | undefined,
+  documentPaperType: string,
+) {
+  const outline = outlineText?.trim() ?? "";
+  if (!outline) return false;
+  const requiresStructuredOutline =
+    (sectionType === "methods" || sectionType === "results")
+    && (documentPaperType === "survey" || documentPaperType === "research");
+  if (
+    requiresStructuredOutline
+  ) {
+    return outline.includes("\\subsection{");
+  }
+  return true;
+}
+
 export function WriterQuestionsPanel({
   documentId,
+  documentPaperType,
   activeSection,
   token,
   onSectionUpdate,
@@ -25,7 +47,10 @@ export function WriterQuestionsPanel({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [proposingOutline, setProposingOutline] = useState(false);
+  const [approvingOutline, setApprovingOutline] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [outlineDraft, setOutlineDraft] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const warningDelayTimerRef = useRef<number | null>(null);
@@ -43,11 +68,13 @@ export function WriterQuestionsPanel({
     if (!activeSection) {
       setQuestions([]);
       setAnswers({});
+      setOutlineDraft("");
       return;
     }
 
     // Pre-fill answers from existing inputs
     setAnswers(activeSection.user_inputs_json ?? {});
+    setOutlineDraft(activeSection.outline_text ?? "");
 
     let cancelled = false;
     setLoadingQuestions(true);
@@ -83,8 +110,59 @@ export function WriterQuestionsPanel({
     }
   }, [activeSection, documentId, answers, token, onSectionUpdate]);
 
-  const handleDraftSection = useCallback(async () => {
+  const hasApprovedOutline = isApprovedSectionOutline(
+    activeSection?.outline_text,
+    activeSection?.section_type,
+    documentPaperType,
+  );
+
+  const handleProposeSectionOutline = useCallback(async () => {
     if (!activeSection) return;
+    setProposingOutline(true);
+    setError(null);
+    setWarnings([]);
+    try {
+      const { outline_text, warnings: ws } = await proposeSectionOutline(
+        documentId,
+        activeSection.id,
+        token,
+      );
+      setOutlineDraft(outline_text);
+      setWarnings(ws);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Outline generation failed.");
+    } finally {
+      setProposingOutline(false);
+    }
+  }, [activeSection, documentId, token]);
+
+  const handleApproveSectionOutline = useCallback(async () => {
+    if (!activeSection) return;
+    const normalizedOutline = outlineDraft.trim();
+    if (!normalizedOutline) {
+      setError("Section outline cannot be empty.");
+      return;
+    }
+    setApprovingOutline(true);
+    setError(null);
+    try {
+      const updated = await approveSectionOutline(
+        documentId,
+        activeSection.id,
+        normalizedOutline,
+        token,
+      );
+      setOutlineDraft(updated.outline_text ?? "");
+      onSectionUpdate(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Outline approval failed.");
+    } finally {
+      setApprovingOutline(false);
+    }
+  }, [activeSection, documentId, outlineDraft, token, onSectionUpdate]);
+
+  const handleDraftSection = useCallback(async () => {
+    if (!activeSection || !hasApprovedOutline) return;
     setDrafting(true);
     setError(null);
     clearWarningDelay();
@@ -101,7 +179,7 @@ export function WriterQuestionsPanel({
     } finally {
       setDrafting(false);
     }
-  }, [activeSection, documentId, token, onSectionUpdate, clearWarningDelay]);
+  }, [activeSection, documentId, token, onSectionUpdate, clearWarningDelay, hasApprovedOutline]);
 
   if (!activeSection) {
     return (
@@ -127,7 +205,7 @@ export function WriterQuestionsPanel({
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-hint">Section</p>
         <p className="mt-0.5 text-xs font-semibold text-on-surface truncate">{activeSection.title}</p>
         {activeSection.outline_text && (
-          <p className="mt-1 text-[11px] text-on-surface-variant leading-relaxed line-clamp-3">
+          <p className="mt-1 whitespace-pre-line text-[11px] text-on-surface-variant leading-relaxed line-clamp-3">
             {activeSection.outline_text}
           </p>
         )}
@@ -135,6 +213,73 @@ export function WriterQuestionsPanel({
 
       {/* Questions */}
       <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-3 space-y-4">
+        {!loadingQuestions && (
+          <div className="rounded-xl border border-outline/20 bg-surface-container-lowest p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <label className="text-[11px] font-semibold text-on-surface" htmlFor="section-outline">
+                {hasApprovedOutline ? "Approved outline" : "Section outline"}
+              </label>
+              {hasApprovedOutline && (
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                  Approved
+                </span>
+              )}
+            </div>
+            <textarea
+              id="section-outline"
+              value={outlineDraft}
+              onChange={(e) => setOutlineDraft(e.target.value)}
+              placeholder="Generate or write the section outline..."
+              rows={6}
+              className="w-full rounded-lg border border-outline/30 bg-background px-3 py-2 font-mono text-[11px] leading-relaxed text-on-surface placeholder:text-hint outline-none focus:border-primary/50 transition-colors resize-none"
+            />
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {!hasApprovedOutline && (
+                <button
+                  type="button"
+                  onClick={() => void handleProposeSectionOutline()}
+                  disabled={proposingOutline || approvingOutline || drafting}
+                  className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-outline/25 bg-surface-container-low px-3 text-[11px] font-semibold text-on-surface hover:bg-primary/5 hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {proposingOutline ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+                        progress_activity
+                      </span>
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>account_tree</span>
+                      Generate section outline
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleApproveSectionOutline()}
+                disabled={proposingOutline || approvingOutline || drafting || !outlineDraft.trim()}
+                className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-outline/25 bg-surface-container-low px-3 text-[11px] font-semibold text-on-surface hover:bg-primary/5 hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {approvingOutline ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+                      progress_activity
+                    </span>
+                    Approving…
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>check_circle</span>
+                    Approve outline
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
         {loadingQuestions ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
@@ -216,7 +361,13 @@ export function WriterQuestionsPanel({
         <button
           type="button"
           onClick={() => void handleSubmitInputs()}
-          disabled={submitting || drafting || (questions.length === 0 && !answers["__notes__"]?.trim())}
+          disabled={
+            submitting
+            || proposingOutline
+            || approvingOutline
+            || drafting
+            || (questions.length === 0 && !answers["__notes__"]?.trim())
+          }
           className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-outline/25 bg-surface-container-lowest px-3 py-2 text-xs font-medium text-on-surface hover:bg-primary/5 hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? (
@@ -236,7 +387,7 @@ export function WriterQuestionsPanel({
         <button
           type="button"
           onClick={() => void handleDraftSection()}
-          disabled={submitting || drafting}
+          disabled={submitting || drafting || !hasApprovedOutline}
           className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {drafting ? (
