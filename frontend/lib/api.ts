@@ -371,7 +371,8 @@ export type ProjectPaper = {
 
 export type ReferenceFileRead = {
   id: string;
-  project_id: string;
+  user_id: string | null;
+  project_id: string | null;
   original_filename: string;
   content_type: string | null;
   byte_size: number;
@@ -828,7 +829,8 @@ export interface WriterSourcePaper {
 
 export interface WriterDocumentRead {
   id: string;
-  project_id: string;
+  user_id: string;
+  project_id: string | null;
   title: string;
   topic: string;
   thesis: string | null;
@@ -845,7 +847,8 @@ export interface WriterDocumentRead {
 
 export interface WriterDocumentSummaryRead {
   id: string;
-  project_id: string;
+  user_id: string;
+  project_id: string | null;
   title: string;
   topic: string;
   paper_type: string;
@@ -877,11 +880,12 @@ export interface SectionVersionRead {
 // ---- Writer API helpers ----------------------------------------------------
 
 export async function createWriterDocument(
-  projectId: string,
+  projectId: string | null,
   data: { title: string; topic: string; thesis?: string; paper_type?: string; citation_style?: string },
   token: string,
 ): Promise<WriterDocumentRead> {
-  return api<WriterDocumentRead>(`/projects/${projectId}/writer/documents`, {
+  const path = projectId ? `/projects/${projectId}/writer/documents` : "/writer/documents";
+  return api<WriterDocumentRead>(path, {
     method: "POST",
     token,
     json: data,
@@ -889,10 +893,11 @@ export async function createWriterDocument(
 }
 
 export async function listWriterDocuments(
-  projectId: string,
   token: string,
+  projectId?: string | null,
 ): Promise<WriterDocumentSummaryRead[]> {
-  return api<WriterDocumentSummaryRead[]>(`/projects/${projectId}/writer/documents`, { token });
+  const path = projectId ? `/projects/${projectId}/writer/documents` : "/writer/documents";
+  return api<WriterDocumentSummaryRead[]>(path, { token });
 }
 
 export async function getWriterDocument(documentId: string, token: string): Promise<WriterDocumentRead> {
@@ -945,6 +950,29 @@ export async function getSectionQuestions(
   return api<{ section_id: string; questions: string[] }>(
     `/writer/documents/${documentId}/sections/${sectionId}/questions`,
     { token },
+  );
+}
+
+export async function proposeSectionOutline(
+  documentId: string,
+  sectionId: string,
+  token: string,
+): Promise<{ section_id: string; outline_text: string; warnings: string[] }> {
+  return api<{ section_id: string; outline_text: string; warnings: string[] }>(
+    `/writer/documents/${documentId}/sections/${sectionId}/outline/propose`,
+    { method: "POST", token },
+  );
+}
+
+export async function approveSectionOutline(
+  documentId: string,
+  sectionId: string,
+  outline_text: string,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/sections/${sectionId}/outline`,
+    { method: "PUT", token, json: { outline_text } },
   );
 }
 
@@ -1044,6 +1072,32 @@ export async function attachPaperById(
     `/writer/documents/${documentId}/sources/attach-paper`,
     { method: "POST", token, json: { paper_id: paperId } },
   );
+}
+
+export async function importProjectSources(
+  documentId: string,
+  projectId: string,
+  paperIds: string[],
+  token: string,
+): Promise<{ paper_ids: string[]; imported_count: number }> {
+  return api<{ paper_ids: string[]; imported_count: number }>(
+    `/writer/documents/${documentId}/sources/import-project`,
+    { method: "POST", token, json: { project_id: projectId, paper_ids: paperIds } },
+  );
+}
+
+export async function uploadWriterDocumentSource(
+  documentId: string,
+  file: File,
+  token: string,
+): Promise<ReferenceFileRead> {
+  const formData = new FormData();
+  formData.set("file", file);
+  return api<ReferenceFileRead>(`/writer/documents/${documentId}/sources/upload`, {
+    method: "POST",
+    token,
+    formData,
+  });
 }
 
 export async function getQaReport(
