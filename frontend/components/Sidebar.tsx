@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useChat } from "@/components/ChatProvider";
 import {
@@ -21,6 +22,8 @@ interface SidebarProps {
 export default function Sidebar({ open, onToggle }: SidebarProps) {
   const { token, user, logout } = useAuth();
   const { projects, activeProject, busy, selectProject, renameProject, deleteProject, startNewResearch } = useChat();
+  const router = useRouter();
+  const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState(false);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
 
@@ -91,6 +94,20 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
     await deleteProject(projectId);
   };
+
+  const handleSelectProject = useCallback(
+    async (projectId: string) => {
+      const projectChatHref = `/chat?project=${projectId}`;
+      if (pathname !== "/chat") {
+        router.push(projectChatHref);
+        return;
+      }
+
+      router.push(projectChatHref);
+      await selectProject(projectId);
+    },
+    [pathname, router, selectProject],
+  );
 
   return (
     <aside
@@ -192,7 +209,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                     project={project}
                     isActive={activeProject?.id === project.id}
                     busy={busy}
-                    onSelect={selectProject}
+                    onSelect={handleSelectProject}
                     onRename={renameProject}
                     onDelete={handleDeleteProject}
                   />
