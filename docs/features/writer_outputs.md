@@ -2,7 +2,7 @@
 
 This document describes the user-invoked writer generation flow, citation/reference formatting, and QA validation.
 
-Note: this page covers the one-shot project writer output endpoint. The section-based writer workspace is separate: writer documents are user-owned, can be created without a project through `/writer/documents`, and use `writer_document_sources` for attached sources. Projects are optional source providers for that workspace. Workspace section drafts require an approved section outline before drafting, and research/survey Methods and Results outlines are structured as LaTeX subsections.
+Note: this page covers the one-shot project writer output endpoint. The section-based writer workspace is separate: writer documents are user-owned, can be created without a project through `/writer/documents`, and use `writer_document_sources` for attached sources. Projects are optional source providers for that workspace. Workspace section drafts require an approved section outline before drafting, and research/survey Methods and Results outlines are structured as LaTeX subsections. The workspace also has a targeted editor-agent path for revising the current draft only: preview edits with `POST /writer/documents/{document_id}/sections/{section_id}/edit`, then apply accepted patches with `POST /writer/documents/{document_id}/sections/{section_id}/edit/apply`; apply calls reuse section version snapshots.
 
 ## HTTP Endpoints
 
@@ -89,6 +89,8 @@ Supported reference styles:
 ## Related Tests
 
 - `tests/test_writer_outputs.py`
+- `tests/test_writer_editor.py` for section-editor preview/apply behavior
+- `tests/test_frontend_writer_static.py` for writer editor UI wiring
 
 These tests cover:
 
