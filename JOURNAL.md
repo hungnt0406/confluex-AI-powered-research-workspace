@@ -1379,3 +1379,43 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Fix the Deep Search/discovery failure shown as `SearchQuery query String should have at most 255 characters` when a long research prompt is used.
 - **Files changed:** `backend/agents/searcher.py`, `tests/test_searcher_reader.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Added a regression for the reported long high-speed tracking prompt and changed fallback query composition to reserve room for suffix terms before creating `SearchQuery` models. Verification passed for the focused regression, full `tests/test_searcher_reader.py`, and targeted Ruff.
+
+## 2026-05-14T10:20:19+07:00
+- **Request:** Implement the Writer Editor Agent plan with subagents.
+- **Files changed:** `backend/agents/writer_editor.py`, `backend/services/writer_editor.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/components/WriterWorkspace.tsx`, `frontend/lib/api.ts`, `tests/test_writer_editor.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/feature-map.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added draft-only editor previews for `fix_error`, `generate_paragraph`, and `incorporate_results`, optional Tavily web citations, credit gating, stale-patch conflict checks, and apply-through-`save_section_edit` versioning. Added the Monaco overlay for selection fixes, prompted edits, paragraph insertion, result incorporation, diff preview, accept/regenerate/refine/discard, plus typed API helpers. Subagents were started but did not return usable patches, so the implementation was completed locally. Focused backend, frontend static, TypeScript, Ruff, and targeted mypy checks passed.
+
+## 2026-05-14T10:39:21+07:00
+- **Request:** Fix long Writer editor suggestions overflowing the screen.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Constrained the diff preview card to a viewport-relative max height, made the old/new text area scroll internally, preserved action buttons in a fixed footer, and wrapped long LaTeX/citation strings. Focused frontend static and TypeScript checks passed.
+
+## 2026-05-14T10:44:07+07:00
+- **Request:** Let Writer editor suggestions overlay the adjacent right panel.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Moved the Writer editor overlay into a `document.body` portal with fixed viewport coordinates derived from Monaco's DOM node, so diff previews can extend over the Questions/Sources/QA panel instead of being clipped by the editor column. Focused frontend static and TypeScript checks passed.
+
+## 2026-05-14T11:35:27+07:00
+- **Request:** Explain and fix paraphrase edits returning the same text.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added paraphrase no-op detection for Writer editor selected-span edits. When a paraphrase/rewrite instruction returns unchanged text, the agent retries once with a stricter prompt; if the provider still returns a no-op, it uses a conservative deterministic paraphrase fallback instead of showing the same text as a suggestion. Focused paraphrase regression tests passed.
+
+## 2026-05-14T12:13:44+07:00
+- **Request:** Fix the paraphrase fallback still producing the same high-speed tracking paragraph.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Expanded deterministic paraphrase substitutions for the high-speed tracking paragraph and replaced the raw `paraphrase_fallback` rationale with a user-facing explanation. Added a regression using the reported paragraph and verified the fallback changes prose while preserving citation keys.
+
+## 2026-05-14T12:26:40+07:00
+- **Request:** Fix paragraph generation preview showing the prompt instead of generated content.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added prompt-echo detection for `generate_paragraph`. If the provider returns the topic/instruction itself or an imperative prompt, the agent now replaces it with a deterministic introduction paragraph built from the requested topic and shows a normal generation rationale.
+
+## 2026-05-14T12:34:45+07:00
+- **Request:** Fix Writer editor preview UI showing large blank space before generated paragraph text.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Trimmed patch text only for preview rendering so generated paragraph insertion newlines no longer create empty vertical space in the diff card, while the actual patch payload remains unchanged for apply.
+
+## 2026-05-14T15:33:34+07:00
+- **Request:** Update `CLAUDE.md` and `.codex/AGENTS.md` with the Writer Editor Agent changes.
+- **Files changed:** `CLAUDE.md`, `.codex/AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added project guidance for the Writer Editor Agent ownership, preview/apply endpoints, credit/versioning behavior, stale-patch validation, citation preservation, paraphrase no-op handling, paragraph prompt-echo fallback, and portal-based overlay UI constraints.
