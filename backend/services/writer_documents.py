@@ -37,7 +37,7 @@ from backend.db.models import (
     WriterSectionVersion,
     generate_identifier,
 )
-from backend.services.arxiv import download_pdf
+from backend.services.arxiv import ArxivUnavailable, download_pdf
 from backend.services.citations import CitationFormatter
 from backend.services.document_extraction import (
     DocumentExtractionError,
@@ -679,6 +679,8 @@ class WriterDocumentService:
             )
             for p in arxiv_papers:
                 candidates.append({**p, "pdf_available": bool(p.get("pdf_url"))})
+        except ArxivUnavailable as err:
+            logger.info("arXiv skipped (transient): %s", err)
         except Exception as err:
             msg = str(err) if str(err) else type(err).__name__
             warnings.append(f"arXiv unavailable: {msg}")
@@ -1316,6 +1318,9 @@ class WriterDocumentService:
                 query,
                 limit=WRITER_ARXIV_SOURCE_POOL,
             )
+        except ArxivUnavailable as err:
+            logger.info("arXiv skipped (transient) in auto-fetch: %s", err)
+            return [], []
         except Exception as err:
             msg = str(err) if str(err) else type(err).__name__
             return [], [f"arXiv unavailable: {msg}"]
