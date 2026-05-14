@@ -73,6 +73,14 @@ export default function ChatWorkspace() {
     togglePaperSelection,
   } = useChat();
   const [draft, setDraft] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seeded = window.sessionStorage.getItem("landing.topic");
+    if (seeded) {
+      setDraft(seeded);
+      window.sessionStorage.removeItem("landing.topic");
+    }
+  }, []);
   const [localComposerNotice, setLocalComposerNotice] = useState<ComposerNotice | null>(null);
   const [pendingReferenceUpload, setPendingReferenceUpload] =
     useState<PendingReferenceUpload | null>(null);
