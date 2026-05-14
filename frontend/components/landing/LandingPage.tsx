@@ -2,11 +2,20 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 import "@/app/landing.css";
 
 const CHAT_HREF = "/chat";
 const WRITER_HREF = "/writer";
 const PRICING_HREF = "/pricing";
+
+function useAuthedHref(target: string): string {
+  const { ready, token } = useAuth();
+  if (!ready) return target;
+  if (token) return target;
+  return `/login?next=${encodeURIComponent(target)}`;
+}
 
 const LOGO_STROKES = [
   "M 4,50 C 8,35 18,15 32,6",
@@ -40,6 +49,9 @@ function MIcon({ name, className = "", style }: { name: string; className?: stri
 
 function TopNav() {
   const [scrolled, setScrolled] = useState(false);
+  const { ready, token } = useAuth();
+  const chatHref = useAuthedHref(CHAT_HREF);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
     onScroll();
@@ -47,6 +59,7 @@ function TopNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
   const cls = `nav ${scrolled ? "nav-scrolled" : "nav-on-dark"}`;
+  const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <nav className={cls}>
       <div className="container nav-inner">
@@ -60,8 +73,8 @@ function TopNav() {
           <a href="#sample">Sample output</a>
           <a href="#pricing">Pricing</a>
         </div>
-        <Link href={CHAT_HREF} className="btn btn-primary btn-sm">
-          Start a review
+        <Link href={chatHref} className="btn btn-primary btn-sm">
+          {ctaLabel}
           <MIcon name="arrow_forward" className="icon-18" />
         </Link>
       </div>
@@ -99,14 +112,25 @@ function usePrefersReducedMotion() {
 
 function ChatPreview() {
   const reduced = usePrefersReducedMotion();
-  const [typed, setTyped] = useState(reduced ? GREETING_FULL_LENGTH : 0);
+  const [typed, setTyped] = useState(GREETING_FULL_LENGTH);
+  const [hasMounted, setHasMounted] = useState(false);
   const [chipStart, setChipStart] = useState(0);
+  const router = useRouter();
+  const chatHref = useAuthedHref(CHAT_HREF);
 
   useEffect(() => {
-    if (reduced) {
-      setTyped(GREETING_FULL_LENGTH);
-      return;
+    setHasMounted(true);
+  }, []);
+
+  const handleChipClick = (topic: string) => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("landing.topic", topic);
     }
+    router.push(chatHref);
+  };
+
+  useEffect(() => {
+    if (!hasMounted || reduced) return;
     setTyped(0);
     let n = 0;
     const tick = window.setInterval(() => {
@@ -115,7 +139,7 @@ function ChatPreview() {
       if (n >= GREETING_FULL_LENGTH) window.clearInterval(tick);
     }, 28);
     return () => window.clearInterval(tick);
-  }, [reduced]);
+  }, [hasMounted, reduced]);
 
   useEffect(() => {
     if (reduced) return;
@@ -165,9 +189,14 @@ function ChatPreview() {
             </p>
             <div className="chat-chips">
               {visibleChips.map(({ idx, text }, slot) => (
-                <span className="chat-chip chip-fade" key={`${slot}-${idx}`}>
+                <button
+                  type="button"
+                  className="chat-chip chip-fade chip-btn"
+                  key={`${slot}-${idx}`}
+                  onClick={() => handleChipClick(text)}
+                >
                   &ldquo;{text}&rdquo;
-                </span>
+                </button>
               ))}
             </div>
           </div>
@@ -195,6 +224,9 @@ function ChatPreview() {
 }
 
 function Hero() {
+  const { ready, token } = useAuth();
+  const chatHref = useAuthedHref(CHAT_HREF);
+  const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <section id="top" className="hero surface-primary">
       <div className="container">
@@ -221,8 +253,8 @@ function Hero() {
             </p>
 
             <div className="hero-actions">
-              <Link href={CHAT_HREF} className="btn btn-primary">
-                Start a review
+              <Link href={chatHref} className="btn btn-primary">
+                {ctaLabel}
                 <MIcon name="arrow_forward" className="icon-18" />
               </Link>
               <a href="#how" className="btn btn-ghost">
@@ -750,6 +782,10 @@ function Pricing() {
 }
 
 function Footer() {
+  const { ready, token } = useAuth();
+  const chatHref = useAuthedHref(CHAT_HREF);
+  const writerHref = useAuthedHref(WRITER_HREF);
+  const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <section className="surface-container">
       <div className="container cta-wrap">
@@ -768,8 +804,8 @@ function Footer() {
         </h2>
 
         <div className="cta-actions">
-          <Link href={CHAT_HREF} className="btn btn-primary">
-            Start a review
+          <Link href={chatHref} className="btn btn-primary">
+            {ctaLabel}
             <MIcon name="arrow_forward" className="icon-18" />
           </Link>
           <a href="#how" className="btn btn-ghost">
@@ -780,9 +816,9 @@ function Footer() {
 
         <div className="cta-meta">
           <div className="url">
-            <Link href={CHAT_HREF}>Research workspace</Link>
+            <Link href={chatHref}>Research workspace</Link>
             &nbsp;·&nbsp;
-            <Link href={WRITER_HREF}>Writer beta</Link>
+            <Link href={writerHref}>Writer beta</Link>
             &nbsp;·&nbsp;
             <Link href={PRICING_HREF}>Plans</Link>
           </div>
@@ -796,10 +832,17 @@ function Footer() {
 export default function LandingPage() {
   useEffect(() => {
     const body = document.body;
-    const prev = body.className;
+    const html = document.documentElement;
+    const hadHScreen = body.classList.contains("h-screen");
+    const hadOverflowHidden = body.classList.contains("overflow-hidden");
     body.classList.remove("h-screen", "overflow-hidden");
+    body.classList.add("landing-active");
+    html.classList.add("landing-active");
     return () => {
-      body.className = prev;
+      body.classList.remove("landing-active");
+      html.classList.remove("landing-active");
+      if (hadHScreen) body.classList.add("h-screen");
+      if (hadOverflowHidden) body.classList.add("overflow-hidden");
     };
   }, []);
 
