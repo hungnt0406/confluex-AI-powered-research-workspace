@@ -52,6 +52,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/components/Sidebar.tsx`, `frontend/README.md`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
 - **Current status:** Added project-row routing to `/chat?project=...` from non-chat routes while preserving the existing chat-page project hydration flow, documented the split, and added a focused frontend static regression. Verification passed for the full Writer static test file and frontend TypeScript.
 
+### 2026-05-14T22:40:28+07:00
+- **Request:** Push the current writer workspace changes, create pull requests following the repository PR format, and merge them into `main`.
+- **Files changed:** `.codex/AGENTS.md`, `.env.example`, `CLAUDE.md`, `JOURNAL.md`, `README.md`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `backend/services/arxiv.py`, `backend/services/llm.py`, `backend/services/writer_documents.py`, `backend/agents/writer_editor.py`, `backend/services/writer_editor.py`, `docs/feature-map.md`, `docs/features/writer_outputs.md`, `frontend/README.md`, `frontend/components/Sidebar.tsx`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/components/WriterProseEditor.tsx`, `frontend/components/WriterWorkspace.tsx`, `frontend/lib/api.ts`, `frontend/lib/dom-latex-map.ts`, `frontend/lib/latex-prose.ts`, `frontend/lib/prose-editor-adapter.ts`, `frontend/tsconfig.tsbuildinfo`, `plans/README.md`, `plans/in-progress/writer-document-chat.md`, `plans/in-progress/writer-editor-agent.md`, `tests/test_frontend_writer_static.py`, `tests/test_writer_editor.py`.
+- **Current status:** Writer workspace/editor changes are staged for branch push and PR batching. Next step is per-file commits, push, PR creation, and merge into `main`.
+
 ### 2026-05-12T21:50:14+07:00
 - **Request:** Replace raw Writer attached-source UUIDs with human-readable source names in the sources panel.
 - **Files changed:** `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/lib/api.ts`, `frontend/components/WriterSourcesPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
@@ -121,6 +126,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Investigate why uploading `/Users/hungcucu/Desktop/2504.20670v1.pdf` produced a garbled paper answer.
 - **Files changed:** `backend/services/document_extraction.py`, `backend/services/reference_files.py`, `backend/services/paper_conversations.py`, `backend/services/project_conversations.py`, `tests/test_document_extraction.py`, `tests/test_reference_files.py`, `tests/test_paper_conversations.py`, `tests/test_project_conversations.py`, `docs/features/upload_reference_file.md`, `README.md`, `JOURNAL.md`, `AI_WORKLOG.md`
 - **Current status:** Verified the supplied PDF extracts cleanly through the updated upload path (9 pages, 9 text blocks, FBRT-YOLO title, coherent abstract, authors `Yao Xiao`, `Tingfa Xu`, `Yu Xin`, `Jianan Li`). Uploaded/local PDFs now prefer local PyMuPDF extraction before live parser fallback, uploaded-paper metadata infers simple header author lines, and chat prompts use metadata directly for bibliographic questions. Focused checks pass: `source ~/miniconda3/bin/activate agents && uv run pytest tests/test_reference_files.py tests/test_document_extraction.py tests/test_paper_conversations.py tests/test_project_conversations.py -q`; targeted `ruff check` passes.
+
+## 2026-05-14T22:03:37+07:00
+- **Request:** Restructure sidebar — move Writer below "New Research"; put Credits, Plans, Usage Monitor, and Sign out inside a popover triggered by the user account button at the bottom.
+- **Files changed:** `frontend/components/Sidebar.tsx`, `JOURNAL.md`
+- **Current status:** Writer link moved up under New Research (both expanded and collapsed states; Beta badge preserved). Footer collapsed to a single account-button trigger that opens a popover containing Credits (with balance), Plans, Usage Monitor (admin-gated), divider, and Sign out. Popover closes on click-outside and Escape. Frontend `tsc --noEmit` clean; `uv run pytest tests/test_frontend_writer_static.py` passes (24/24).
+
+## 2026-05-14T00:00:00+07:00
+- **Request:** Investigate "arXiv unavailable: HTTP" warning shown when searching sources in the writer workspace; then silence the warning when arXiv is rate-limited / times out, since Tavily is the primary path.
+- **Files changed:** `backend/services/arxiv.py`, `backend/services/writer_documents.py`
+- **Current status:** Root cause confirmed via curl: `export.arxiv.org` is rate-limiting (HTTP 429, slow responses, occasional SYN drops surfacing as httpx `ConnectTimeout`). Two-step fix: (1) wrapped error now includes exception class name and falls back to `repr` when `str` is empty; (2) introduced `ArxivUnavailable(RuntimeError)` in `arxiv.py`, raised for `httpx.TimeoutException` and HTTP 429. `WriterDocumentService` catches `ArxivUnavailable` separately and logs it at INFO instead of appending a user-facing warning — Tavily fallback handles the search. Unexpected HTTP errors still surface as warnings. Tests pass: `uv run pytest tests/test_writer_documents.py -x -q -k draft_section` (8 passed). Lint clean.
 
 ## 2026-05-10T10:00:00+07:00
 - **Request:** Fix output token truncation in paper Q&A — long table responses were cut off mid-row.
@@ -1460,7 +1475,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Trimmed patch text only for preview rendering so generated paragraph insertion newlines no longer create empty vertical space in the diff card, while the actual patch payload remains unchanged for apply.
 
+## 2026-05-14T15:56:56+07:00
+- **Request:** Simplify the writer editor agent — surface a single "Edit" action in the UI that behaves like a general-purpose editor (fix grammar, paraphrase, expand, incorporate findings) and trim the over-engineered backend.
+- **Files changed:** `backend/agents/writer_editor.py`, `backend/services/writer_editor.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/lib/api.ts`, `tests/test_writer_editor.py`, `tests/test_frontend_writer_static.py`, `CLAUDE.md`, `JOURNAL.md`.
+- **Current status:** Collapsed `fix_error` / `generate_paragraph` / `incorporate_results` into one `edit` operation (revise if `span` is given, insert if `insertion_offset` is given). `EditRequest` lost its `intent` literal; `EditIntent` enum removed. Single credit tier: 2 credits / 4 with web search. Overlay now shows one "Edit" button on selection plus the existing "+" between paragraphs; both open the same unified modal with an instruction box, an optional collapsible findings panel (text + source ref + cite checkbox), and a web-search toggle. Paraphrase no-op retry, deterministic paraphrase fallback, and prompt-echo replacement for insertions are preserved. `uv run pytest tests/test_writer_editor.py tests/test_frontend_writer_static.py -x` → 31 passed; ruff + mypy clean on changed files.
+
 ## 2026-05-14T15:33:34+07:00
 - **Request:** Update `CLAUDE.md` and `.codex/AGENTS.md` with the Writer Editor Agent changes.
 - **Files changed:** `CLAUDE.md`, `.codex/AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Added project guidance for the Writer Editor Agent ownership, preview/apply endpoints, credit/versioning behavior, stale-patch validation, citation preservation, paraphrase no-op handling, paragraph prompt-echo fallback, and portal-based overlay UI constraints.
+
+## 2026-05-14T16:36:32+07:00
+- **Request:** Make the writer editor display a friendlier text editor while still storing LaTeX behind the scenes for export.
+- **Files changed:** `frontend/lib/latex-prose.ts` (new), `frontend/components/WriterProseEditor.tsx` (new), `frontend/components/WriterWorkspace.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added a Visual prose editor that renders `\section`, `\subsection`, `\subsubsection`, `\textbf`, `\emph`/`\textit`, `\cite` (as inline pill), and `\todo` (as inline callout) on top of a light Google-Docs-style contenteditable surface. The LaTeX text remains the source of truth — every keystroke serializes the DOM back to LaTeX through `parseLatexToBlocks`/`serializeBlocksToLatex` so export and the existing AI overlay continue to operate on LaTeX. A small Visual/Source pill toggle now lives in the section header bar; Source mode still mounts Monaco plus the `WriterEditorOverlay` so AI-driven edits keep working. Visual mode keys by `activeSection.id` (uncontrolled contenteditable; remounts only on section switch or mode toggle). `uv run pytest tests/test_frontend_writer_static.py -x` → 22 passed; `npx tsc --noEmit -p tsconfig.json` clean; `npx next build` succeeds.
