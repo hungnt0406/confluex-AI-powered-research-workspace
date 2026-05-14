@@ -1390,6 +1390,21 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/app/landing.css`.
 - **Current status:** `ChatPreview` is now stateful — the greeting types out at ~28ms/char (preserving the `<em>precise focal point</em>` styling and exposing the full text via `aria-label`), the suggestion chip pool expanded to 6 entries with one slot rotating every 2.6s (fade-in keyframe via the `chip-fade` class), and the composer placeholder gained a blinking caret. All animations are gated by a `usePrefersReducedMotion` hook plus a `@media (prefers-reduced-motion: reduce)` CSS guard, so the greeting renders fully and chips stop cycling when reduced motion is requested. Frontend deps still aren't installed locally; visual verification needs `npm install && npm run dev`.
 
+## 2026-05-14T02:30:00+07:00
+- **Request:** Landing page still not scrollable.
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** The class-based override (`.landing-active { height: auto !important; overflow: visible !important }`) plus `body.classList.remove("h-screen", "overflow-hidden")` should have unlocked scroll, but evidently didn't in the user's browser (likely either the dev server hadn't picked up the new CSS, or the `!important`-on-element-selector cascade was being beaten by something I missed). Swapped the approach for the most defensive override possible: in the `LandingPage` mount effect, write `height: auto !important; overflow: auto !important` directly to `document.body.style` and `document.documentElement.style` via `setProperty(..., "important")`. Inline styles with `!important` cannot be beaten by any external CSS rule. The cleanup snapshots `body.className`, `body.style.cssText`, and `html.style.cssText` at mount and restores them verbatim on unmount, so the chat/billing/writer shells get their full-viewport lock back when the user navigates away.
+
+## 2026-05-14T02:15:00+07:00
+- **Request:** Top-nav items rendering pale/invisible against a light backdrop.
+- **Files changed:** `frontend/app/landing.css`.
+- **Current status:** The nav uses cream `#F2F3EC` text/wordmark/button while in its `.nav-on-dark` state (default at the top of the page), intended to overlay the dark forest-green hero. But the original `.nav { position: sticky; top: 0; background: transparent }` keeps the nav in document flow, so its 64px row sits above the hero with the light body background showing through — cream text on near-white was invisible. Switched to `position: fixed; top: 0; left: 0; right: 0;` so the nav genuinely overlays the hero (which already has 88px top padding, enough to clear the 64px bar). Scrolled-state behaviour (`.nav-scrolled` swaps to translucent paper with dark text) is unchanged.
+
+## 2026-05-14T02:00:00+07:00
+- **Request:** Fix the landing page rendering as washed-out / not scrollable.
+- **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Two regressions from the earlier integration. (1) Landing styles reference `var(--primary)`, `var(--background)`, `var(--on-surface)`, `var(--secondary-container)`, etc., but those tokens live in `frontend/tailwind.config.ts` (Tailwind theme) — they are NOT exposed as CSS custom properties. So every `var(--…)` in landing.css resolved to nothing, the dark hero rendered without a background, italics lost their forest-green colour, etc. Restored the full `:root` block (surfaces, text, brand, sage, outline, radii, spacing, type, motion) so each token has a real value. (2) Body scroll was locked because `frontend/app/globals.css` has `html, body { height: 100% }` in addition to the `h-screen overflow-hidden` Tailwind classes on `<body>`; stripping the classes wasn't enough. Added a `.landing-active` class that gets toggled on both `<html>` and `<body>` while the landing is mounted; landing.css declares `html.landing-active, body.landing-active { height: auto !important; overflow: visible !important; }`. The useEffect still removes the legacy `h-screen` / `overflow-hidden` classes and restores them on unmount.
+
 ## 2026-05-14T01:30:00+07:00
 - **Request:** Audit the landing-page integration for bugs.
 - **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
