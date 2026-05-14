@@ -10,6 +10,14 @@ ARXIV_PDF_BASE = "https://arxiv.org/pdf/"
 ARXIV_ID_PATTERN = re.compile(r"(?:arxiv\.org/(?:abs|pdf)/)(\d{4}\.\d{4,5}(?:v\d+)?)")
 
 
+class ArxivUnavailable(RuntimeError):
+    """Raised when arXiv is transiently unavailable (timeouts, rate limits).
+
+    Callers that have a fallback source (e.g. Tavily) should treat this as
+    expected and skip surfacing it as a user-facing warning.
+    """
+
+
 def coerce_optional_string(value: object) -> str | None:
     """Normalize optional provider string values."""
 
@@ -130,8 +138,15 @@ async def search_papers(
     try:
         response = await client.get(ARXIV_URL, params=params)
         response.raise_for_status()
+    except httpx.TimeoutException as error:
+        raise ArxivUnavailable(f"timeout ({type(error).__name__})") from error
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 429:
+            raise ArxivUnavailable("rate limited (HTTP 429)") from error
+        raise RuntimeError(f"HTTP {error.response.status_code}") from error
     except httpx.HTTPError as error:
-        raise RuntimeError(f"HTTP {error}") from error
+        detail = str(error) or repr(error)
+        raise RuntimeError(f"HTTP {type(error).__name__}: {detail}") from error
     finally:
         if owns_client:
             await client.aclose()
