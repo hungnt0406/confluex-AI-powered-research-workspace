@@ -160,13 +160,138 @@ def test_writer_right_panel_is_resizable_from_forty_percent_default() -> None:
     assert "w-[300px] shrink-0 border-l" not in loading_page
 
 
+def test_writer_editor_overlay_is_mounted_in_workspace() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "WriterEditorOverlay" in workspace
+    assert "setMonacoEditor" in workspace
+    assert "onPendingChange={setHasPendingEditorPatch}" in workspace
+    assert "if (hasPendingEditorPatch) return;" in workspace
+
+
+def test_writer_editor_api_exports_preview_and_apply() -> None:
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "export interface EditRequest" in api_client
+    assert "export interface EditPatchResponse" in api_client
+    assert "original_text: string;" in api_client
+    assert "export async function previewWriterEdit" in api_client
+    assert "export async function applyWriterEdit" in api_client
+    assert "`/writer/documents/${documentId}/sections/${sectionId}/edit`" in api_client
+    assert "`/writer/documents/${documentId}/sections/${sectionId}/edit/apply`" in api_client
+
+
+def test_writer_editor_overlay_renders_diff_preview_controls() -> None:
+    overlay = (REPO_ROOT / "frontend/components/WriterEditorOverlay.tsx").read_text()
+
+    assert "bg-emerald-50" in overlay
+    assert "line-through" in overlay
+    assert "createPortal(" in overlay
+    assert "getDomNode" in overlay
+    assert "getBoundingClientRect()" in overlay
+    assert "fixed inset-0 z-[70]" in overlay
+    assert "function previewText(text: string)" in overlay
+    assert "{previewText(pendingPatch.new_text)}" in overlay
+    assert "maxHeight: `${patchPlacement.maxHeight}px`" in overlay
+    assert "overflow-y-auto" in overlay
+    assert "whitespace-pre-wrap break-words" in overlay
+    assert "shrink-0 flex-wrap" in overlay
+    assert "Accept" in overlay
+    assert "Regenerate" in overlay
+    assert "Refine" in overlay
+    assert "Discard" in overlay
+    assert "Add findings (optional)" in overlay
+    assert "Web search" in overlay
+
+
+def test_writer_editor_overlay_uses_single_edit_action() -> None:
+    overlay = (REPO_ROOT / "frontend/components/WriterEditorOverlay.tsx").read_text()
+
+    assert "Fix grammar, clarity, and phrasing." not in overlay
+    assert "intent: \"fix_error\"" not in overlay
+    assert "intent: \"generate_paragraph\"" not in overlay
+    assert "intent: \"incorporate_results\"" not in overlay
+    assert "auto_awesome" in overlay
+    assert "Edit selection" in overlay
+    assert "Write new paragraph" in overlay
+    assert "Add findings (optional)" in overlay
+
+
+def test_writer_workspace_offers_visual_source_toggle() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "import { WriterProseEditor } from \"@/components/WriterProseEditor\";" in workspace
+    assert "type EditorViewMode = \"visual\" | \"source\";" in workspace
+    assert "const [viewMode, setViewMode] = useState<EditorViewMode>(\"visual\");" in workspace
+    assert "aria-label=\"Editor view mode\"" in workspace
+    assert "viewMode === \"visual\" ? (" in workspace
+    assert "editorKey={`${activeSection.id}:${proseRefreshToken}`}" in workspace
+
+
+def test_writer_workspace_has_undo_redo_buttons() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "const [historyBySection, setHistoryBySection] = useState<" in workspace
+    assert "const pushHistory = useCallback((sectionId: string, content: string)" in workspace
+    assert "pushHistory(activeSection.id, value);" in workspace
+    assert "pushHistory(section.id, newContent);" in workspace
+    assert "const handleUndo = useCallback(" in workspace
+    assert "const handleRedo = useCallback(" in workspace
+    assert "const canUndo = (activeHistory?.past.length ?? 0) > 0;" in workspace
+    assert "const canRedo = (activeHistory?.future.length ?? 0) > 0;" in workspace
+    assert "aria-label=\"Undo\"" in workspace
+    assert "aria-label=\"Redo\"" in workspace
+    assert "disabled={!canUndo}" in workspace
+    assert "disabled={!canRedo}" in workspace
+    assert "const applyHistoricalContent = useCallback(" in workspace
+
+
+def test_writer_visual_mode_mounts_ai_edit_overlay() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+    adapter = (REPO_ROOT / "frontend/lib/prose-editor-adapter.ts").read_text()
+    domMap = (REPO_ROOT / "frontend/lib/dom-latex-map.ts").read_text()
+
+    assert "import { createProseEditorAdapter } from \"@/lib/prose-editor-adapter\";" in workspace
+    assert "const proseAdapter = useMemo<MonacoEditorLike | null>" in workspace
+    assert "createProseEditorAdapter(proseEditorEl" in workspace
+    assert "editor={proseAdapter}" in workspace
+    assert "onMount={setProseEditorEl}" in workspace
+    assert "setProseRefreshToken((n) => n + 1);" in workspace
+
+    assert "export function createProseEditorAdapter" in adapter
+    assert "domPositionToLatexOffset" in adapter
+    assert "latexOffsetToDomPosition" in adapter
+    assert "getScrolledVisiblePosition" in adapter
+
+    assert "export function domPositionToLatexOffset" in domMap
+    assert "export function latexOffsetToDomPosition" in domMap
+
+
+def test_writer_prose_editor_renders_latex_macros() -> None:
+    editor = (REPO_ROOT / "frontend/components/WriterProseEditor.tsx").read_text()
+    converter = (REPO_ROOT / "frontend/lib/latex-prose.ts").read_text()
+
+    assert "contentEditable" in editor
+    assert "suppressContentEditableWarning" in editor
+    assert "containerRef.current.innerHTML = renderBlocksToHtml(" in editor
+    assert "wp-cite" in editor
+    assert "wp-todo" in editor
+    assert "parseLatexToBlocks" in editor
+    assert "serializeBlocksToLatex" in editor
+
+    assert "export function parseLatexToBlocks" in converter
+    assert "export function serializeBlocksToLatex" in converter
+    assert "\\\\(textbf|emph|textit|cite|todo)" in converter
+    assert "subsubsection" in converter
+
+
 def test_sidebar_writer_nav_shows_beta_badge() -> None:
     sidebar = (REPO_ROOT / "frontend/components/Sidebar.tsx").read_text()
 
-    assert "<span>Writer</span>" in sidebar
+    assert "<span>Writer Workspace</span>" in sidebar
     assert "Beta" in sidebar
-    assert "aria-label=\"Writer beta\"" in sidebar
-    assert "title=\"Writer beta\"" in sidebar
+    assert "aria-label=\"Writer Workspace beta\"" in sidebar
+    assert "title=\"Writer Workspace beta\"" in sidebar
 
 
 def test_sidebar_project_clicks_route_to_project_chat() -> None:
