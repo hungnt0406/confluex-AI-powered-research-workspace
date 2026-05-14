@@ -1379,3 +1379,13 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Fix the Deep Search/discovery failure shown as `SearchQuery query String should have at most 255 characters` when a long research prompt is used.
 - **Files changed:** `backend/agents/searcher.py`, `tests/test_searcher_reader.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Added a regression for the reported long high-speed tracking prompt and changed fallback query composition to reserve room for suffix terms before creating `SearchQuery` models. Verification passed for the focused regression, full `tests/test_searcher_reader.py`, and targeted Ruff.
+
+## 2026-05-14T00:00:00+07:00
+- **Request:** Integrate the Claude-designed landing page (`frontend/landing-page/`) into the Next.js app.
+- **Files changed:** `frontend/app/page.tsx`, `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Ported `sections.jsx` + `app.jsx` to a typed React client component (`LandingPage`); scoped the landing CSS under `.landing-root` so the existing chat/billing/writer shells keep their Tailwind layout; the body's `h-screen overflow-hidden` classes are temporarily stripped while the landing is mounted so the page can scroll. Root `/` now renders the landing for unauthenticated visitors and redirects authenticated users to `/chat`. CTA links route to internal `/chat`, `/writer`, `/pricing` (replacing the old `confluex.vercel.app` external URL); the dev-only `TweaksPanel` was dropped. Frontend deps are not installed in this workspace, so typecheck/build were not executed — please run `npm install && npm run build` (or open `/` with `npm run dev`) to verify.
+
+## 2026-05-14T00:30:00+07:00
+- **Request:** Add small-win animations to the hero chat preview on the landing page (typewriter greeting, cycling suggestion chips, blinking composer caret).
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/app/landing.css`.
+- **Current status:** `ChatPreview` is now stateful — the greeting types out at ~28ms/char (preserving the `<em>precise focal point</em>` styling and exposing the full text via `aria-label`), the suggestion chip pool expanded to 6 entries with one slot rotating every 2.6s (fade-in keyframe via the `chip-fade` class), and the composer placeholder gained a blinking caret. All animations are gated by a `usePrefersReducedMotion` hook plus a `@media (prefers-reduced-motion: reduce)` CSS guard, so the greeting renders fully and chips stop cycling when reduced motion is requested. Frontend deps still aren't installed locally; visual verification needs `npm install && npm run dev`.
