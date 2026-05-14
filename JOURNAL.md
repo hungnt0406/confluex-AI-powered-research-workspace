@@ -1355,6 +1355,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed (full PR list):** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `scripts/run_eval_metric_samples.py`, `README.md`, `JOURNAL.md`.
 - **Suggested verification before merge:** `uv run ruff check backend/eval scripts/run_eval_metric_samples.py tests/test_eval_metrics.py tests/test_search_quality.py backend/services/deep_search.py`; `uv run mypy backend/eval`; `uv run pytest tests/test_eval_metrics.py -q`; optional `uv run python scripts/run_eval_metric_samples.py`; optional live search eval `RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval` (requires network and working academic search).
 
+## 2026-05-14T12:40:00+07:00
+- **Request:** Fix local Next.js dev warning blocking cross-origin dev resources when opening the app through the LAN IP.
+- **Files changed:** `frontend/next.config.mjs`, `JOURNAL.md`.
+- **Current status:** Added `192.168.1.3` to `allowedDevOrigins` so `http://192.168.1.3:3000` can load Next dev resources such as HMR during local LAN testing. Restart `npm run dev` for the config change to apply.
+
+## 2026-05-14T12:37:00+07:00
+- **Request:** Create the local frontend environment file for testing the landing page and app locally.
+- **Files changed:** `frontend/.env.local`, `JOURNAL.md`.
+- **Current status:** Added `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` so the Next.js frontend points at the local FastAPI backend during `npm run dev`.
+
 ## 2026-05-13T20:35:42+07:00
 - **Request:** Fix survey Methods outline approval after the UI showed the old generic one-line fallback as an approved outline.
 - **Files changed:** `backend/agents/writer_section.py`, `backend/services/writer_documents.py`, `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`.
