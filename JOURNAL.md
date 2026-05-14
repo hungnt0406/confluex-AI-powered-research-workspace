@@ -1400,27 +1400,67 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/app/landing.css`.
 - **Current status:** `ChatPreview` is now stateful — the greeting types out at ~28ms/char (preserving the `<em>precise focal point</em>` styling and exposing the full text via `aria-label`), the suggestion chip pool expanded to 6 entries with one slot rotating every 2.6s (fade-in keyframe via the `chip-fade` class), and the composer placeholder gained a blinking caret. All animations are gated by a `usePrefersReducedMotion` hook plus a `@media (prefers-reduced-motion: reduce)` CSS guard, so the greeting renders fully and chips stop cycling when reduced motion is requested. Frontend deps still aren't installed locally; visual verification needs `npm install && npm run dev`.
 
-## 2026-05-14T02:30:00+07:00
-- **Request:** Landing page still not scrollable.
-- **Files changed:** `frontend/components/landing/LandingPage.tsx`.
-- **Current status:** The class-based override (`.landing-active { height: auto !important; overflow: visible !important }`) plus `body.classList.remove("h-screen", "overflow-hidden")` should have unlocked scroll, but evidently didn't in the user's browser (likely either the dev server hadn't picked up the new CSS, or the `!important`-on-element-selector cascade was being beaten by something I missed). Swapped the approach for the most defensive override possible: in the `LandingPage` mount effect, write `height: auto !important; overflow: auto !important` directly to `document.body.style` and `document.documentElement.style` via `setProperty(..., "important")`. Inline styles with `!important` cannot be beaten by any external CSS rule. The cleanup snapshots `body.className`, `body.style.cssText`, and `html.style.cssText` at mount and restores them verbatim on unmount, so the chat/billing/writer shells get their full-viewport lock back when the user navigates away.
-
-## 2026-05-14T02:15:00+07:00
-- **Request:** Top-nav items rendering pale/invisible against a light backdrop.
-- **Files changed:** `frontend/app/landing.css`.
-- **Current status:** The nav uses cream `#F2F3EC` text/wordmark/button while in its `.nav-on-dark` state (default at the top of the page), intended to overlay the dark forest-green hero. But the original `.nav { position: sticky; top: 0; background: transparent }` keeps the nav in document flow, so its 64px row sits above the hero with the light body background showing through — cream text on near-white was invisible. Switched to `position: fixed; top: 0; left: 0; right: 0;` so the nav genuinely overlays the hero (which already has 88px top padding, enough to clear the 64px bar). Scrolled-state behaviour (`.nav-scrolled` swaps to translucent paper with dark text) is unchanged.
-
-## 2026-05-14T02:00:00+07:00
-- **Request:** Fix the landing page rendering as washed-out / not scrollable.
-- **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
-- **Current status:** Two regressions from the earlier integration. (1) Landing styles reference `var(--primary)`, `var(--background)`, `var(--on-surface)`, `var(--secondary-container)`, etc., but those tokens live in `frontend/tailwind.config.ts` (Tailwind theme) — they are NOT exposed as CSS custom properties. So every `var(--…)` in landing.css resolved to nothing, the dark hero rendered without a background, italics lost their forest-green colour, etc. Restored the full `:root` block (surfaces, text, brand, sage, outline, radii, spacing, type, motion) so each token has a real value. (2) Body scroll was locked because `frontend/app/globals.css` has `html, body { height: 100% }` in addition to the `h-screen overflow-hidden` Tailwind classes on `<body>`; stripping the classes wasn't enough. Added a `.landing-active` class that gets toggled on both `<html>` and `<body>` while the landing is mounted; landing.css declares `html.landing-active, body.landing-active { height: auto !important; overflow: visible !important; }`. The useEffect still removes the legacy `h-screen` / `overflow-hidden` classes and restores them on unmount.
+## 2026-05-14T01:00:00+07:00
+- **Request:** Integrate the landing-page components with the app's auth/chat logic (don't dead-end CTAs at protected routes).
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/app/landing.css`.
+- **Current status:** Added a `useAuthedHref` helper that mirrors `app/pricing/page.tsx` — when `useAuth()` reports a token, CTAs route directly to their target; otherwise they go through `/login?next=<target>` (which `login/page.tsx` already accepts). Wired into the TopNav, Hero, and Footer "Start a review" buttons (label switches to "Open workspace" when signed-in) plus the footer's Research workspace / Writer beta links. The hero `ChatPreview` suggestion chips are now real `<button>`s — clicking one drops the topic into `sessionStorage('landing.topic')` and routes through the auth-aware chat href; `ChatWorkspace` reads that key on mount, seeds the composer draft, and clears it. Pricing nav link stays as the in-page anchor `#pricing` (the footer's Plans link still routes to the standalone `/pricing` page). No backend changes; verification needs `npm run dev` since frontend deps aren't installed in this workspace.
 
 ## 2026-05-14T01:30:00+07:00
 - **Request:** Audit the landing-page integration for bugs.
 - **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
 - **Current status:** Found and fixed three issues. (1) **Critical Tailwind collision:** `landing.css` declared `.h-1`, `.h-2`, `.h-3` (and `.h-display`) as global serif-typography rules; Next.js CSS imports are app-wide, so those selectors were overriding Tailwind's `h-1`/`h-2`/`h-3` height utilities used by `ChatWorkspace.tsx:323`, `ChatWorkspace.tsx:858`, `WriterOutlinePanel.tsx:105`, and `WriterQuestionsPanel.tsx:287` — turning thin progress bars / skeleton lines into giant serif headings across the chat and writer surfaces. Scoped them under `.landing-root` so they only apply on the landing page. (2) **Body-class restoration was fragile:** `useEffect` saved `body.className` whole and reassigned it on cleanup, which could clobber any concurrent classes and behaved oddly under React 18 strict-mode double-invocation. Switched to `classList.add/remove` for just `h-screen` and `overflow-hidden`, recording which were present at mount. (3) **Typewriter SSR flash:** initial `typed` state was 0, so the SSR/initial paint showed an empty greeting before the interval ticked. Initialised to full length and only reset-to-zero after `hasMounted && !reduced`, so reduced-motion users and slow-JS clients see the full sentence immediately while motion-OK users still get the typewriter. Other potential issues considered and accepted: tiny landing flash for already-authenticated users (fixed redirect happens within one tick), and `useAuthedHref` returning the bare target while `!ready` (chat-page fallback still routes them through `/login`). No collisions found for other landing-only class names (`.lede`, `.body`, `.brand-mark`, `.wordmark`, `.nav`, `.hero`, etc.) when grepped across `frontend/app` and `frontend/components`.
 
-## 2026-05-14T01:00:00+07:00
-- **Request:** Integrate the landing-page components with the app's auth/chat logic (don't dead-end CTAs at protected routes).
-- **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/app/landing.css`.
-- **Current status:** Added a `useAuthedHref` helper that mirrors `app/pricing/page.tsx` — when `useAuth()` reports a token, CTAs route directly to their target; otherwise they go through `/login?next=<target>` (which `login/page.tsx` already accepts). Wired into the TopNav, Hero, and Footer "Start a review" buttons (label switches to "Open workspace" when signed-in) plus the footer's Research workspace / Writer beta links. The hero `ChatPreview` suggestion chips are now real `<button>`s — clicking one drops the topic into `sessionStorage('landing.topic')` and routes through the auth-aware chat href; `ChatWorkspace` reads that key on mount, seeds the composer draft, and clears it. Pricing nav link stays as the in-page anchor `#pricing` (the footer's Plans link still routes to the standalone `/pricing` page). No backend changes; verification needs `npm run dev` since frontend deps aren't installed in this workspace.
+## 2026-05-14T02:00:00+07:00
+- **Request:** Fix the landing page rendering as washed-out / not scrollable.
+- **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Two regressions from the earlier integration. (1) Landing styles reference `var(--primary)`, `var(--background)`, `var(--on-surface)`, `var(--secondary-container)`, etc., but those tokens live in `frontend/tailwind.config.ts` (Tailwind theme) — they are NOT exposed as CSS custom properties. So every `var(--…)` in landing.css resolved to nothing, the dark hero rendered without a background, italics lost their forest-green colour, etc. Restored the full `:root` block (surfaces, text, brand, sage, outline, radii, spacing, type, motion) so each token has a real value. (2) Body scroll was locked because `frontend/app/globals.css` has `html, body { height: 100% }` in addition to the `h-screen overflow-hidden` Tailwind classes on `<body>`; stripping the classes wasn't enough. Added a `.landing-active` class that gets toggled on both `<html>` and `<body>` while the landing is mounted; landing.css declares `html.landing-active, body.landing-active { height: auto !important; overflow: visible !important; }`. The useEffect still removes the legacy `h-screen` / `overflow-hidden` classes and restores them on unmount.
+
+## 2026-05-14T02:15:00+07:00
+- **Request:** Top-nav items rendering pale/invisible against a light backdrop.
+- **Files changed:** `frontend/app/landing.css`.
+- **Current status:** The nav uses cream `#F2F3EC` text/wordmark/button while in its `.nav-on-dark` state (default at the top of the page), intended to overlay the dark forest-green hero. But the original `.nav { position: sticky; top: 0; background: transparent }` keeps the nav in document flow, so its 64px row sits above the hero with the light body background showing through — cream text on near-white was invisible. Switched to `position: fixed; top: 0; left: 0; right: 0;` so the nav genuinely overlays the hero (which already has 88px top padding, enough to clear the 64px bar). Scrolled-state behaviour (`.nav-scrolled` swaps to translucent paper with dark text) is unchanged.
+
+## 2026-05-14T02:30:00+07:00
+- **Request:** Landing page still not scrollable.
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** The class-based override (`.landing-active { height: auto !important; overflow: visible !important }`) plus `body.classList.remove("h-screen", "overflow-hidden")` should have unlocked scroll, but evidently didn't in the user's browser (likely either the dev server hadn't picked up the new CSS, or the `!important`-on-element-selector cascade was being beaten by something I missed). Swapped the approach for the most defensive override possible: in the `LandingPage` mount effect, write `height: auto !important; overflow: auto !important` directly to `document.body.style` and `document.documentElement.style` via `setProperty(..., "important")`. Inline styles with `!important` cannot be beaten by any external CSS rule. The cleanup snapshots `body.className`, `body.style.cssText`, and `html.style.cssText` at mount and restores them verbatim on unmount, so the chat/billing/writer shells get their full-viewport lock back when the user navigates away.
+
+## 2026-05-14T10:20:19+07:00
+- **Request:** Implement the Writer Editor Agent plan with subagents.
+- **Files changed:** `backend/agents/writer_editor.py`, `backend/services/writer_editor.py`, `backend/api/routers/writer_documents.py`, `backend/api/schemas/writer_documents.py`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/components/WriterWorkspace.tsx`, `frontend/lib/api.ts`, `tests/test_writer_editor.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/feature-map.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added draft-only editor previews for `fix_error`, `generate_paragraph`, and `incorporate_results`, optional Tavily web citations, credit gating, stale-patch conflict checks, and apply-through-`save_section_edit` versioning. Added the Monaco overlay for selection fixes, prompted edits, paragraph insertion, result incorporation, diff preview, accept/regenerate/refine/discard, plus typed API helpers. Subagents were started but did not return usable patches, so the implementation was completed locally. Focused backend, frontend static, TypeScript, Ruff, and targeted mypy checks passed.
+
+## 2026-05-14T10:39:21+07:00
+- **Request:** Fix long Writer editor suggestions overflowing the screen.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Constrained the diff preview card to a viewport-relative max height, made the old/new text area scroll internally, preserved action buttons in a fixed footer, and wrapped long LaTeX/citation strings. Focused frontend static and TypeScript checks passed.
+
+## 2026-05-14T10:44:07+07:00
+- **Request:** Let Writer editor suggestions overlay the adjacent right panel.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Moved the Writer editor overlay into a `document.body` portal with fixed viewport coordinates derived from Monaco's DOM node, so diff previews can extend over the Questions/Sources/QA panel instead of being clipped by the editor column. Focused frontend static and TypeScript checks passed.
+
+## 2026-05-14T11:35:27+07:00
+- **Request:** Explain and fix paraphrase edits returning the same text.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added paraphrase no-op detection for Writer editor selected-span edits. When a paraphrase/rewrite instruction returns unchanged text, the agent retries once with a stricter prompt; if the provider still returns a no-op, it uses a conservative deterministic paraphrase fallback instead of showing the same text as a suggestion. Focused paraphrase regression tests passed.
+
+## 2026-05-14T12:13:44+07:00
+- **Request:** Fix the paraphrase fallback still producing the same high-speed tracking paragraph.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Expanded deterministic paraphrase substitutions for the high-speed tracking paragraph and replaced the raw `paraphrase_fallback` rationale with a user-facing explanation. Added a regression using the reported paragraph and verified the fallback changes prose while preserving citation keys.
+
+## 2026-05-14T12:26:40+07:00
+- **Request:** Fix paragraph generation preview showing the prompt instead of generated content.
+- **Files changed:** `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added prompt-echo detection for `generate_paragraph`. If the provider returns the topic/instruction itself or an imperative prompt, the agent now replaces it with a deterministic introduction paragraph built from the requested topic and shows a normal generation rationale.
+
+## 2026-05-14T12:34:45+07:00
+- **Request:** Fix Writer editor preview UI showing large blank space before generated paragraph text.
+- **Files changed:** `frontend/components/WriterEditorOverlay.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Trimmed patch text only for preview rendering so generated paragraph insertion newlines no longer create empty vertical space in the diff card, while the actual patch payload remains unchanged for apply.
+
+## 2026-05-14T15:33:34+07:00
+- **Request:** Update `CLAUDE.md` and `.codex/AGENTS.md` with the Writer Editor Agent changes.
+- **Files changed:** `CLAUDE.md`, `.codex/AGENTS.md`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- **Current status:** Added project guidance for the Writer Editor Agent ownership, preview/apply endpoints, credit/versioning behavior, stale-patch validation, citation preservation, paraphrase no-op handling, paragraph prompt-echo fallback, and portal-based overlay UI constraints.

@@ -179,6 +179,31 @@ Sidebar (`frontend/components/Sidebar.tsx`) footer items (expanded + collapsed):
 
 Frontend flow (`frontend/components/ChatProvider.tsx`): on deep-search submit, a plan card appears immediately with `status: "generating"` and animated skeleton bars (`skeleton-shimmer` CSS class in `globals.css`). The plan endpoint is called async; on success the steps are patched in and status becomes `"pending"`, enabling the Edit plan / Start research buttons. On failure the hardcoded fallback is used. `DeepSearchPlanMessage.status` union: `"generating" | "pending" | "started" | "editing" | "superseded"`.
 
+## This Repo — Writer Editor Agent
+
+The Writer workspace has a targeted editor-agent path for current-draft revisions only. Keep this path distinct from full section drafting and from project/source-library retrieval.
+
+Backend ownership:
+- `backend/agents/writer_editor.py` — draft-only edit agent for `fix_error`, `generate_paragraph`, and `incorporate_results`.
+- `backend/services/writer_editor.py` — loads owned sections, optionally fetches Tavily hits, dispatches intents, and applies accepted patches.
+- `backend/api/routers/writer_documents.py` and `backend/api/schemas/writer_documents.py` — `/writer/documents/{document_id}/sections/{section_id}/edit` preview and `/edit/apply` apply endpoints.
+
+Frontend ownership:
+- `frontend/components/WriterEditorOverlay.tsx` — Monaco overlay for selection toolbar, paragraph insertion, add-results modal, diff preview, and Accept/Regenerate/Refine/Discard.
+- `frontend/components/WriterWorkspace.tsx` — mounts the overlay and pauses autosave while a suggestion is pending.
+- `frontend/lib/api.ts` — `previewWriterEdit`, `applyWriterEdit`, and related DTOs.
+
+Important behavior:
+- Preview is credit-gated (`writer_editor_fix`, `writer_editor_generate`, `writer_editor_incorporate`); apply is free.
+- Apply must reuse `WriterDocumentService.save_section_edit()` so section version history is preserved.
+- `EditPatchResponse.original_text` is required for stale-patch validation; return HTTP 409 when the draft span no longer matches.
+- Preserve existing LaTeX citation macros and keys. Do not invent citation keys.
+- Paraphrase/rephrase/rewrite requests use the `fix_error` intent. If the provider returns unchanged selected text, retry once with a stricter prompt; if it still returns a no-op, use the deterministic paraphrase fallback and keep the rationale user-facing.
+- `generate_paragraph` must not insert the user's topic prompt. Detect exact prompt echoes and imperative echoes such as "Explain...", "Describe...", "Write...", or "Add...", then replace them with deterministic paragraph text.
+- Do not expose internal fallback labels like `paraphrase_fallback` in the UI.
+- The overlay renders through a `document.body` portal using Monaco DOM viewport coordinates so it can cross over the right Questions/Sources/QA panel. Keep the diff card viewport-bounded, internally scrollable, action buttons visible, long citations wrapped, and display-only text trimmed of insertion newlines.
+- Regression coverage lives in `tests/test_writer_editor.py` and `tests/test_frontend_writer_static.py`.
+
 ## This Repo — Payments and Credits
 
 - Credit packs, orders, balances, and SePay settlement are implemented in `backend/api/routers/payments.py`, `backend/api/routers/webhooks.py`, `backend/api/schemas/payments.py`, `backend/services/credits.py`, `backend/services/payment_orders.py`, `backend/services/sepay.py`, and `backend/services/fx.py`.
