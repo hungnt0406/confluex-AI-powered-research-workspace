@@ -278,6 +278,30 @@ export function WriterEditorOverlay({
     setLastRequest(null);
   }, [section?.id]);
 
+  // Close an open Edit panel when the user clicks back into the editor.
+  // Without this, panelMode stays "selection" indefinitely (e.g., if the user
+  // dismisses the dialog by clicking outside it), and every later selection
+  // change just repositions the stale dialog instead of showing a fresh pill.
+  useEffect(() => {
+    if (!editor) return undefined;
+    const dom = editor.getDomNode?.();
+    if (!dom) return undefined;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && dom.contains(target)) {
+        setPanelMode(null);
+        setPrompt("");
+        setFindings("");
+        setFindingsOpen(false);
+        setSourceRef("");
+        setCiteSource(false);
+        setWebSearch(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [editor]);
+
   const resetPanel = useCallback(() => {
     setPanelMode(null);
     setPrompt("");
