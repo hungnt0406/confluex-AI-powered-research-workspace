@@ -49,9 +49,9 @@ RUN_EVAL_TESTS=1     uv run pytest tests/test_search_quality.py -m eval
 Layered async FastAPI app. Keep external I/O (HTTP, LLM, embeddings, PDF extraction) inside `backend/services/`; keep pipeline orchestration inside `backend/agents/`; keep HTTP concerns (routers, schemas, deps) inside `backend/api/`.
 
 - `backend/main.py`, `backend/config.py`, `backend/security.py` — app factory, pydantic-settings config, JWT.
-- `backend/api/routers/` + `backend/api/schemas/` — `/auth`, `/projects`, `/pipeline`, `/payments`, `/webhooks`. `POST /projects/{id}/run` drives the Searcher+Reader flow; `POST /projects/{id}/writer/generate` invokes the writer agent; paper conversations live under `/projects/{id}/papers/{paper_id}/conversations`; `POST /pipeline/deep-search/plan` generates a topic-specific LLM research plan (falls back to hardcoded steps when LLM key is absent); SePay credit packs/orders/balance live under `/payments`; SePay settlement posts to `/webhooks/sepay`.
-- `backend/agents/` — LangGraph pipeline. `state.py` defines shared state; `graph.py` wires `searcher.py → reader.py → writer.py → qa.py` with a warning branch when ranking yields too few papers. `pipeline.py` is the entry point used by the API.
-- `backend/services/` — `semantic_scholar.py`, `arxiv.py` (search + dedup), `embeddings.py` (OpenRouter `openai/text-embedding-3-small`, cosine rank), `llm.py` (OpenRouter chat for query expansion + structured summaries), `document_extraction.py` (PyMuPDF chunking for grounding), `paper_conversations.py`, `writer_outputs.py`, `citations.py` (APA/IEEE/Chicago formatting), `reference_files.py`, `research_utils.py`, `credits.py`, `payment_orders.py`, `sepay.py`, `fx.py`.
+- `backend/api/routers/` + `backend/api/schemas/` — `/auth`, `/projects`, `/pipeline`, `/payments`, `/webhooks`. `POST /projects/{id}/run` drives the Searcher+Reader flow; `POST /projects/{id}/writer/generate` invokes the writer agent; paper conversations live under `/projects/{id}/papers/{paper_id}/conversations`; Writer document section editor previews live under `/writer/documents/{document_id}/sections/{section_id}/edit` and accepted patches apply through `/edit/apply`; `POST /pipeline/deep-search/plan` generates a topic-specific LLM research plan (falls back to hardcoded steps when LLM key is absent); SePay credit packs/orders/balance live under `/payments`; SePay settlement posts to `/webhooks/sepay`.
+- `backend/agents/` — LangGraph pipeline. `state.py` defines shared state; `graph.py` wires `searcher.py → reader.py → writer.py → qa.py` with a warning branch when ranking yields too few papers. `pipeline.py` is the entry point used by the API. `writer_editor.py` owns targeted draft-only section edits via a single open-ended `edit` operation (revise a selected span or insert at a cursor offset) and must not load project source libraries or embedding rerank context.
+- `backend/services/` — `semantic_scholar.py`, `arxiv.py` (search + dedup), `embeddings.py` (OpenRouter `openai/text-embedding-3-small`, cosine rank), `llm.py` (OpenRouter chat for query expansion + structured summaries), `document_extraction.py` (PyMuPDF chunking for grounding), `paper_conversations.py`, `writer_outputs.py`, `writer_editor.py`, `citations.py` (APA/IEEE/Chicago formatting), `reference_files.py`, `research_utils.py`, `credits.py`, `payment_orders.py`, `sepay.py`, `fx.py`.
 - `backend/db/` — SQLAlchemy 2.0 async models, session factory, Alembic migrations (project search settings, paper status, summary error tracking, persisted conversations and writer outputs). Add new schema changes as Alembic revisions.
 - `tests/` — pytest-asyncio (`asyncio_mode = auto`). Fixtures cover auth, projects, pipeline, graph flow, searcher/reader, services. Live API and eval tests are gated by env markers above.
 
@@ -61,6 +61,20 @@ Frontend pages (`frontend/app/`):
 - `billing/page.tsx`, `billing/checkout/page.tsx`, `billing/success/page.tsx` — credit balance, SePay/VietQR checkout, and payment confirmation (requires auth).
 - `admin/usage/` — token usage dashboard (admin-only).
 - `pricing/page.tsx` — standalone public pricing page (no auth); billing toggle, 4-tier plan cards, comparison table, add-ons, FAQ, CTA. Linked from the sidebar "Plans" button. Keep the previous visual design; paid plan-card CTAs route into matching `/billing/checkout?pack=...` packs, while unauthenticated users go through `/login?next=...`.
+
+## Writer Editor Agent Notes
+
+- Backend ownership: `backend/agents/writer_editor.py`, `backend/services/writer_editor.py`, `backend/api/routers/writer_documents.py`, and `backend/api/schemas/writer_documents.py`.
+- Frontend ownership: `frontend/components/WriterEditorOverlay.tsx`, `frontend/components/WriterWorkspace.tsx`, and `frontend/lib/api.ts`.
+- The preview endpoint is credit-gated; `/edit/apply` is free and must keep using `WriterDocumentService.save_section_edit()` so `WriterSectionVersion` snapshots stay consistent.
+- `EditPatchResponse.original_text` is part of the stale-preview guard. Apply must return HTTP 409 when the current draft span no longer matches the previewed text.
+- One open-ended `edit` operation: a span input means revise that region (fixes, paraphrase, rewrite, incorporate findings); an `insertion_offset` with no span means generate a new paragraph at that point. The UI surfaces this as a single "Edit" button on selection plus a "+" button between paragraphs.
+- Revisions with paraphrase/rephrase/rewrite instructions must detect no-op LLM output, retry once with a stricter prompt, and then fall back to the deterministic paraphrase while preserving citation macros.
+- Insertions must reject prompt echoes. If the provider returns the topic/instruction itself (for example, starts with "Explain..." or exactly matches the prompt), replace it with deterministic paragraph text rather than inserting the prompt.
+- Optional findings (with optional source ref + cite checkbox) and the web-search toggle are inputs to the same operation — they do not branch into separate intents.
+- Do not expose internal fallback labels in the UI. Rationale text should be user-facing, e.g. "Generated a paragraph from the requested topic." or "Paraphrased selected text while preserving citations."
+- The overlay is rendered through a `document.body` portal using Monaco viewport coordinates so diff popovers can cross into the right panel. The preview card must cap height, scroll internally, keep actions visible, wrap long citation keys, and trim display-only leading/trailing newlines while leaving the patch payload unchanged.
+- Regression coverage: `tests/test_writer_editor.py` for backend behavior and `tests/test_frontend_writer_static.py` for overlay/API wiring.
 
 ## Credits, Billing, and Admin Access
 
