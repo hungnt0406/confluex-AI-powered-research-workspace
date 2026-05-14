@@ -26,6 +26,28 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState(false);
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     if (!token) {
@@ -181,7 +203,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
           {/* New Research button */}
           <button
             onClick={startNewResearch}
-            className="flex items-center gap-2.5 w-full px-2.5 py-2 mb-4 rounded-lg hover:bg-primary/20 transition-colors duration-200 text-xs font-medium text-on-surface group"
+            className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-primary/20 transition-colors duration-200 text-xs font-medium text-on-surface group"
           >
             <span
               className="material-symbols-outlined text-primary group-hover:text-primary"
@@ -191,6 +213,23 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             </span>
             <span>New Research</span>
           </button>
+
+          {/* Writer link */}
+          <Link
+            href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
+            className="flex items-center gap-2.5 w-full px-2.5 py-2 mb-4 rounded-lg hover:bg-primary/20 transition-colors duration-200 text-xs font-medium text-on-surface group"
+          >
+            <span
+              className="material-symbols-outlined text-primary group-hover:text-primary"
+              style={{ fontSize: "18px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
+            >
+              description
+            </span>
+            <span>Writer Workspace</span>
+            <span className="ml-auto rounded-full border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+              Beta
+            </span>
+          </Link>
 
           {/* Project list */}
           <nav className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
@@ -218,75 +257,95 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             )}
           </nav>
 
-          {/* Footer */}
-          <div className="mt-auto pt-4 border-t border-outline/30">
-            <Link
-              href="/billing"
-              className="mb-1 flex items-center justify-between gap-2.5 w-full rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-1.5 text-xs text-primary transition-colors hover:bg-primary/10"
-            >
-              <span className="flex min-w-0 items-center gap-2.5">
-                <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
-                  bolt
-                </span>
-                <span className="truncate">Credits</span>
-              </span>
-              <span className="font-semibold tabular-nums">
-                {creditBalanceLabel}
-              </span>
-            </Link>
-            <Link
-              href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
-              className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
-                description
-              </span>
-              <span>Writer</span>
-              <span className="ml-auto rounded-full border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-                Beta
-              </span>
-            </Link>
-            <Link
-              href="/pricing"
-              className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
-                workspace_premium
-              </span>
-              <span>Plans</span>
-            </Link>
-            {isAdmin && (
-              <Link
-                href="/admin/usage"
-                className="mb-1 flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+          {/* Footer: account button + popover */}
+          <div className="mt-auto pt-4 border-t border-outline/30" ref={accountMenuRef}>
+            <div className="relative">
+              {accountMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Account menu"
+                  className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-outline/20 bg-background p-1 shadow-lg"
+                >
+                  <Link
+                    href="/billing"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center justify-between gap-2.5 w-full rounded-lg px-2.5 py-1.5 text-xs text-primary transition-colors hover:bg-primary/10"
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-3px" }}>
+                        bolt
+                      </span>
+                      <span className="truncate">Credits</span>
+                    </span>
+                    <span className="font-semibold tabular-nums">{creditBalanceLabel}</span>
+                  </Link>
+                  <Link
+                    href="/pricing"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-3px" }}>
+                      workspace_premium
+                    </span>
+                    <span>Plans</span>
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin/usage"
+                      role="menuitem"
+                      onClick={() => setAccountMenuOpen(false)}
+                      className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-3px" }}>
+                        monitoring
+                      </span>
+                      <span>Usage Monitor</span>
+                    </Link>
+                  )}
+                  <div className="my-1 border-t border-outline/20" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      logout();
+                    }}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-3px" }}>
+                      logout
+                    </span>
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen((current) => !current)}
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-primary/5 transition-colors"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
-                  monitoring
+                <span
+                  className="material-symbols-outlined text-on-surface-variant"
+                  style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
+                >
+                  account_circle
                 </span>
-                <span>Usage Monitor</span>
-              </Link>
-            )}
-            <button
-              onClick={logout}
-              className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-7px" }}>
-                logout
-              </span>
-              <span>Sign out</span>
-            </button>
-            <div className="flex items-center gap-2.5 w-full px-2.5 py-2 mt-1">
-              <span
-                className="material-symbols-outlined text-on-surface-variant"
-                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20", marginLeft: "-7px" }}
-              >
-                account_circle
-              </span>
-              <div className="flex-1 truncate">
-                <p className="text-xs font-semibold truncate leading-none text-on-surface">
-                  {user?.email ?? "Scholar User"}
-                </p>
-              </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-xs font-semibold truncate leading-none text-on-surface">
+                    {user?.email ?? "Scholar User"}
+                  </p>
+                </div>
+                <span
+                  className="material-symbols-outlined text-on-surface-variant/70"
+                  style={{ fontSize: "16px" }}
+                >
+                  {accountMenuOpen ? "expand_more" : "expand_less"}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -308,70 +367,101 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
             </span>
           </button>
 
-          {/* Footer icons */}
-          <div className="mt-auto flex flex-col items-center gap-1 pt-2 border-t border-outline/30 w-full">
-            <Link
-              href="/billing"
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/5 hover:bg-primary/10 transition-colors text-primary"
-              aria-label={creditBalanceTitle}
-              title={creditBalanceTitle}
+          {/* Writer */}
+          <Link
+            href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
+            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/20 transition-colors duration-200 group"
+            aria-label="Writer Workspace beta"
+            title="Writer Workspace beta"
+          >
+            <span
+              className="material-symbols-outlined text-primary group-hover:text-primary"
+              style={{ fontSize: "18px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20" }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                bolt
-              </span>
-            </Link>
-            <Link
-              href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
-              aria-label="Writer beta"
-              title="Writer beta"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                description
-              </span>
-            </Link>
-            <Link
-              href="/pricing"
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
-              aria-label="Plans"
-              title="Plans"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                workspace_premium
-              </span>
-            </Link>
-            {isAdmin && (
-              <Link
-                href="/admin/usage"
-                className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
-                aria-label="Usage Monitor"
-                title="Usage Monitor"
+              description
+            </span>
+          </Link>
+
+          {/* Footer: account button with popover */}
+          <div className="mt-auto flex flex-col items-center gap-1 pt-2 border-t border-outline/30 w-full" ref={accountMenuRef}>
+            <div className="relative">
+              {accountMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Account menu"
+                  className="absolute bottom-0 left-full ml-2 w-48 rounded-xl border border-outline/20 bg-background p-1 shadow-lg z-50"
+                >
+                  <Link
+                    href="/billing"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center justify-between gap-2.5 w-full rounded-lg px-2.5 py-1.5 text-xs text-primary transition-colors hover:bg-primary/10"
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                        bolt
+                      </span>
+                      <span className="truncate">Credits</span>
+                    </span>
+                    <span className="font-semibold tabular-nums">{creditBalanceLabel}</span>
+                  </Link>
+                  <Link
+                    href="/pricing"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                      workspace_premium
+                    </span>
+                    <span>Plans</span>
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin/usage"
+                      role="menuitem"
+                      onClick={() => setAccountMenuOpen(false)}
+                      className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                        monitoring
+                      </span>
+                      <span>Usage Monitor</span>
+                    </Link>
+                  )}
+                  <div className="my-1 border-t border-outline/20" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      logout();
+                    }}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                      logout
+                    </span>
+                    <span>Sign out</span>
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAccountMenuOpen((current) => !current)}
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                aria-label={user?.email ?? "Account"}
+                title={user?.email ?? "Account"}
+                className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                  monitoring
+                <span
+                  className="material-symbols-outlined text-on-surface-variant"
+                  style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20" }}
+                >
+                  account_circle
                 </span>
-              </Link>
-            )}
-            <button
-              onClick={logout}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/5 transition-colors text-on-surface-variant"
-              aria-label="Sign out"
-              title="Sign out"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-                logout
-              </span>
-            </button>
-            <div
-              className="flex items-center justify-center w-8 h-8"
-              title={user?.email ?? "Scholar User"}
-            >
-              <span
-                className="material-symbols-outlined text-on-surface-variant"
-                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20" }}
-              >
-                account_circle
-              </span>
+              </button>
             </div>
           </div>
         </div>
