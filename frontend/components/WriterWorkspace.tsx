@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
@@ -14,6 +14,9 @@ import {
   updateWriterDocument,
 } from "@/lib/api";
 import { WriterOutlinePanel } from "@/components/WriterOutlinePanel";
+import { MonacoEditorLike, WriterEditorOverlay } from "@/components/WriterEditorOverlay";
+import { WriterProseEditor } from "@/components/WriterProseEditor";
+import { createProseEditorAdapter } from "@/lib/prose-editor-adapter";
 import { WriterSourcesPanel } from "@/components/WriterSourcesPanel";
 import { WriterQuestionsPanel } from "@/components/WriterQuestionsPanel";
 import { WriterQAPanel } from "@/components/WriterQAPanel";
@@ -34,6 +37,7 @@ const MonacoEditor = dynamic(
 );
 
 type RightTab = "questions" | "sources" | "qa";
+type EditorViewMode = "visual" | "source";
 
 const WRITER_OUTLINE_PANEL_WIDTH = 220;
 const WRITER_EDITOR_MIN_WIDTH = 280;
@@ -139,9 +143,11 @@ function TextareaEditor({
 function LaTeXEditor({
   value,
   onChange,
+  onMountEditor,
 }: {
   value: string;
   onChange: (val: string) => void;
+  onMountEditor: (editor: MonacoEditorLike | null) => void;
 }) {
   const [useTextarea, setUseTextarea] = useState(false);
 
@@ -170,12 +176,13 @@ function LaTeXEditor({
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
         padding: { top: 20, bottom: 20 },
       }}
-      onMount={(_editor, monaco) => {
+      onMount={(editor, monaco) => {
         if (!monaco) { setUseTextarea(true); return; }
         const langs = monaco.languages.getLanguages();
         if (!langs.find((l: { id: string }) => l.id === "latex")) {
           monaco.languages.register({ id: "latex" });
         }
+        onMountEditor(editor as MonacoEditorLike);
       }}
     />
   );
@@ -188,6 +195,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   );
   const [rightTab, setRightTab] = useState<RightTab>("questions");
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(480);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState<boolean>(true);
   const [editorContent, setEditorContent] = useState<string>("");
   const [proposingOutline, setProposingOutline] = useState(false);
   const [savingOutline, setSavingOutline] = useState(false);
@@ -203,6 +211,15 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const [editingTitle, setEditingTitle] = useState(false);
   const [savingTitle, setSavingTitle] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [monacoEditor, setMonacoEditor] = useState<MonacoEditorLike | null>(null);
+  const [hasPendingEditorPatch, setHasPendingEditorPatch] = useState(false);
+  const [viewMode, setViewMode] = useState<EditorViewMode>("visual");
+  const [proseEditorEl, setProseEditorEl] = useState<HTMLElement | null>(null);
+  const [proseRefreshToken, setProseRefreshToken] = useState(0);
+  const editorContentRef = useRef<string>("");
+  const [historyBySection, setHistoryBySection] = useState<
+    Record<string, { past: string[]; present: string; future: string[] }>
+  >({});
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string>("");
@@ -294,8 +311,41 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   useEffect(() => {
     const content = activeSection?.draft_latex ?? "";
     setEditorContent(content);
+    editorContentRef.current = content;
     lastSavedContentRef.current = content;
+    if (activeSectionId) {
+      setHistoryBySection((prev) => {
+        if (prev[activeSectionId]) return prev;
+        return { ...prev, [activeSectionId]: { past: [], present: content, future: [] } };
+      });
+    }
   }, [activeSectionId]); // intentional: only reset on section switch
+
+  // Keep the ref in sync so the prose-editor adapter sees the latest LaTeX.
+  editorContentRef.current = editorContent;
+
+  const proseAdapter = useMemo<MonacoEditorLike | null>(() => {
+    if (!proseEditorEl) return null;
+    return createProseEditorAdapter(proseEditorEl, () => editorContentRef.current);
+  }, [proseEditorEl]);
+
+  const HISTORY_LIMIT = 50;
+
+  const pushHistory = useCallback((sectionId: string, content: string) => {
+    setHistoryBySection((prev) => {
+      const entry = prev[sectionId];
+      if (!entry) {
+        return { ...prev, [sectionId]: { past: [], present: content, future: [] } };
+      }
+      if (entry.present === content) return prev;
+      const past = [...entry.past, entry.present].slice(-HISTORY_LIMIT);
+      return { ...prev, [sectionId]: { past, present: content, future: [] } };
+    });
+  }, []);
+
+  const activeHistory = activeSectionId ? historyBySection[activeSectionId] : undefined;
+  const canUndo = (activeHistory?.past.length ?? 0) > 0;
+  const canRedo = (activeHistory?.future.length ?? 0) > 0;
 
   // Focus title input when editing
   useEffect(() => {
@@ -310,6 +360,8 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
     (value: string) => {
       setEditorContent(value);
 
+      if (hasPendingEditorPatch) return;
+
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
       saveTimerRef.current = setTimeout(async () => {
@@ -321,12 +373,13 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             ...prev,
             sections: prev.sections.map((s) => (s.id === updated.id ? updated : s)),
           }));
+          pushHistory(activeSection.id, value);
         } catch {
           // Silent auto-save failure — user can retry manually
         }
       }, 1000);
     },
-    [activeSection, document.id, token],
+    [activeSection, document.id, hasPendingEditorPatch, pushHistory, token],
   );
 
   // Cleanup timer
@@ -345,9 +398,13 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
     if (section.id === activeSectionId) {
       const newContent = section.draft_latex ?? "";
       setEditorContent(newContent);
+      editorContentRef.current = newContent;
       lastSavedContentRef.current = newContent;
+      pushHistory(section.id, newContent);
+      // Force a remount of the uncontrolled prose editor so AI patches show.
+      setProseRefreshToken((n) => n + 1);
     }
-  }, [activeSectionId]);
+  }, [activeSectionId, pushHistory]);
 
   const handleProposeOutline = useCallback(async () => {
     setProposingOutline(true);
@@ -383,6 +440,63 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       setSavingOutline(false);
     }
   }, [document, token]);
+
+  const applyHistoricalContent = useCallback(
+    async (sectionId: string, content: string) => {
+      setEditorContent(content);
+      editorContentRef.current = content;
+      lastSavedContentRef.current = content;
+      // Force the uncontrolled prose editor to remount with the historical text.
+      setProseRefreshToken((n) => n + 1);
+      // Cancel any pending autosave so it doesn't overwrite the restored state.
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      try {
+        const updated = await saveSectionEdit(document.id, sectionId, content, token);
+        setDocument((prev) => ({
+          ...prev,
+          sections: prev.sections.map((s) => (s.id === updated.id ? updated : s)),
+        }));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to persist undo/redo.");
+      }
+    },
+    [document.id, token],
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!activeSectionId) return;
+    setHistoryBySection((prev) => {
+      const entry = prev[activeSectionId];
+      if (!entry || entry.past.length === 0) return prev;
+      const newPresent = entry.past[entry.past.length - 1];
+      const newPast = entry.past.slice(0, -1);
+      const newFuture = [entry.present, ...entry.future].slice(0, HISTORY_LIMIT);
+      void applyHistoricalContent(activeSectionId, newPresent);
+      return {
+        ...prev,
+        [activeSectionId]: { past: newPast, present: newPresent, future: newFuture },
+      };
+    });
+  }, [activeSectionId, applyHistoricalContent]);
+
+  const handleRedo = useCallback(() => {
+    if (!activeSectionId) return;
+    setHistoryBySection((prev) => {
+      const entry = prev[activeSectionId];
+      if (!entry || entry.future.length === 0) return prev;
+      const newPresent = entry.future[0];
+      const newFuture = entry.future.slice(1);
+      const newPast = [...entry.past, entry.present].slice(-HISTORY_LIMIT);
+      void applyHistoricalContent(activeSectionId, newPresent);
+      return {
+        ...prev,
+        [activeSectionId]: { past: newPast, present: newPresent, future: newFuture },
+      };
+    });
+  }, [activeSectionId, applyHistoricalContent]);
 
   const handleAssemble = useCallback(async () => {
     setAssembling(true);
@@ -545,6 +659,28 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 rounded-full border border-outline/20 bg-surface-container-lowest p-0.5">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              aria-label="Undo"
+              title="Undo"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>undo</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              aria-label="Redo"
+              title="Redo"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>redo</span>
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => void handleAssemble()}
@@ -603,52 +739,136 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
           />
         </div>
 
-        {/* Center: Monaco Editor (flex-1) */}
-        <div className="flex flex-1 flex-col overflow-hidden bg-stone-950">
+        {/* Center: Editor (flex-1) */}
+        <div className={`flex flex-1 flex-col overflow-hidden ${viewMode === "source" ? "bg-stone-950" : "bg-stone-50"}`}>
           {/* Section header bar */}
           {activeSection ? (
-            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-stone-800 px-4">
+            <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-4 ${viewMode === "source" ? "border-stone-800" : "border-stone-200"}`}>
               <span
-                className="material-symbols-outlined text-stone-400"
+                className={`material-symbols-outlined ${viewMode === "source" ? "text-stone-400" : "text-stone-500"}`}
                 style={{ fontSize: "14px", fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20" }}
                 aria-hidden="true"
               >
                 article
               </span>
-              <span className="text-xs font-medium text-stone-300">{activeSection.title}</span>
-              <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
-                activeSection.status === "user_edited"
-                  ? "bg-emerald-900 text-emerald-300"
-                  : activeSection.status === "drafted"
-                  ? "bg-sky-900 text-sky-300"
-                  : activeSection.status === "awaiting_input"
-                  ? "bg-amber-900 text-amber-300"
-                  : "bg-stone-700 text-stone-400"
+              <span className={`text-xs font-medium ${viewMode === "source" ? "text-stone-300" : "text-stone-700"}`}>
+                {activeSection.title}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
+                viewMode === "source"
+                  ? activeSection.status === "user_edited"
+                    ? "bg-emerald-900 text-emerald-300"
+                    : activeSection.status === "drafted"
+                    ? "bg-sky-900 text-sky-300"
+                    : activeSection.status === "awaiting_input"
+                    ? "bg-amber-900 text-amber-300"
+                    : "bg-stone-700 text-stone-400"
+                  : activeSection.status === "user_edited"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : activeSection.status === "drafted"
+                    ? "bg-sky-100 text-sky-700"
+                    : activeSection.status === "awaiting_input"
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-stone-200 text-stone-600"
               }`}>
                 {activeSection.status.replace(/_/g, " ")}
               </span>
+              <div
+                role="tablist"
+                aria-label="Editor view mode"
+                className={`ml-auto flex items-center rounded-full p-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  viewMode === "source" ? "bg-stone-800" : "bg-stone-200"
+                }`}
+              >
+                {(["visual", "source"] as const).map((mode) => {
+                  const active = viewMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setViewMode(mode)}
+                      className={`flex h-5 items-center gap-1 rounded-full px-2 transition-colors ${
+                        active
+                          ? viewMode === "source"
+                            ? "bg-stone-700 text-white"
+                            : "bg-white text-stone-800 shadow-sm"
+                          : viewMode === "source"
+                            ? "text-stone-400 hover:text-stone-200"
+                            : "text-stone-500 hover:text-stone-800"
+                      }`}
+                      title={mode === "visual" ? "Visual prose editor" : "LaTeX source editor"}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>
+                        {mode === "visual" ? "edit_note" : "code"}
+                      </span>
+                      {mode}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : (
-            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-stone-800 px-4">
-              <span className="text-xs text-stone-500">No section selected</span>
+            <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-4 ${viewMode === "source" ? "border-stone-800" : "border-stone-200"}`}>
+              <span className={`text-xs ${viewMode === "source" ? "text-stone-500" : "text-stone-500"}`}>
+                No section selected
+              </span>
             </div>
           )}
 
           {/* Editor */}
-          <div className="flex-1 overflow-hidden">
+          <div className="relative flex-1 overflow-hidden">
             {activeSection ? (
-              <LaTeXEditor value={editorContent} onChange={handleEditorChange} />
+              viewMode === "visual" ? (
+                <>
+                  <WriterProseEditor
+                    value={activeSection.draft_latex ?? ""}
+                    onChange={handleEditorChange}
+                    editorKey={`${activeSection.id}:${proseRefreshToken}`}
+                    onMount={setProseEditorEl}
+                  />
+                  <WriterEditorOverlay
+                    editor={proseAdapter}
+                    documentId={document.id}
+                    section={activeSection}
+                    token={token}
+                    onSectionUpdate={handleSectionUpdate}
+                    onPendingChange={setHasPendingEditorPatch}
+                    onError={setError}
+                  />
+                </>
+              ) : (
+                <>
+                  <LaTeXEditor
+                    value={editorContent}
+                    onChange={handleEditorChange}
+                    onMountEditor={setMonacoEditor}
+                  />
+                  <WriterEditorOverlay
+                    editor={monacoEditor}
+                    documentId={document.id}
+                    section={activeSection}
+                    token={token}
+                    onSectionUpdate={handleSectionUpdate}
+                    onPendingChange={setHasPendingEditorPatch}
+                    onError={setError}
+                  />
+                </>
+              )
             ) : (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">
                   <span
-                    className="material-symbols-outlined text-stone-600"
+                    className={`material-symbols-outlined ${viewMode === "source" ? "text-stone-600" : "text-stone-400"}`}
                     style={{ fontSize: "40px", fontVariationSettings: "'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 40" }}
                     aria-hidden="true"
                   >
                     article
                   </span>
-                  <p className="mt-3 text-sm text-stone-500">Select a section to start editing</p>
+                  <p className={`mt-3 text-sm ${viewMode === "source" ? "text-stone-500" : "text-stone-500"}`}>
+                    Select a section to start editing
+                  </p>
                 </div>
               </div>
             )}
@@ -656,6 +876,19 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         </div>
 
         {/* Right: Resizable tabbed panel */}
+        {!isRightPanelOpen && (
+          <button
+            type="button"
+            onClick={() => setIsRightPanelOpen(true)}
+            aria-label="Open side panel"
+            className="flex h-full w-8 shrink-0 items-center justify-center border-l border-outline/20 bg-surface-container text-on-surface-variant hover:bg-primary/5 hover:text-primary"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+              chevron_left
+            </span>
+          </button>
+        )}
+        {isRightPanelOpen && (
         <div
           className="relative flex shrink-0 flex-col overflow-hidden border-l border-outline/20"
           style={{ width: `${rightPanelWidth}px` }}
@@ -693,6 +926,16 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                 <span className="hidden sm:inline">{tab.label}</span>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setIsRightPanelOpen(false)}
+              aria-label="Close side panel"
+              className="flex h-full w-9 items-center justify-center border-l border-outline/20 text-on-surface-variant hover:bg-primary/5 hover:text-primary"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                chevron_right
+              </span>
+            </button>
           </div>
 
           {/* Tab content */}
@@ -718,6 +961,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Assemble modal */}
