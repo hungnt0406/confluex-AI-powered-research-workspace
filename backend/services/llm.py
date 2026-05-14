@@ -58,6 +58,7 @@ class OpenRouterStructuredOutputService:
         schema: dict[str, Any],
         max_tokens: int = 1_024,
         feature: str = "structured_output",
+        temperature: float = 0,
     ) -> dict[str, Any]:
         """Generate a schema-constrained JSON payload with OpenRouter."""
 
@@ -85,7 +86,7 @@ class OpenRouterStructuredOutputService:
             ],
             "response_format": response_format,
             "max_tokens": max_tokens,
-            "temperature": 0,
+            "temperature": temperature,
         }
         if self.use_strict_json_schema:
             payload["provider"] = {"require_parameters": True, "sort": "price"}
