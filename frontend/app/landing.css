@@ -75,19 +75,15 @@
   --dur-base: 240ms;
 }
 
-/* While the landing page is mounted, unlock body/html scroll. The app shell
-   sets `h-screen overflow-hidden` on <body> and `html, body { height: 100% }`
-   in globals.css; both prevent the long marketing page from scrolling. */
-html.landing-active,
-body.landing-active {
-  height: auto !important;
-  overflow: visible !important;
-}
-
 .landing-root,
 .landing-root * { box-sizing: border-box; }
 
+/* The app shell locks body scroll (`h-screen overflow-hidden`). Rather than
+   fight that globally, the landing page is its own fixed full-viewport scroll
+   container — independent of body's overflow state. */
 .landing-root {
+  position: fixed;
+  inset: 0;
   font-family: var(--font-body);
   color: var(--on-surface);
   background: var(--background);
@@ -96,8 +92,9 @@ body.landing-active {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
-  min-height: 100vh;
+  overflow-y: auto;
   width: 100%;
+  z-index: 0;
 }
 
 .landing-root a { color: inherit; text-decoration: none; }
@@ -329,11 +326,15 @@ body.landing-active {
 
 /* Top navigation */
 .nav {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 50;
-  background: transparent;
-  border-bottom: 1px solid transparent;
+  background: rgba(250, 249, 247, 0.92);
+  backdrop-filter: saturate(140%) blur(16px);
+  -webkit-backdrop-filter: saturate(140%) blur(16px);
+  border-bottom: 1px solid rgba(29, 45, 24, 0.08);
   transition: background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
 }
 .nav.nav-on-dark .wordmark { color: #F2F3EC; }
