@@ -558,6 +558,90 @@ function Sample() {
   );
 }
 
+interface LandingPlan {
+  id: string;
+  name: string;
+  tagline: string;
+  monthly: number;
+  perSeat?: boolean;
+  badge?: string;
+  features: string[];
+  packId: string | null;
+  cta: string;
+}
+
+const LANDING_PLANS: LandingPlan[] = [
+  {
+    id: "free",
+    name: "Free",
+    tagline: "For curious afternoons.",
+    monthly: 0,
+    features: ["1–2 active projects", "Up to 5 PDF uploads", "1 short report / month"],
+    packId: null,
+    cta: "Start free",
+  },
+  {
+    id: "student",
+    name: "Student",
+    tagline: "For coursework & first papers.",
+    monthly: 8,
+    features: ["50 PDF uploads", "10 Deep Search reports / mo", "Basic Writer outputs"],
+    packId: "student",
+    cta: "Get Student",
+  },
+  {
+    id: "researcher",
+    name: "Researcher Pro",
+    tagline: "For your serious thread of work.",
+    monthly: 24,
+    badge: "Most chosen",
+    features: ["Unlimited projects", "40 Deep Search reports / mo", "Full Writer workspace"],
+    packId: "pro",
+    cta: "Begin Researcher Pro",
+  },
+  {
+    id: "lab",
+    name: "Lab / Team",
+    tagline: "For groups thinking together.",
+    monthly: 22,
+    perSeat: true,
+    features: ["Shared projects & libraries", "Pooled Deep Search credits", "Admin dashboard"],
+    packId: "lab_starter",
+    cta: "Set up the lab",
+  },
+];
+
+function PlanCard({ plan }: { plan: LandingPlan }) {
+  const target = plan.packId ? `/billing/checkout?pack=${plan.packId}` : CHAT_HREF;
+  const href = useAuthedHref(target);
+  const highlighted = plan.id === "researcher";
+  return (
+    <article className={`plan-card ${highlighted ? "plan-card--featured" : ""}`}>
+      {plan.badge && <span className="plan-badge">{plan.badge}</span>}
+      <h3 className="plan-name">{plan.name}</h3>
+      <p className="plan-tagline">{plan.tagline}</p>
+      <div className="plan-price">
+        <span className="plan-price-num">${plan.monthly}</span>
+        <span className="plan-price-unit">
+          /mo{plan.perSeat ? " · per seat" : ""}
+        </span>
+      </div>
+      <ul className="plan-features">
+        {plan.features.map((f) => (
+          <li key={f}>
+            <span className="mark">check</span>
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+      <Link href={href} className={`btn btn-sm ${highlighted ? "btn-primary" : "btn-ghost"} plan-cta`}>
+        {plan.cta}
+        <MIcon name="arrow_forward" className="icon-18" />
+      </Link>
+    </article>
+  );
+}
+
 function Pricing() {
   return (
     <section id="pricing" className="surface-paper">
@@ -571,81 +655,28 @@ function Pricing() {
               <span>Pricing</span>
             </div>
             <h2 className="h-1">
-              Pennies,
+              A plan for every
               <br />
-              not <span className="serif-italic">months</span>.
+              <span className="serif-italic">stage</span> of research.
             </h2>
           </div>
           <p className="lede">
-            A traditional literature review costs you two to four months of focused time and a stack of irrelevant PDFs.
-            A Confluex review costs roughly the price of a coffee — and the difference is almost entirely the LLM-call
-            count.
+            From a single coursework essay to a shared lab library — pick a tier, upgrade or downgrade whenever the work
+            shifts. Top-up packs and seat add-ons live on the full pricing page.
           </p>
         </div>
 
-        <div className="compare">
-          <div className="compare-col them">
-            <span className="mono-tag">
-              <span className="pip"></span>Doing it the old way
-            </span>
-            <h3 className="compare-headline">Two–four months of reading</h3>
-            <div className="compare-price">
-              <span className="num">$2–5</span>
-              <span className="unit">per LLM-heavy review · 50–100 calls</span>
-            </div>
-            <ul className="compare-list">
-              <li>
-                <span className="mark">close</span>
-                <span>LLM called at every pipeline step — costs balloon with paper count.</span>
-              </li>
-              <li>
-                <span className="mark">close</span>
-                <span>Citations frequently hallucinated or paraphrased without source.</span>
-              </li>
-              <li>
-                <span className="mark">close</span>
-                <span>~60% of researcher time spent on papers that turn out to be irrelevant.</span>
-              </li>
-              <li>
-                <span className="mark">close</span>
-                <span>Advisor feedback triggers a full re-run from scratch.</span>
-              </li>
-            </ul>
-          </div>
+        <div className="plan-grid">
+          {LANDING_PLANS.map((plan) => (
+            <PlanCard key={plan.id} plan={plan} />
+          ))}
+        </div>
 
-          <div className="compare-col us">
-            <span className="mono-tag is-primary">
-              <span className="pip"></span>With Confluex
-            </span>
-            <h3 className="compare-headline">An evening of refinement</h3>
-            <div className="compare-price">
-              <span className="num">
-                $0.20 <em>avg.</em>
-              </span>
-              <span className="unit">per review · 3–5 calls</span>
-            </div>
-            <ul className="compare-list">
-              <li>
-                <span className="mark">check</span>
-                <span>LLM reserved for synthesis &amp; quality scoring — everything else is embeddings + NLP.</span>
-              </li>
-              <li>
-                <span className="mark">check</span>
-                <span>
-                  Every <span style={{ fontFamily: "var(--font-headline)", fontStyle: "italic" }}>[N]</span> maps to a
-                  real paper in the local cache.
-                </span>
-              </li>
-              <li>
-                <span className="mark">check</span>
-                <span>Pre-filter at 0.3 cosine throws out the noise before you see it.</span>
-              </li>
-              <li>
-                <span className="mark">check</span>
-                <span>Advisor feedback re-uses the cached paper set — no second search bill.</span>
-              </li>
-            </ul>
-          </div>
+        <div className="plan-foot">
+          <Link href={PRICING_HREF} className="plan-foot-link">
+            See full comparison & add-ons
+            <MIcon name="arrow_forward" className="icon-18" />
+          </Link>
         </div>
       </div>
     </section>
