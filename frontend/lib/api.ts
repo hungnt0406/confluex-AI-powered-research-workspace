@@ -877,6 +877,40 @@ export interface SectionVersionRead {
   created_at: string;
 }
 
+export interface TextSpan {
+  start: number;
+  end: number;
+}
+
+export interface NewResult {
+  text: string;
+  source_ref: string | null;
+  attach_as_citation: boolean;
+}
+
+export interface EditRequest {
+  instruction: string;
+  span?: TextSpan | null;
+  insertion_offset?: number | null;
+  new_results?: NewResult[];
+  web_search?: boolean;
+  web_query?: string | null;
+}
+
+export interface WebCitation {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export interface EditPatchResponse {
+  span: TextSpan;
+  new_text: string;
+  rationale: string;
+  web_citations: WebCitation[];
+  original_text: string;
+}
+
 // ---- Writer API helpers ----------------------------------------------------
 
 export async function createWriterDocument(
@@ -1008,6 +1042,30 @@ export async function saveSectionEdit(
   return api<WriterSectionRead>(
     `/writer/documents/${documentId}/sections/${sectionId}`,
     { method: "PATCH", token, json: { draft_latex } },
+  );
+}
+
+export async function previewWriterEdit(
+  documentId: string,
+  sectionId: string,
+  body: EditRequest,
+  token: string,
+): Promise<EditPatchResponse> {
+  return api<EditPatchResponse>(
+    `/writer/documents/${documentId}/sections/${sectionId}/edit`,
+    { method: "POST", token, json: body },
+  );
+}
+
+export async function applyWriterEdit(
+  documentId: string,
+  sectionId: string,
+  patch: EditPatchResponse,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/sections/${sectionId}/edit/apply`,
+    { method: "POST", token, json: patch },
   );
 }
 

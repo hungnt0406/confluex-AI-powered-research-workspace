@@ -9,6 +9,12 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.agents.writer_editor import (
+    EditPatch,
+    NewResult,
+    TextSpan,
+    WebSearchHit,
+)
 from backend.api.dependencies import (
     CurrentUser,
     DbSession,
@@ -18,6 +24,8 @@ from backend.api.schemas.projects import ReferenceFileRead
 from backend.api.schemas.writer_documents import (
     AssembleResponse,
     AttachPaperIdRequest,
+    EditPatchResponse,
+    EditRequest,
     OutlineApplyRequest,
     OutlineProposeResponse,
     ProjectSourceImportRequest,
@@ -33,6 +41,8 @@ from backend.api.schemas.writer_documents import (
     SourceCandidate,
     SourceSuggestRequest,
     SourceSuggestResponse,
+    TextSpanSchema,
+    WebCitationSchema,
     WriterDocumentCreate,
     WriterDocumentRead,
     WriterDocumentSummaryRead,
@@ -54,20 +64,30 @@ from backend.services.writer_documents import (
     WriterDocumentService,
     WriterSectionNotFoundError,
 )
+from backend.services.writer_editor import WriterEditConflictError, WriterEditorService
 
 router = APIRouter(tags=["writer-documents"])
 
 OUTLINE_PROPOSE_CREDITS = 2
 SECTION_DRAFT_CREDITS = 5
 SOURCE_SUGGEST_CREDITS = 1
+WRITER_EDITOR_CREDITS = 2
+WRITER_EDITOR_WEB_CREDITS = 4
 
 
 def get_writer_document_service() -> WriterDocumentService:
     return WriterDocumentService()
 
 
+def get_writer_editor_service() -> WriterEditorService:
+    return WriterEditorService()
+
+
 WriterDocumentServiceDependency = Annotated[
     WriterDocumentService, Depends(get_writer_document_service)
+]
+WriterEditorServiceDependency = Annotated[
+    WriterEditorService, Depends(get_writer_editor_service)
 ]
 
 
@@ -77,6 +97,38 @@ def _not_found(detail: str) -> HTTPException:
 
 def _forbidden() -> HTTPException:
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+
+def _writer_editor_cost(body: EditRequest) -> tuple[int, str]:
+    if body.web_search:
+        return WRITER_EDITOR_WEB_CREDITS, "writer_editor_edit_web"
+    return WRITER_EDITOR_CREDITS, "writer_editor_edit"
+
+
+def _patch_response(patch: EditPatch) -> EditPatchResponse:
+    return EditPatchResponse(
+        span=TextSpanSchema(start=patch.span.start, end=patch.span.end),
+        new_text=patch.new_text,
+        rationale=patch.rationale,
+        original_text=patch.original_text,
+        web_citations=[
+            WebCitationSchema(title=hit.title, url=hit.url, snippet=hit.snippet)
+            for hit in patch.web_citations
+        ],
+    )
+
+
+def _patch_from_schema(body: EditPatchResponse) -> EditPatch:
+    return EditPatch(
+        span=TextSpan(start=body.span.start, end=body.span.end),
+        new_text=body.new_text,
+        rationale=body.rationale,
+        original_text=body.original_text,
+        web_citations=[
+            WebSearchHit(title=hit.title, url=hit.url, snippet=hit.snippet)
+            for hit in body.web_citations
+        ],
+    )
 
 
 async def _serialize_writer_document(
@@ -484,6 +536,93 @@ async def save_section_edit(
         raise _not_found(str(err)) from err
     except WriterDocumentPermissionError:
         raise _forbidden() from None
+    return WriterSectionRead.model_validate(section)
+
+
+@router.post(
+    "/writer/documents/{document_id}/sections/{section_id}/edit",
+    response_model=EditPatchResponse,
+)
+async def preview_section_edit(
+    document_id: str,
+    section_id: str,
+    body: EditRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterEditorServiceDependency,
+) -> EditPatchResponse:
+    credit_cost, feature = _writer_editor_cost(body)
+    guard = await require_credits(
+        credit_cost,
+        feature,
+        current_user=current_user,
+        session=session,
+    )
+    try:
+        patch = await svc.preview(
+            session=session,
+            document_id=document_id,
+            section_id=section_id,
+            user_id=current_user.id,
+            instruction=body.instruction,
+            span=(
+                TextSpan(start=body.span.start, end=body.span.end)
+                if body.span is not None
+                else None
+            ),
+            insertion_offset=body.insertion_offset,
+            new_results=[
+                NewResult(
+                    text=result.text,
+                    source_ref=result.source_ref,
+                    attach_as_citation=result.attach_as_citation,
+                )
+                for result in body.new_results
+            ],
+            web_search=body.web_search,
+            web_query=body.web_query,
+        )
+    except (WriterSectionNotFoundError, WriterDocumentNotFoundError, WriterDocumentPermissionError) as err:
+        await guard.rollback()
+        if isinstance(err, (WriterSectionNotFoundError, WriterDocumentNotFoundError)):
+            raise _not_found(str(err)) from err
+        raise _forbidden() from None
+    except ValueError as err:
+        await guard.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err)) from err
+    except Exception:
+        await guard.rollback()
+        raise
+    await guard.commit(reference_id=section_id)
+    return _patch_response(patch)
+
+
+@router.post(
+    "/writer/documents/{document_id}/sections/{section_id}/edit/apply",
+    response_model=WriterSectionRead,
+)
+async def apply_section_edit(
+    document_id: str,
+    section_id: str,
+    body: EditPatchResponse,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterEditorServiceDependency,
+) -> WriterSectionRead:
+    try:
+        section = await svc.apply(
+            session=session,
+            document_id=document_id,
+            section_id=section_id,
+            user_id=current_user.id,
+            patch=_patch_from_schema(body),
+        )
+    except (WriterSectionNotFoundError, WriterDocumentNotFoundError) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    except WriterEditConflictError as err:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
     return WriterSectionRead.model_validate(section)
 
 
