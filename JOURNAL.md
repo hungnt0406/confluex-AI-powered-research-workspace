@@ -1355,6 +1355,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed (full PR list):** `backend/eval/__init__.py`, `backend/eval/metrics.py`, `backend/services/deep_search.py`, `tests/test_eval_metrics.py`, `tests/test_search_quality.py`, `scripts/run_eval_metric_samples.py`, `README.md`, `JOURNAL.md`.
 - **Suggested verification before merge:** `uv run ruff check backend/eval scripts/run_eval_metric_samples.py tests/test_eval_metrics.py tests/test_search_quality.py backend/services/deep_search.py`; `uv run mypy backend/eval`; `uv run pytest tests/test_eval_metrics.py -q`; optional `uv run python scripts/run_eval_metric_samples.py`; optional live search eval `RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval` (requires network and working academic search).
 
+## 2026-05-14T12:40:00+07:00
+- **Request:** Fix local Next.js dev warning blocking cross-origin dev resources when opening the app through the LAN IP.
+- **Files changed:** `frontend/next.config.mjs`, `JOURNAL.md`.
+- **Current status:** Added `192.168.1.3` to `allowedDevOrigins` so `http://192.168.1.3:3000` can load Next dev resources such as HMR during local LAN testing. Restart `npm run dev` for the config change to apply.
+
+## 2026-05-14T12:37:00+07:00
+- **Request:** Create the local frontend environment file for testing the landing page and app locally.
+- **Files changed:** `frontend/.env.local`, `JOURNAL.md`.
+- **Current status:** Added `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` so the Next.js frontend points at the local FastAPI backend during `npm run dev`.
+
 ## 2026-05-13T20:35:42+07:00
 - **Request:** Fix survey Methods outline approval after the UI showed the old generic one-line fallback as an approved outline.
 - **Files changed:** `backend/agents/writer_section.py`, `backend/services/writer_documents.py`, `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_writer_documents.py`, `tests/test_frontend_writer_static.py`, `README.md`, `frontend/README.md`, `docs/features/writer_outputs.md`, `JOURNAL.md`.
@@ -1379,6 +1389,41 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Request:** Fix the Deep Search/discovery failure shown as `SearchQuery query String should have at most 255 characters` when a long research prompt is used.
 - **Files changed:** `backend/agents/searcher.py`, `tests/test_searcher_reader.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - **Current status:** Added a regression for the reported long high-speed tracking prompt and changed fallback query composition to reserve room for suffix terms before creating `SearchQuery` models. Verification passed for the focused regression, full `tests/test_searcher_reader.py`, and targeted Ruff.
+
+## 2026-05-14T00:00:00+07:00
+- **Request:** Integrate the Claude-designed landing page (`frontend/landing-page/`) into the Next.js app.
+- **Files changed:** `frontend/app/page.tsx`, `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Ported `sections.jsx` + `app.jsx` to a typed React client component (`LandingPage`); scoped the landing CSS under `.landing-root` so the existing chat/billing/writer shells keep their Tailwind layout; the body's `h-screen overflow-hidden` classes are temporarily stripped while the landing is mounted so the page can scroll. Root `/` now renders the landing for unauthenticated visitors and redirects authenticated users to `/chat`. CTA links route to internal `/chat`, `/writer`, `/pricing` (replacing the old `confluex.vercel.app` external URL); the dev-only `TweaksPanel` was dropped. Frontend deps are not installed in this workspace, so typecheck/build were not executed — please run `npm install && npm run build` (or open `/` with `npm run dev`) to verify.
+
+## 2026-05-14T00:30:00+07:00
+- **Request:** Add small-win animations to the hero chat preview on the landing page (typewriter greeting, cycling suggestion chips, blinking composer caret).
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/app/landing.css`.
+- **Current status:** `ChatPreview` is now stateful — the greeting types out at ~28ms/char (preserving the `<em>precise focal point</em>` styling and exposing the full text via `aria-label`), the suggestion chip pool expanded to 6 entries with one slot rotating every 2.6s (fade-in keyframe via the `chip-fade` class), and the composer placeholder gained a blinking caret. All animations are gated by a `usePrefersReducedMotion` hook plus a `@media (prefers-reduced-motion: reduce)` CSS guard, so the greeting renders fully and chips stop cycling when reduced motion is requested. Frontend deps still aren't installed locally; visual verification needs `npm install && npm run dev`.
+
+## 2026-05-14T01:00:00+07:00
+- **Request:** Integrate the landing-page components with the app's auth/chat logic (don't dead-end CTAs at protected routes).
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/app/landing.css`.
+- **Current status:** Added a `useAuthedHref` helper that mirrors `app/pricing/page.tsx` — when `useAuth()` reports a token, CTAs route directly to their target; otherwise they go through `/login?next=<target>` (which `login/page.tsx` already accepts). Wired into the TopNav, Hero, and Footer "Start a review" buttons (label switches to "Open workspace" when signed-in) plus the footer's Research workspace / Writer beta links. The hero `ChatPreview` suggestion chips are now real `<button>`s — clicking one drops the topic into `sessionStorage('landing.topic')` and routes through the auth-aware chat href; `ChatWorkspace` reads that key on mount, seeds the composer draft, and clears it. Pricing nav link stays as the in-page anchor `#pricing` (the footer's Plans link still routes to the standalone `/pricing` page). No backend changes; verification needs `npm run dev` since frontend deps aren't installed in this workspace.
+
+## 2026-05-14T01:30:00+07:00
+- **Request:** Audit the landing-page integration for bugs.
+- **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Found and fixed three issues. (1) **Critical Tailwind collision:** `landing.css` declared `.h-1`, `.h-2`, `.h-3` (and `.h-display`) as global serif-typography rules; Next.js CSS imports are app-wide, so those selectors were overriding Tailwind's `h-1`/`h-2`/`h-3` height utilities used by `ChatWorkspace.tsx:323`, `ChatWorkspace.tsx:858`, `WriterOutlinePanel.tsx:105`, and `WriterQuestionsPanel.tsx:287` — turning thin progress bars / skeleton lines into giant serif headings across the chat and writer surfaces. Scoped them under `.landing-root` so they only apply on the landing page. (2) **Body-class restoration was fragile:** `useEffect` saved `body.className` whole and reassigned it on cleanup, which could clobber any concurrent classes and behaved oddly under React 18 strict-mode double-invocation. Switched to `classList.add/remove` for just `h-screen` and `overflow-hidden`, recording which were present at mount. (3) **Typewriter SSR flash:** initial `typed` state was 0, so the SSR/initial paint showed an empty greeting before the interval ticked. Initialised to full length and only reset-to-zero after `hasMounted && !reduced`, so reduced-motion users and slow-JS clients see the full sentence immediately while motion-OK users still get the typewriter. Other potential issues considered and accepted: tiny landing flash for already-authenticated users (fixed redirect happens within one tick), and `useAuthedHref` returning the bare target while `!ready` (chat-page fallback still routes them through `/login`). No collisions found for other landing-only class names (`.lede`, `.body`, `.brand-mark`, `.wordmark`, `.nav`, `.hero`, etc.) when grepped across `frontend/app` and `frontend/components`.
+
+## 2026-05-14T02:00:00+07:00
+- **Request:** Fix the landing page rendering as washed-out / not scrollable.
+- **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** Two regressions from the earlier integration. (1) Landing styles reference `var(--primary)`, `var(--background)`, `var(--on-surface)`, `var(--secondary-container)`, etc., but those tokens live in `frontend/tailwind.config.ts` (Tailwind theme) — they are NOT exposed as CSS custom properties. So every `var(--…)` in landing.css resolved to nothing, the dark hero rendered without a background, italics lost their forest-green colour, etc. Restored the full `:root` block (surfaces, text, brand, sage, outline, radii, spacing, type, motion) so each token has a real value. (2) Body scroll was locked because `frontend/app/globals.css` has `html, body { height: 100% }` in addition to the `h-screen overflow-hidden` Tailwind classes on `<body>`; stripping the classes wasn't enough. Added a `.landing-active` class that gets toggled on both `<html>` and `<body>` while the landing is mounted; landing.css declares `html.landing-active, body.landing-active { height: auto !important; overflow: visible !important; }`. The useEffect still removes the legacy `h-screen` / `overflow-hidden` classes and restores them on unmount.
+
+## 2026-05-14T02:15:00+07:00
+- **Request:** Top-nav items rendering pale/invisible against a light backdrop.
+- **Files changed:** `frontend/app/landing.css`.
+- **Current status:** The nav uses cream `#F2F3EC` text/wordmark/button while in its `.nav-on-dark` state (default at the top of the page), intended to overlay the dark forest-green hero. But the original `.nav { position: sticky; top: 0; background: transparent }` keeps the nav in document flow, so its 64px row sits above the hero with the light body background showing through — cream text on near-white was invisible. Switched to `position: fixed; top: 0; left: 0; right: 0;` so the nav genuinely overlays the hero (which already has 88px top padding, enough to clear the 64px bar). Scrolled-state behaviour (`.nav-scrolled` swaps to translucent paper with dark text) is unchanged.
+
+## 2026-05-14T02:30:00+07:00
+- **Request:** Landing page still not scrollable.
+- **Files changed:** `frontend/components/landing/LandingPage.tsx`.
+- **Current status:** The class-based override (`.landing-active { height: auto !important; overflow: visible !important }`) plus `body.classList.remove("h-screen", "overflow-hidden")` should have unlocked scroll, but evidently didn't in the user's browser (likely either the dev server hadn't picked up the new CSS, or the `!important`-on-element-selector cascade was being beaten by something I missed). Swapped the approach for the most defensive override possible: in the `LandingPage` mount effect, write `height: auto !important; overflow: auto !important` directly to `document.body.style` and `document.documentElement.style` via `setProperty(..., "important")`. Inline styles with `!important` cannot be beaten by any external CSS rule. The cleanup snapshots `body.className`, `body.style.cssText`, and `html.style.cssText` at mount and restores them verbatim on unmount, so the chat/billing/writer shells get their full-viewport lock back when the user navigates away.
 
 ## 2026-05-14T10:20:19+07:00
 - **Request:** Implement the Writer Editor Agent plan with subagents.
