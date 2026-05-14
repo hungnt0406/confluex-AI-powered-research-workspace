@@ -15,6 +15,7 @@
 - [Phase 4B: Advanced Research Settings](./in-progress/phase-4b-advanced-settings.md)
 - [Phase 4C: UI Refinements & Hardening](./in-progress/phase-4c-ui-refinements.md)
 - [Admin Token Usage Monitoring](./in-progress/admin-token-usage-monitoring.md)
+- [Writer Editor Agent](./in-progress/writer-editor-agent.md)
 
 ## Cost estimate (per full pipeline run)
 
