@@ -1,0 +1,73 @@
+/* ============================================================
+   Confluex — Design tokens
+   Pulled from frontend/tailwind.config.ts + globals.css
+   ============================================================ */
+
+:root {
+  /* Surfaces (warm light) */
+  --background: #faf9f7;
+  --surface: #faf9f7;
+  --surface-container: #efeeec;
+  --surface-container-low: #f4f3f1;
+  --surface-container-lowest: #ffffff;
+  --surface-container-high: #e9e8e6;
+  --surface-container-highest: #e3e2e0;
+  --surface-variant: #e3e2e0;
+
+  /* Text */
+  --on-surface: #1a1c1b;
+  --on-surface-variant: #444841;
+  --on-background: #1a1c1b;
+  --hint: #8C8375;
+
+  /* Brand */
+  --primary: #1d2d18;             /* deep forest green */
+  --primary-container: #32432c;
+  --on-primary: #ffffff;
+  --on-primary-container: #9cb092;
+  --secondary: #596154;
+  --secondary-container: #dee5d5;  /* pale sage — used for avatar circles */
+  --on-secondary-container: #5f675a;
+  --tertiary: #3b212c;
+  --accent: #5D4037;               /* warm brown */
+  --error: #ba1a1a;
+
+  /* Sage stroke (logo) */
+  --sage: #7BAD8A;
+  --sage-deep: #4F7A5F;
+  --wordmark: #2C1010;
+
+  /* Outline / hairline */
+  --outline: #747870;
+  --outline-variant: #c4c8be;
+  --hairline: rgba(29, 45, 24, 0.10);
+  --hairline-strong: rgba(29, 45, 24, 0.18);
+
+  /* Radii */
+  --r-1: 0.125rem;   /* 2px */
+  --r-2: 0.25rem;    /* 4px */
+  --r-3: 0.5rem;     /* 8px */
+  --r-4: 0.75rem;    /* 12px */
+  --r-5: 1rem;       /* 16px */
+  --r-pill: 9999px;
+
+  /* Spacing */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  /* Type families */
+  --font-headline: 'Noto Serif', 'Times New Roman', serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 160ms;
+  --dur-base: 240ms;
+}
