@@ -53,12 +53,16 @@ function TopNav() {
   const chatHref = useAuthedHref(CHAT_HREF);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
+    const scroller = document.querySelector(".landing-root") as HTMLElement | null;
+    const target: HTMLElement | Window = scroller ?? window;
+    const readScrollTop = () =>
+      scroller ? scroller.scrollTop : window.scrollY;
+    const onScroll = () => setScrolled(readScrollTop() > 40);
     onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    target.addEventListener("scroll", onScroll, { passive: true } as AddEventListenerOptions);
+    return () => target.removeEventListener("scroll", onScroll);
   }, []);
-  const cls = `nav ${scrolled ? "nav-scrolled" : "nav-on-dark"}`;
+  const cls = `nav ${scrolled ? "nav-scrolled" : ""}`;
   const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <nav className={cls}>
@@ -68,7 +72,6 @@ function TopNav() {
           <span className="wordmark">confluex</span>
         </a>
         <div className="nav-links">
-          <a href="#how">How it works</a>
           <a href="#sources">Sources</a>
           <a href="#sample">Sample output</a>
           <a href="#pricing">Pricing</a>
@@ -430,138 +433,6 @@ function Sources() {
   );
 }
 
-interface Stage {
-  num: string;
-  title: string;
-  icon: string;
-  blurb: string;
-  bullets: string[];
-  llm: boolean;
-}
-
-function Pipeline() {
-  const stages: Stage[] = [
-    {
-      num: "Stage 01",
-      title: "Search",
-      icon: "travel_explore",
-      blurb:
-        "Parallel queries across S2, arXiv, PubMed, and the local Chroma index. BM25 keyword expansion — no LLM in the loop.",
-      bullets: ["BM25 keyword expansion", "Four sources in parallel", "100–500 candidates"],
-      llm: false,
-    },
-    {
-      num: "Stage 02",
-      title: "Filter",
-      icon: "filter_alt",
-      blurb:
-        "Every abstract is embedded with SPECTER2 or MiniLM and scored by cosine similarity against the topic. Threshold at 0.3.",
-      bullets: ["SPECTER2 / MiniLM", "Cosine similarity", "30–100 papers kept"],
-      llm: false,
-    },
-    {
-      num: "Stage 03",
-      title: "Rank",
-      icon: "leaderboard",
-      blurb:
-        "Composite score: 60% relevance, 20% log-normalised citations, 20% recency. DOI + Jaccard-title dedup, top-N selected.",
-      bullets: ["α·relevance + β·log(cites) + γ·recency", "DOI + title Jaccard dedup", "Top 20"],
-      llm: false,
-    },
-    {
-      num: "Stage 04",
-      title: "Synthesise",
-      icon: "auto_stories",
-      blurb:
-        "One large LLM call assembles the survey: intro, themes, methods, findings, gaps, conclusion. Every claim cited inline as [N].",
-      bullets: ["Single GPT-4o call", "Six sections, [N] citations", "Abstract-grounded"],
-      llm: true,
-    },
-    {
-      num: "Stage 05",
-      title: "Quality",
-      icon: "verified",
-      blurb:
-        "A second, cheaper LLM scores coherence, coverage, citation accuracy, writing. Below 0.7 → feedback loop, max two retries.",
-      bullets: ["GPT-4o-mini judge", "Four-axis rubric", "Feedback → re-synth"],
-      llm: true,
-    },
-  ];
-
-  return (
-    <section id="how" className="surface-paper">
-      <div className="container">
-        <div className="pipeline-head">
-          <div>
-            <div className="section-eyebrow">
-              <span className="dot"></span>
-              <span className="num">04</span>
-              <span className="line"></span>
-              <span>How it works</span>
-            </div>
-            <h2 className="h-1">
-              Five stages.
-              <br />
-              <span className="serif-italic">Two</span> use a language model.
-            </h2>
-          </div>
-          <p className="lede">
-            Most &ldquo;AI research&rdquo; tools call a language model for every step and bill you for it. Confluex
-            reserves the LLM for what it&apos;s actually good at — writing — and uses embeddings, BM25, and traditional
-            NLP for the rest. The result is 3–5 calls per review instead of 50–100, with the same model behind both.
-          </p>
-        </div>
-
-        <div className="pipeline-grid">
-          {stages.map((s) => (
-            <article className="stage" key={s.num}>
-              <div className="stage-head">
-                <span className="stage-num">{s.num}</span>
-                <span className={`stage-icon ${s.llm ? "is-llm" : ""}`}>
-                  <MIcon name={s.icon} className="icon-18 icon-fill" />
-                </span>
-              </div>
-              <h3 className="stage-title">{s.title}</h3>
-              <p className="stage-blurb">{s.blurb}</p>
-              <ul className="stage-list">
-                {s.bullets.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
-              <div className="stage-tag-row">
-                <span className={`mono-tag ${s.llm ? "is-primary" : ""}`}>
-                  <span className="pip"></span>
-                  {s.llm ? "LLM" : "No LLM"}
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
-
-        <div className="pipeline-cost">
-          <div className="stat">
-            <span className="label">Legacy stacks</span>
-            <span className="val">~50–100</span>
-            <span>LLM calls / review · $2–5</span>
-          </div>
-          <span className="sep"></span>
-          <div className="stat">
-            <span className="label">Confluex</span>
-            <span className="val">3–5</span>
-            <span>LLM calls / review · $0.10–0.30</span>
-          </div>
-          <span className="sep"></span>
-          <div className="stat">
-            <span className="label">Net</span>
-            <span className="val">17×</span>
-            <span>fewer LLM calls, same model</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function QRow({ label, value }: { label: string; value: number }) {
   return (
     <div className="qrow">
@@ -830,22 +701,6 @@ function Footer() {
 }
 
 export default function LandingPage() {
-  useEffect(() => {
-    const body = document.body;
-    const html = document.documentElement;
-    const hadHScreen = body.classList.contains("h-screen");
-    const hadOverflowHidden = body.classList.contains("overflow-hidden");
-    body.classList.remove("h-screen", "overflow-hidden");
-    body.classList.add("landing-active");
-    html.classList.add("landing-active");
-    return () => {
-      body.classList.remove("landing-active");
-      html.classList.remove("landing-active");
-      if (hadHScreen) body.classList.add("h-screen");
-      if (hadOverflowHidden) body.classList.add("overflow-hidden");
-    };
-  }, []);
-
   return (
     <div className="landing-root">
       <TopNav />
@@ -853,7 +708,6 @@ export default function LandingPage() {
         <Hero />
         <VideoSection />
         <Sources />
-        <Pipeline />
         <Sample />
         <Pricing />
         <Footer />
