@@ -106,33 +106,35 @@
 .landing-root .surface-low       { background: var(--surface-container-low); color: var(--on-surface); }
 .landing-root .surface-primary   { background: var(--primary); color: #ECEEE7; }
 
-/* Dark-hero overrides */
-.surface-primary .h-display,
-.surface-primary .h-1,
-.surface-primary .h-2,
-.surface-primary .h-3,
-.surface-primary h1,
-.surface-primary h2,
-.surface-primary h3,
-.surface-primary h4 { color: #F2F3EC; }
-.surface-primary .serif-italic { color: #B5CCA6; }
-.surface-primary .lede        { color: rgba(242, 243, 236, 0.72); }
-.surface-primary .body        { color: #F2F3EC; }
-.surface-primary .body-2      { color: rgba(242, 243, 236, 0.68); }
-.surface-primary .eyebrow,
-.surface-primary .hero-eyebrow-row .label { color: rgba(242, 243, 236, 0.74); }
-.surface-primary .hero-eyebrow-row .pip { background: #9CB092; box-shadow: 0 0 0 4px rgba(156, 176, 146, 0.18); }
-.surface-primary .hero-eyebrow-row .divider { background: rgba(242, 243, 236, 0.18); }
+/* Dark-hero overrides — .landing-root prefix raises specificity above the
+   generic `.landing-root .X` rules below, so dark-hero colors win inside
+   `.surface-primary` regardless of source order. */
+.landing-root .surface-primary .h-display,
+.landing-root .surface-primary .h-1,
+.landing-root .surface-primary .h-2,
+.landing-root .surface-primary .h-3,
+.landing-root .surface-primary h1,
+.landing-root .surface-primary h2,
+.landing-root .surface-primary h3,
+.landing-root .surface-primary h4 { color: #F2F3EC; }
+.landing-root .surface-primary .serif-italic { color: #B5CCA6; }
+.landing-root .surface-primary .lede        { color: rgba(242, 243, 236, 0.72); }
+.landing-root .surface-primary .body        { color: #F2F3EC; }
+.landing-root .surface-primary .body-2      { color: rgba(242, 243, 236, 0.68); }
+.landing-root .surface-primary .eyebrow,
+.landing-root .surface-primary .hero-eyebrow-row .label { color: rgba(242, 243, 236, 0.74); }
+.landing-root .surface-primary .hero-eyebrow-row .pip { background: #9CB092; box-shadow: 0 0 0 4px rgba(156, 176, 146, 0.18); }
+.landing-root .surface-primary .hero-eyebrow-row .divider { background: rgba(242, 243, 236, 0.18); }
 
-.surface-primary .btn-primary { background: #F2F3EC; color: var(--primary); }
-.surface-primary .btn-ghost { color: #F2F3EC; border-color: rgba(242, 243, 236, 0.30); }
-.surface-primary .btn-ghost:hover { background: rgba(242, 243, 236, 0.06); }
-.surface-primary .hero-actions .note { color: rgba(242, 243, 236, 0.55); }
+.landing-root .surface-primary .btn-primary { background: #F2F3EC; color: var(--primary); }
+.landing-root .surface-primary .btn-ghost { color: #F2F3EC; border-color: rgba(242, 243, 236, 0.30); }
+.landing-root .surface-primary .btn-ghost:hover { background: rgba(242, 243, 236, 0.06); }
+.landing-root .surface-primary .hero-actions .note { color: rgba(242, 243, 236, 0.55); }
 
-.surface-primary .hero-meta { border-top-color: rgba(242, 243, 236, 0.18); }
-.surface-primary .hero-meta .num { color: #F2F3EC; }
-.surface-primary .hero-meta .num em { color: #B5CCA6; }
-.surface-primary .hero-meta .lbl { color: rgba(242, 243, 236, 0.58); }
+.landing-root .surface-primary .hero-meta { border-top-color: rgba(242, 243, 236, 0.18); }
+.landing-root .surface-primary .hero-meta .num { color: #F2F3EC; }
+.landing-root .surface-primary .hero-meta .num em { color: #B5CCA6; }
+.landing-root .surface-primary .hero-meta .lbl { color: rgba(242, 243, 236, 0.58); }
 
 .landing-root .container {
   max-width: 1200px;
