@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class WriterDocumentCreate(BaseModel):
@@ -184,3 +184,49 @@ class QAReport(BaseModel):
 class WriterSectionDraftResponse(BaseModel):
     section: WriterSectionRead
     warnings: list[str] = Field(default_factory=list)
+
+
+class TextSpanSchema(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> TextSpanSchema:
+        if self.end < self.start:
+            raise ValueError("span.end must be greater than or equal to span.start.")
+        return self
+
+
+class NewResultSchema(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    source_ref: str | None = Field(default=None, max_length=500)
+    attach_as_citation: bool = False
+
+
+class EditRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=4000)
+    span: TextSpanSchema | None = None
+    insertion_offset: int | None = Field(default=None, ge=0)
+    new_results: list[NewResultSchema] = Field(default_factory=list, max_length=20)
+    web_search: bool = False
+    web_query: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> EditRequest:
+        if self.span is None and self.insertion_offset is None:
+            raise ValueError("Either span or insertion_offset is required.")
+        return self
+
+
+class WebCitationSchema(BaseModel):
+    title: str
+    url: str
+    snippet: str
+
+
+class EditPatchResponse(BaseModel):
+    span: TextSpanSchema
+    new_text: str
+    rationale: str
+    web_citations: list[WebCitationSchema] = Field(default_factory=list)
+    original_text: str = ""
