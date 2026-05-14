@@ -62,7 +62,7 @@ function TopNav() {
     target.addEventListener("scroll", onScroll, { passive: true } as AddEventListenerOptions);
     return () => target.removeEventListener("scroll", onScroll);
   }, []);
-  const cls = `nav ${scrolled ? "nav-scrolled" : ""}`;
+  const cls = `nav ${scrolled ? "nav-scrolled" : "nav-on-dark"}`;
   const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <nav className={cls}>
