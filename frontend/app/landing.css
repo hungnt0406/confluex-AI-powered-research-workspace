@@ -7,10 +7,46 @@
    ============================================================ */
 
 :root {
+  /* Surfaces (warm light) — mirrored from tailwind.config.ts */
+  --background: #faf9f7;
+  --surface: #faf9f7;
+  --surface-container: #efeeec;
+  --surface-container-low: #f4f3f1;
+  --surface-container-lowest: #ffffff;
+  --surface-container-high: #e9e8e6;
+  --surface-container-highest: #e3e2e0;
+  --surface-variant: #e3e2e0;
+
+  /* Text */
+  --on-surface: #1a1c1b;
+  --on-surface-variant: #444841;
+  --on-background: #1a1c1b;
+  --hint: #8C8375;
+
+  /* Brand */
+  --primary: #1d2d18;
+  --primary-container: #32432c;
+  --on-primary: #ffffff;
+  --on-primary-container: #9cb092;
+  --secondary: #596154;
+  --secondary-container: #dee5d5;
+  --on-secondary-container: #5f675a;
+  --tertiary: #3b212c;
+  --accent: #5D4037;
+  --error: #ba1a1a;
+
+  /* Sage stroke (logo) */
   --sage: #7BAD8A;
   --sage-deep: #4F7A5F;
   --wordmark: #2C1010;
 
+  /* Outlines / hairlines */
+  --outline: #747870;
+  --outline-variant: #c4c8be;
+  --hairline: rgba(29, 45, 24, 0.10);
+  --hairline-strong: rgba(29, 45, 24, 0.18);
+
+  /* Radii */
   --r-1: 0.125rem;
   --r-2: 0.25rem;
   --r-3: 0.5rem;
@@ -18,15 +54,34 @@
   --r-5: 1rem;
   --r-pill: 9999px;
 
+  /* Spacing */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  /* Type families */
   --font-headline: 'Noto Serif', 'Times New Roman', serif;
   --font-body: 'Inter', system-ui, sans-serif;
 
+  /* Motion */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 160ms;
   --dur-base: 240ms;
+}
 
-  --hairline: rgba(29, 45, 24, 0.10);
-  --hairline-strong: rgba(29, 45, 24, 0.18);
+/* While the landing page is mounted, unlock body/html scroll. The app shell
+   sets `h-screen overflow-hidden` on <body> and `html, body { height: 100% }`
+   in globals.css; both prevent the long marketing page from scrolling. */
+html.landing-active,
+body.landing-active {
+  height: auto !important;
+  overflow: visible !important;
 }
 
 .landing-root,
@@ -108,7 +163,7 @@
   text-wrap: balance;
 }
 
-.h-display {
+.landing-root .h-display {
   font-family: var(--font-headline);
   font-weight: 500;
   font-size: clamp(40px, 5.4vw, 72px);
@@ -117,7 +172,7 @@
   text-wrap: balance;
   margin: 0;
 }
-.h-1 {
+.landing-root .h-1 {
   font-family: var(--font-headline);
   font-weight: 500;
   font-size: clamp(32px, 4.6vw, 60px);
@@ -126,7 +181,7 @@
   text-wrap: balance;
   margin: 0;
 }
-.h-2 {
+.landing-root .h-2 {
   font-family: var(--font-headline);
   font-weight: 500;
   font-size: clamp(24px, 2.6vw, 34px);
@@ -134,7 +189,7 @@
   letter-spacing: -0.01em;
   margin: 0;
 }
-.h-3 {
+.landing-root .h-3 {
   font-family: var(--font-headline);
   font-weight: 500;
   font-size: 20px;
@@ -459,6 +514,21 @@
 .composer-caret { background: var(--on-surface-variant); height: 0.9em; }
 
 .chip-fade { animation: confluex-chip-in 280ms var(--ease) both; }
+
+button.chip-btn {
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+button.chip-btn:hover {
+  background: rgba(222, 229, 213, 0.75);
+  transform: translateY(-1px);
+}
+button.chip-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .type-caret,
