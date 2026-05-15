@@ -184,6 +184,7 @@ export function WriterEditorOverlay({
   const [lastRequest, setLastRequest] = useState<EditRequest | null>(null);
   const [prompt, setPrompt] = useState("");
   const [findings, setFindings] = useState("");
+  const [findingsImage, setFindingsImage] = useState<string | null>(null);
   const [findingsOpen, setFindingsOpen] = useState(false);
   const [sourceRef, setSourceRef] = useState("");
   const [citeSource, setCiteSource] = useState(false);
@@ -338,6 +339,7 @@ export function WriterEditorOverlay({
         setPanelMode(null);
         setPrompt("");
         setFindings("");
+        setFindingsImage(null);
         setFindingsOpen(false);
         setSourceRef("");
         setCiteSource(false);
@@ -352,6 +354,7 @@ export function WriterEditorOverlay({
     setPanelMode(null);
     setPrompt("");
     setFindings("");
+    setFindingsImage(null);
     setFindingsOpen(false);
     setSourceRef("");
     setCiteSource(false);
@@ -390,17 +393,34 @@ export function WriterEditorOverlay({
     [documentId, onError, resetPanel, section, token],
   );
 
+  const handleFindingsPaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(event.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    if (!imageItem) return;
+    event.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      const base64 = dataUrl.split(",")[1] ?? null;
+      setFindingsImage(base64);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
   const buildNewResults = useCallback(() => {
     const text = findings.trim();
-    if (!text) return [];
+    if (!text && !findingsImage) return [];
     return [
       {
-        text,
+        text: text || "(see attached screenshot)",
         source_ref: sourceRef.trim() || null,
         attach_as_citation: citeSource,
+        image_data: findingsImage ?? null,
       },
     ];
-  }, [citeSource, findings, sourceRef]);
+  }, [citeSource, findings, findingsImage, sourceRef]);
 
   const submitPanel = useCallback(() => {
     const instruction = prompt.trim();
@@ -526,12 +546,12 @@ export function WriterEditorOverlay({
             <button
               type="button"
               onClick={() => setFindingsOpen((open) => !open)}
-              className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+              className="mt-2 flex items-center gap-1 text-[11px] font-semibold text-primary"
             >
               <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
                 {findingsOpen ? "expand_less" : "expand_more"}
               </span>
-              {findingsOpen ? "Hide findings" : "Add findings (optional)"}
+              <span className="hover:underline">{findingsOpen ? "Hide findings" : "Add findings (optional)"}</span>
             </button>
 
             {findingsOpen && (
@@ -539,9 +559,29 @@ export function WriterEditorOverlay({
                 <textarea
                   value={findings}
                   onChange={(event) => setFindings(event.target.value)}
+                  onPaste={handleFindingsPaste}
                   placeholder="Paste results, evidence, or a quote to weave in."
                   className="h-20 w-full resize-none rounded-lg border border-outline/20 bg-background p-2 text-xs text-on-surface outline-none focus:border-primary/50"
                 />
+                {findingsImage && (
+                  <div className="relative inline-block">
+                    <img
+                      src={`data:image/png;base64,${findingsImage}`}
+                      alt="Pasted screenshot"
+                      className="max-h-32 rounded-lg border border-outline/20 object-contain"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFindingsImage(null)}
+                      className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-on-surface text-surface hover:bg-error"
+                      aria-label="Remove screenshot"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "10px" }}>
+                        close
+                      </span>
+                    </button>
+                  </div>
+                )}
                 <input
                   value={sourceRef}
                   onChange={(event) => setSourceRef(event.target.value)}
