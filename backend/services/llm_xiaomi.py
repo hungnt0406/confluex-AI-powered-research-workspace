@@ -65,6 +65,8 @@ class XiaomiStructuredOutputService:
         max_tokens: int = 1_024,
         feature: str = "structured_output",
         temperature: float = 0,
+        image_data: str | None = None,
+        image_media_type: str = "image/png",
     ) -> dict[str, Any]:
         if not self.is_configured():
             raise StructuredOutputError("Xiaomi MiMo API credentials are not configured.")
@@ -82,11 +84,22 @@ class XiaomiStructuredOutputService:
         else:
             response_format = {"type": "json_object"}
 
+        if image_data:
+            user_content: str | list[dict[str, Any]] = [
+                {"type": "text", "text": user_prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{image_media_type};base64,{image_data}"},
+                },
+            ]
+        else:
+            user_content = user_prompt
+
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": user_content},
             ],
             "response_format": response_format,
             "max_tokens": max_tokens,
