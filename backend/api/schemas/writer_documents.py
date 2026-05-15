@@ -201,6 +201,7 @@ class NewResultSchema(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     source_ref: str | None = Field(default=None, max_length=500)
     attach_as_citation: bool = False
+    image_data: str | None = Field(default=None, max_length=5_000_000)
 
 
 class EditRequest(BaseModel):
