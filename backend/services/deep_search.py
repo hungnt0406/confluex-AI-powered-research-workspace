@@ -340,9 +340,8 @@ class DeepSearchService:
             ]
             update_index = 0
             while not planner_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(planner_task), timeout=4)
-                except TimeoutError:
+                planner_done, _ = await asyncio.wait({planner_task}, timeout=4)
+                if not planner_done:
                     yield DeepSearchStreamEvent(
                         "activity",
                         _thinking_activity(
@@ -353,8 +352,6 @@ class DeepSearchService:
                         ),
                     )
                     update_index += 1
-                except Exception:
-                    break
             try:
                 questions, seed_queries = await planner_task
             except StructuredOutputError as error:
@@ -409,9 +406,8 @@ class DeepSearchService:
             ]
             pe_update_index = 0
             while not project_evidence_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(project_evidence_task), timeout=4)
-                except TimeoutError:
+                project_evidence_done, _ = await asyncio.wait({project_evidence_task}, timeout=4)
+                if not project_evidence_done:
                     yield DeepSearchStreamEvent(
                         "activity",
                         _thinking_activity(
@@ -422,8 +418,6 @@ class DeepSearchService:
                         ),
                     )
                     pe_update_index += 1
-                except Exception:
-                    break
             project_candidates = await project_evidence_task
             candidates.extend(project_candidates)
             yield DeepSearchStreamEvent(
@@ -577,9 +571,8 @@ class DeepSearchService:
             ]
             sum_update_index = 0
             while not summarizer_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(summarizer_task), timeout=4)
-                except TimeoutError:
+                summarizer_done, _ = await asyncio.wait({summarizer_task}, timeout=4)
+                if not summarizer_done:
                     yield DeepSearchStreamEvent(
                         "activity",
                         _thinking_activity(
@@ -590,8 +583,6 @@ class DeepSearchService:
                         ),
                     )
                     sum_update_index += 1
-                except Exception:
-                    break
             source_summaries, summarizer_warning = await summarizer_task
             if summarizer_warning:
                 warnings.append(summarizer_warning)
@@ -634,15 +625,31 @@ class DeepSearchService:
                 ),
             )
             report_parts: list[str] = []
-            async for token in self._stream_report(
-                question=normalized_question,
-                project=project,
-                plan_questions=questions,
-                source_summaries=source_summaries,
-                warnings=_dedupe_strings(warnings),
-            ):
-                report_parts.append(token)
-                yield DeepSearchStreamEvent("token", {"delta": token})
+            try:
+                async for token in self._stream_report(
+                    question=normalized_question,
+                    project=project,
+                    plan_questions=questions,
+                    source_summaries=source_summaries,
+                    warnings=_dedupe_strings(warnings),
+                ):
+                    report_parts.append(token)
+                    yield DeepSearchStreamEvent("token", {"delta": token})
+            except Exception as error:
+                fallback_warning = f"Deep Search report writer fell back to local synthesis: {error}"
+                logger.warning("deep_search report writer fell back: %s", error)
+                warnings.append(fallback_warning)
+                fallback_report = self._generate_local_report(
+                    question=normalized_question,
+                    project=project,
+                    plan_questions=questions,
+                    source_summaries=source_summaries,
+                    warnings=_dedupe_strings(warnings),
+                )
+                report_parts = []
+                for token in _chunk_report(fallback_report):
+                    report_parts.append(token)
+                    yield DeepSearchStreamEvent("token", {"delta": token})
             report_body = "".join(report_parts).strip()
             if not report_body:
                 raise RuntimeError("Deep search report writer returned no content.")
@@ -688,9 +695,8 @@ class DeepSearchService:
             ]
             ver_update_index = 0
             while not verifier_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(verifier_task), timeout=4)
-                except TimeoutError:
+                verifier_done, _ = await asyncio.wait({verifier_task}, timeout=4)
+                if not verifier_done:
                     yield DeepSearchStreamEvent(
                         "activity",
                         _thinking_activity(
@@ -701,8 +707,6 @@ class DeepSearchService:
                         ),
                     )
                     ver_update_index += 1
-                except Exception:
-                    break
             qa_flags, verifier_warning = await verifier_task
             if verifier_warning:
                 warnings.append(verifier_warning)
@@ -744,7 +748,6 @@ class DeepSearchService:
         mode: Literal["standard", "max"] = "standard",
     ) -> tuple[list[str], list[str]]:
         """Return (research_questions, seed_queries) for the deep search run."""
-        await asyncio.sleep(10)
         if self.use_live_llm:
             is_max = mode == "max"
             max_q = MAX_PLAN_QUESTIONS_MAX if is_max else MAX_PLAN_QUESTIONS
@@ -1166,9 +1169,8 @@ class DeepSearchService:
                         search(query, project.year_start, self.max_results_per_query)
                     )
                     while not search_task.done():
-                        try:
-                            await asyncio.wait_for(asyncio.shield(search_task), timeout=4)
-                        except TimeoutError:
+                        search_done, _ = await asyncio.wait({search_task}, timeout=4)
+                        if not search_done:
                             yield (
                                 "activity",
                                 _thinking_activity(
@@ -1178,11 +1180,17 @@ class DeepSearchService:
                                     detail=f"Waiting for {provider_stage} to respond...",
                                 ),
                             )
-                        except Exception:
-                            break
                     papers = await search_task
-                except Exception:
-                    warnings.append(f"{provider_name} search failed for query '{query}'.")
+                except Exception as error:
+                    logger.warning(
+                        "deep_search %s search failed for query %r: %s",
+                        provider_name,
+                        query,
+                        error,
+                    )
+                    warnings.append(
+                        f"{provider_name} search failed for query '{query}': {error}"
+                    )
                     continue
                 query_candidates: list[DeepSearchSourceCandidate] = []
                 for paper_record in papers:
@@ -1273,9 +1281,8 @@ class DeepSearchService:
                 )
             )
             while not search_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(search_task), timeout=4)
-                except TimeoutError:
+                web_search_done, _ = await asyncio.wait({search_task}, timeout=4)
+                if not web_search_done:
                     yield (
                         "activity",
                         _thinking_activity(
@@ -1285,8 +1292,6 @@ class DeepSearchService:
                             detail="Waiting for Tavily search results...",
                         ),
                     )
-                except Exception:
-                    break
             response = await search_task
             warnings.extend(response.warnings)
             query_candidates: list[DeepSearchSourceCandidate] = []
@@ -1411,7 +1416,6 @@ class DeepSearchService:
         source_summaries: list[dict[str, Any]],
         warnings: list[str],
     ) -> AsyncGenerator[str, None]:
-        await asyncio.sleep(10)
         if self.use_live_llm:
             async for token in self._stream_live_report(
                 question=question,
