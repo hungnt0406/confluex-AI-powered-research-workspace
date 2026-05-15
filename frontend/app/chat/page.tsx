@@ -8,6 +8,7 @@ import Sidebar from "@/components/Sidebar";
 import ContextPanel from "@/components/ContextPanel";
 import ChatWorkspace from "@/components/ChatWorkspace";
 import { ChatProvider, useChat } from "@/components/ChatProvider";
+import OnboardingTour from "@/components/OnboardingTour";
 
 export default function ChatPage() {
   const { ready, token } = useAuth();
@@ -33,6 +34,7 @@ export default function ChatPage() {
         <ChatWorkspace />
         <ContextPanel />
         <InsufficientCreditsCta />
+        <OnboardingTour variant="chat" />
       </div>
     </ChatProvider>
   );

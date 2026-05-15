@@ -131,6 +131,13 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
     [pathname, router, selectProject],
   );
 
+  const handleStartNewResearch = useCallback(() => {
+    startNewResearch();
+    if (pathname !== "/chat") {
+      router.push("/chat");
+    }
+  }, [pathname, router, startNewResearch]);
+
   return (
     <aside
       className="flex flex-col h-screen bg-surface-container border-r border-outline/30 z-50 overflow-hidden shrink-0"
@@ -202,7 +209,8 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
         <div className="flex flex-col h-full overflow-hidden px-3 pb-3">
           {/* New Research button */}
           <button
-            onClick={startNewResearch}
+            id="ob-new"
+            onClick={handleStartNewResearch}
             className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg hover:bg-primary/20 transition-colors duration-200 text-xs font-medium text-on-surface group"
           >
             <span
@@ -216,6 +224,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
 
           {/* Writer link */}
           <Link
+            id="ob-writer"
             href={activeProject ? `/writer?project=${activeProject.id}` : "/writer"}
             className="flex items-center gap-2.5 w-full px-2.5 py-2 mb-4 rounded-lg hover:bg-primary/20 transition-colors duration-200 text-xs font-medium text-on-surface group"
           >
@@ -232,7 +241,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
           </Link>
 
           {/* Project list */}
-          <nav className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
+          <nav id="ob-recents" className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
             <div className="px-3 mb-2">
               <p className="text-[11px] font-bold text-on-surface-variant/70 uppercase tracking-wider">
                 Recents
@@ -304,6 +313,17 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                       <span>Usage Monitor</span>
                     </Link>
                   )}
+                  <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", marginLeft: "-3px" }}>
+                      settings
+                    </span>
+                    <span>Settings</span>
+                  </Link>
                   <div className="my-1 border-t border-outline/20" />
                   <button
                     type="button"
@@ -354,7 +374,7 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
         <div className="flex flex-col items-center h-full overflow-hidden py-2 gap-1">
           {/* New Research */}
           <button
-            onClick={startNewResearch}
+            onClick={handleStartNewResearch}
             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-primary/20 transition-colors duration-200 group"
             aria-label="New Research"
             title="New Research"
@@ -429,6 +449,17 @@ export default function Sidebar({ open, onToggle }: SidebarProps) {
                       <span>Usage Monitor</span>
                     </Link>
                   )}
+                  <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setAccountMenuOpen(false)}
+                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-lg hover:bg-primary/5 transition-colors text-xs text-on-surface-variant"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                      settings
+                    </span>
+                    <span>Settings</span>
+                  </Link>
                   <div className="my-1 border-t border-outline/20" />
                   <button
                     type="button"
