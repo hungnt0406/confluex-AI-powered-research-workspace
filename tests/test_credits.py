@@ -117,7 +117,11 @@ async def test_debit_raises_insufficient_credits_without_inserting_transaction(
 async def test_register_grants_signup_bonus_and_ledgers_it(client, session_factory) -> None:
     response = await client.post(
         "/auth/register",
-        json={"email": "signup-bonus@example.com", "password": "strongpass123"},
+        json={
+            "email": "signup-bonus@example.com",
+            "password": "strongpass123",
+            "agreed_to_terms": True,
+        },
     )
 
     assert response.status_code == 201
