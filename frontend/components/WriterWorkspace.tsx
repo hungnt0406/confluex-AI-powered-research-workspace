@@ -31,6 +31,7 @@ import {
   WriterChatInlineDiff,
 } from "@/components/WriterChatInlineDiff";
 import { WriterChatInlineDiffProse } from "@/components/WriterChatInlineDiffProse";
+import { formatRelativeTime } from "@/lib/time";
 
 // Dynamic import Monaco to avoid SSR issues.
 // If @monaco-editor/react is not installed, the import will fail and we fall back to a textarea.
@@ -373,6 +374,10 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const activeHistory = activeSectionId ? historyBySection[activeSectionId] : undefined;
   const canUndo = (activeHistory?.past.length ?? 0) > 0;
   const canRedo = (activeHistory?.future.length ?? 0) > 0;
+  const activeSectionWordCount = useMemo(
+    () => editorContent.trim().split(/\s+/).filter(Boolean).length,
+    [editorContent],
+  );
 
   // Focus title input when editing
   useEffect(() => {
@@ -993,43 +998,49 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               </button>
             )}
             {activeSection ? (
-              viewMode === "visual" ? (
-                <>
-                  <WriterProseEditor
-                    value={activeSection.draft_latex ?? ""}
-                    onChange={handleEditorChange}
-                    editorKey={`${activeSection.id}:${proseRefreshToken}`}
-                    onMount={setProseEditorEl}
-                  />
-                  <WriterEditorOverlay
-                    editor={proseAdapter}
-                    documentId={document.id}
-                    section={activeSection}
-                    token={token}
-                    onSectionUpdate={handleSectionUpdate}
-                    onPendingChange={setHasPendingEditorPatch}
-                    onError={setError}
-                    proseMode
-                  />
-                </>
-              ) : (
-                <>
-                  <LaTeXEditor
-                    value={editorContent}
-                    onChange={handleEditorChange}
-                    onMountEditor={setMonacoEditor}
-                  />
-                  <WriterEditorOverlay
-                    editor={monacoEditor}
-                    documentId={document.id}
-                    section={activeSection}
-                    token={token}
-                    onSectionUpdate={handleSectionUpdate}
-                    onPendingChange={setHasPendingEditorPatch}
-                    onError={setError}
-                  />
-                </>
-              )
+              <>
+                <div className="flex shrink-0 items-center justify-end gap-3 px-12 pt-3 pb-1 text-[12px] text-stone-500">
+                  <span>{activeSectionWordCount === 1 ? "1 word" : `${activeSectionWordCount} words`}</span>
+                  <span>Edited {formatRelativeTime(activeSection.updated_at)}</span>
+                </div>
+                {viewMode === "visual" ? (
+                  <>
+                    <WriterProseEditor
+                      value={activeSection.draft_latex ?? ""}
+                      onChange={handleEditorChange}
+                      editorKey={`${activeSection.id}:${proseRefreshToken}`}
+                      onMount={setProseEditorEl}
+                    />
+                    <WriterEditorOverlay
+                      editor={proseAdapter}
+                      documentId={document.id}
+                      section={activeSection}
+                      token={token}
+                      onSectionUpdate={handleSectionUpdate}
+                      onPendingChange={setHasPendingEditorPatch}
+                      onError={setError}
+                      proseMode
+                    />
+                  </>
+                ) : (
+                  <>
+                    <LaTeXEditor
+                      value={editorContent}
+                      onChange={handleEditorChange}
+                      onMountEditor={setMonacoEditor}
+                    />
+                    <WriterEditorOverlay
+                      editor={monacoEditor}
+                      documentId={document.id}
+                      section={activeSection}
+                      token={token}
+                      onSectionUpdate={handleSectionUpdate}
+                      onPendingChange={setHasPendingEditorPatch}
+                      onError={setError}
+                    />
+                  </>
+                )}
+              </>
             ) : (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">
