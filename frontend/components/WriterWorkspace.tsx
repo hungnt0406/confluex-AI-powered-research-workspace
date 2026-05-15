@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
+  ChatSectionPatch,
+  TextSpan,
   WriterDocumentRead,
   WriterSectionRead,
-  applyOutline,
   assembleDocument,
   exportDocument,
-  proposeOutline,
+  getWriterDocument,
+  loadUser,
   saveSectionEdit,
   updateWriterDocument,
 } from "@/lib/api";
@@ -20,6 +22,15 @@ import { createProseEditorAdapter } from "@/lib/prose-editor-adapter";
 import { WriterSourcesPanel } from "@/components/WriterSourcesPanel";
 import { WriterQuestionsPanel } from "@/components/WriterQuestionsPanel";
 import { WriterQAPanel } from "@/components/WriterQAPanel";
+import {
+  ChatPatchStatusUpdate,
+  WriterChatPanel,
+} from "@/components/WriterChatPanel";
+import {
+  PendingChatPatch,
+  WriterChatInlineDiff,
+} from "@/components/WriterChatInlineDiff";
+import { WriterChatInlineDiffProse } from "@/components/WriterChatInlineDiffProse";
 
 // Dynamic import Monaco to avoid SSR issues.
 // If @monaco-editor/react is not installed, the import will fail and we fall back to a textarea.
@@ -47,6 +58,17 @@ const WRITER_RIGHT_PANEL_MAX_WIDTH = 720;
 interface WriterWorkspaceProps {
   initialDocument: WriterDocumentRead;
   token: string;
+}
+
+function findScrollAncestor(el: HTMLElement | null): HTMLElement | null {
+  if (!el || typeof window === "undefined") return null;
+  let cur: HTMLElement | null = el.parentElement;
+  while (cur) {
+    const overflowY = window.getComputedStyle(cur).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll") return cur;
+    cur = cur.parentElement;
+  }
+  return null;
 }
 
 function AssembleModal({
@@ -197,8 +219,6 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(480);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState<boolean>(true);
   const [editorContent, setEditorContent] = useState<string>("");
-  const [proposingOutline, setProposingOutline] = useState(false);
-  const [savingOutline, setSavingOutline] = useState(false);
   const [assembling, setAssembling] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [assembleResult, setAssembleResult] = useState<{
@@ -213,6 +233,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const [error, setError] = useState<string | null>(null);
   const [monacoEditor, setMonacoEditor] = useState<MonacoEditorLike | null>(null);
   const [hasPendingEditorPatch, setHasPendingEditorPatch] = useState(false);
+  const [chatApplyInFlight, setChatApplyInFlight] = useState(false);
   const [viewMode, setViewMode] = useState<EditorViewMode>("visual");
   const [proseEditorEl, setProseEditorEl] = useState<HTMLElement | null>(null);
   const [proseRefreshToken, setProseRefreshToken] = useState(0);
@@ -220,6 +241,12 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const [historyBySection, setHistoryBySection] = useState<
     Record<string, { past: string[]; present: string; future: string[] }>
   >({});
+  const [pendingChatPatches, setPendingChatPatches] = useState<PendingChatPatch[]>([]);
+  const [chatPatchStatusUpdates, setChatPatchStatusUpdates] = useState<
+    ChatPatchStatusUpdate[]
+  >([]);
+  const [inlineFlashKey, setInlineFlashKey] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string>("");
@@ -361,6 +388,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       setEditorContent(value);
 
       if (hasPendingEditorPatch) return;
+      if (chatApplyInFlight) return;
 
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
@@ -379,7 +407,163 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         }
       }, 1000);
     },
-    [activeSection, document.id, hasPendingEditorPatch, pushHistory, token],
+    [activeSection, chatApplyInFlight, document.id, hasPendingEditorPatch, pushHistory, token],
+  );
+
+  // Refresh the document from the server (called after a chat-driven patch is applied).
+  const refreshDocument = useCallback(async () => {
+    try {
+      const fresh = await getWriterDocument(document.id, token);
+      setDocument(fresh);
+      const activeFresh = fresh.sections.find((s) => s.id === activeSectionId);
+      if (activeFresh) {
+        // Bumping proseRefreshToken re-mounts WriterProseEditor (uncontrolled
+        // contenteditable). The remount resets scrollTop on whichever
+        // ancestor of the editor element scrolls — so the user gets snapped
+        // to the top of the document the moment they Accept a chat patch.
+        // Snapshot scroll position before the remount and restore it on the
+        // next two animation frames (one for React commit, one for paint).
+        const scrollEl = findScrollAncestor(proseEditorEl);
+        const savedScrollTop = scrollEl?.scrollTop ?? 0;
+        const next = activeFresh.draft_latex ?? "";
+        setEditorContent(next);
+        editorContentRef.current = next;
+        lastSavedContentRef.current = next;
+        setProseRefreshToken((n) => n + 1);
+        if (scrollEl && typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              scrollEl.scrollTop = savedScrollTop;
+            });
+          });
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh document.");
+    }
+  }, [activeSectionId, document.id, proseEditorEl, token]);
+
+  const flashSpan = useCallback(
+    (span: TextSpan) => {
+      const editor =
+        viewMode === "visual" ? proseAdapter : (monacoEditor as MonacoEditorLike | null);
+      const model = editor?.getModel?.() ?? null;
+      if (!editor || !model) return;
+      try {
+        const startPos = model.getPositionAt(Math.max(0, span.start));
+        const dom = editor.getDomNode?.();
+        const visible = editor.getScrolledVisiblePosition(startPos);
+        if (dom && visible) {
+          const rect = dom.getBoundingClientRect();
+          const indicator = window.document.createElement("div");
+          indicator.style.position = "fixed";
+          indicator.style.left = `${rect.left + visible.left - 4}px`;
+          indicator.style.top = `${rect.top + visible.top - 2}px`;
+          indicator.style.height = `${Math.max(visible.height, 18)}px`;
+          indicator.style.width = "4px";
+          indicator.style.background = "rgba(16, 185, 129, 0.75)";
+          indicator.style.borderRadius = "2px";
+          indicator.style.transition = "opacity 0.6s ease-out";
+          indicator.style.zIndex = "9999";
+          indicator.style.pointerEvents = "none";
+          window.document.body.appendChild(indicator);
+          window.setTimeout(() => {
+            indicator.style.opacity = "0";
+          }, 600);
+          window.setTimeout(() => indicator.remove(), 1200);
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [monacoEditor, proseAdapter, viewMode],
+  );
+
+  // Scroll Monaco (or the prose adapter) to a span in a section and flash it.
+  const scrollToSection = useCallback(
+    (sectionId: string, span: TextSpan) => {
+      if (sectionId !== activeSectionId) {
+        setActiveSectionId(sectionId);
+        // Defer the scroll-and-flash until the next paint when the section content swaps in.
+        window.setTimeout(() => flashSpan(span), 80);
+        return;
+      }
+      flashSpan(span);
+    },
+    [activeSectionId, flashSpan],
+  );
+
+  // ----- Chat inline diff plumbing -----
+  const handlePatchesAvailable = useCallback(
+    (chatId: string, messageId: string, patches: ChatSectionPatch[]) => {
+      setPendingChatPatches((prev) => {
+        const seen = new Set(prev.map((p) => p.key));
+        const additions: PendingChatPatch[] = [];
+        patches.forEach((patch, idx) => {
+          if (patch.status !== "pending") return;
+          const key = `${chatId}:${messageId}:${idx}`;
+          if (seen.has(key)) return;
+          additions.push({
+            key,
+            chatId,
+            messageId,
+            patchIndex: idx,
+            patch,
+          });
+        });
+        if (additions.length === 0) return prev;
+        return [...prev, ...additions];
+      });
+    },
+    [],
+  );
+
+  const handleInlinePatchResolved = useCallback(
+    (patchKey: string, status: "applied" | "rejected" | "stale") => {
+      let resolved: PendingChatPatch | null = null;
+      setPendingChatPatches((prev) => {
+        const next: PendingChatPatch[] = [];
+        for (const entry of prev) {
+          if (entry.key === patchKey) {
+            resolved = entry;
+            continue;
+          }
+          next.push(entry);
+        }
+        return next;
+      });
+      if (resolved) {
+        const r = resolved as PendingChatPatch;
+        setChatPatchStatusUpdates((prev) => [
+          ...prev,
+          { messageId: r.messageId, patchIndex: r.patchIndex, status },
+        ]);
+      }
+    },
+    [],
+  );
+
+  const scrollToInlineDiff = useCallback(
+    (messageId: string, patchIndex: number) => {
+      const entry = pendingChatPatches.find(
+        (p) => p.messageId === messageId && p.patchIndex === patchIndex,
+      );
+      if (!entry) return;
+      // If the patch targets a different section, switch first.
+      if (entry.patch.section_id !== activeSectionId) {
+        setActiveSectionId(entry.patch.section_id);
+        window.setTimeout(() => {
+          setInlineFlashKey(entry.key);
+          flashSpan(entry.patch.span);
+          window.setTimeout(() => setInlineFlashKey(null), 1400);
+        }, 120);
+        return;
+      }
+      setInlineFlashKey(entry.key);
+      flashSpan(entry.patch.span);
+      window.setTimeout(() => setInlineFlashKey(null), 1400);
+    },
+    [activeSectionId, flashSpan, pendingChatPatches],
   );
 
   // Cleanup timer
@@ -405,41 +589,6 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       setProseRefreshToken((n) => n + 1);
     }
   }, [activeSectionId, pushHistory]);
-
-  const handleProposeOutline = useCallback(async () => {
-    setProposingOutline(true);
-    setError(null);
-    try {
-      const { outline_by_section } = await proposeOutline(document.id, token);
-      // Auto-apply the proposed outline
-      const updated = await applyOutline(document.id, outline_by_section, token);
-      setDocument(updated);
-      if (!activeSectionId && updated.sections.length > 0) {
-        setActiveSectionId(updated.sections[0].id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to propose outline.");
-    } finally {
-      setProposingOutline(false);
-    }
-  }, [document.id, token, activeSectionId]);
-
-  const handleSaveOutline = useCallback(async () => {
-    setSavingOutline(true);
-    setError(null);
-    try {
-      const outline_by_section: Record<string, string> = {};
-      for (const s of document.sections) {
-        outline_by_section[s.id] = s.outline_text ?? "";
-      }
-      const updated = await applyOutline(document.id, outline_by_section, token);
-      setDocument(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save outline.");
-    } finally {
-      setSavingOutline(false);
-    }
-  }, [document, token]);
 
   const applyHistoricalContent = useCallback(
     async (sectionId: string, content: string) => {
@@ -560,7 +709,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       {/* Top bar */}
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-outline/20 bg-surface-container px-4">
         {/* Editable title */}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div id="ob-titlebox" className="flex min-w-0 flex-1 items-center gap-2">
           <Link
             href={chatHref}
             aria-label={document.project_id ? "Back to chat workspace" : "Back to writer documents"}
@@ -658,7 +807,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         )}
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div id="ob-export" className="flex items-center gap-2">
           <div className="flex items-center gap-0.5 rounded-full border border-outline/20 bg-surface-container-lowest p-0.5">
             <button
               type="button"
@@ -727,20 +876,16 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       {/* 3-column workspace */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Outline (20%) */}
-        <div className="w-[220px] shrink-0">
+        <div id="ob-outline" className="w-[220px] shrink-0">
           <WriterOutlinePanel
             document={document}
             activeSectionId={activeSectionId}
             onSectionClick={setActiveSectionId}
-            onProposeOutline={handleProposeOutline}
-            onSaveOutline={handleSaveOutline}
-            proposingOutline={proposingOutline}
-            savingOutline={savingOutline}
           />
         </div>
 
         {/* Center: Editor (flex-1) */}
-        <div className={`flex flex-1 flex-col overflow-hidden ${viewMode === "source" ? "bg-stone-950" : "bg-stone-50"}`}>
+        <div id="ob-editor" className={`flex flex-1 flex-col overflow-hidden ${viewMode === "source" ? "bg-stone-950" : "bg-stone-50"}`}>
           {/* Section header bar */}
           {activeSection ? (
             <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-4 ${viewMode === "source" ? "border-stone-800" : "border-stone-200"}`}>
@@ -817,8 +962,36 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             </div>
           )}
 
+          {/* Prose-mode chat-patch inline diff renders absolute overlays inside
+              the prose editor's root — no banner needed. */}
+
           {/* Editor */}
           <div className="relative flex-1 overflow-hidden">
+            {!chatOpen && (
+              <button
+                type="button"
+                onClick={() => setChatOpen(true)}
+                aria-label="Open document chat"
+                className={`absolute top-3/4 right-0 z-10 -translate-y-1/2 inline-flex items-center gap-2 rounded-l-full rounded-r-none border-y border-l px-4 py-2.5 text-sm font-semibold shadow-md transition-all hover:shadow-lg ${
+                  viewMode === "source"
+                    ? "border-stone-700 bg-stone-900 text-stone-200 hover:bg-stone-800"
+                    : "border-outline/20 bg-surface text-on-surface hover:bg-primary/5"
+                }`}
+              >
+                <svg viewBox="0 0 62 60" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" className="shrink-0">
+                  <path d="M 4,50 C 8,35 18,15 32,6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 9,52 C 13,36 24,16 39,7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 14,53 C 19,37 30,17 45,8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 19,54 C 25,38 36,18 51,9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 24,55 C 30,39 42,19 56,10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 29,55 C 36,40 47,21 58,14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 33,54 C 40,41 51,24 58,20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 37,53 C 43,42 53,27 57,26" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M 40,52 C 45,43 53,31 56,32" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                </svg>
+                Chat
+              </button>
+            )}
             {activeSection ? (
               viewMode === "visual" ? (
                 <>
@@ -836,6 +1009,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                     onSectionUpdate={handleSectionUpdate}
                     onPendingChange={setHasPendingEditorPatch}
                     onError={setError}
+                    proseMode
                   />
                 </>
               ) : (
@@ -906,7 +1080,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             className="absolute left-0 top-0 z-20 h-full w-2 -translate-x-1 cursor-col-resize outline-none transition-colors hover:bg-primary/30 focus:bg-primary/30"
           />
           {/* Tab bar */}
-          <div className="flex h-9 shrink-0 items-stretch border-b border-outline/20 bg-surface-container">
+          <div id="ob-tabs" className="flex h-9 shrink-0 items-stretch border-b border-outline/20 bg-surface-container">
             {RIGHT_TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -939,7 +1113,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 overflow-hidden" role="tabpanel">
+          <div id="ob-questions" className="flex-1 overflow-hidden" role="tabpanel">
             {rightTab === "questions" && (
               <WriterQuestionsPanel
                 documentId={document.id}
@@ -967,6 +1141,54 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       {/* Assemble modal */}
       {assembleResult && (
         <AssembleModal result={assembleResult} onClose={() => setAssembleResult(null)} />
+      )}
+
+      {/* Document chat panel (floating) */}
+      <WriterChatPanel
+        documentId={document.id}
+        userId={loadUser()?.id ?? "anon"}
+        token={token}
+        sections={document.sections}
+        onAfterPatchApplied={refreshDocument}
+        onScrollToInlineDiff={scrollToInlineDiff}
+        onChatBusyChange={setChatApplyInFlight}
+        onPatchesAvailable={handlePatchesAvailable}
+        externalPatchStatusUpdates={chatPatchStatusUpdates}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
+
+      {/* Inline diff overlay. Source mode uses Monaco APIs (decorations / view zones).
+          Visual mode renders coalesced strikethrough rects + a prose card via
+          latexOffsetToDomPosition + range.getClientRects(). */}
+      {viewMode === "source" && (
+        <WriterChatInlineDiff
+          documentId={document.id}
+          sections={document.sections}
+          activeSectionId={activeSectionId}
+          monacoEditor={monacoEditor}
+          token={token}
+          pendingPatches={pendingChatPatches}
+          onPatchResolved={handleInlinePatchResolved}
+          onAfterPatchApplied={refreshDocument}
+          setChatBusy={setChatApplyInFlight}
+          flashKey={inlineFlashKey}
+        />
+      )}
+      {viewMode === "visual" && (
+        <WriterChatInlineDiffProse
+          documentId={document.id}
+          sections={document.sections}
+          activeSectionId={activeSectionId}
+          proseAdapter={proseAdapter}
+          token={token}
+          pendingPatches={pendingChatPatches}
+          onPatchResolved={handleInlinePatchResolved}
+          onAfterPatchApplied={refreshDocument}
+          setChatBusy={setChatApplyInFlight}
+          flashKey={inlineFlashKey}
+          onRequestSourceView={() => setViewMode("source")}
+        />
       )}
     </div>
   );
