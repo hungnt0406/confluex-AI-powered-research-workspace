@@ -139,6 +139,7 @@ type ChatState = {
   submitMessage: (text: string) => Promise<void>;
   startDeepSearchPlan: (planId: string) => Promise<void>;
   editDeepSearchPlan: (planId: string) => string | null;
+  reviseDeepSearchPlan: (planId: string, instruction: string) => Promise<void>;
   uploadReferenceFile: (file: File, options?: UploadReferenceFileOptions) => Promise<void>;
   togglePaperSelection: (paperId: string) => void;
   citationGraphCache: Record<string, CitationGraph>;
@@ -451,6 +452,24 @@ function createDeepSearchPlanMessage(
     deepSearchPlan: plan,
     createdAt,
   };
+}
+
+function buildDeepSearchPlanRevisionQuestion(plan: DeepSearchPlanMessage, instruction: string) {
+  const currentQuestions =
+    plan.questions.length > 0
+      ? plan.questions.map((question, index) => `${index + 1}. ${question}`).join("\n")
+      : "The current plan is still being generated.";
+
+  return [
+    "Original research topic:",
+    plan.question,
+    "",
+    "Current research questions:",
+    currentQuestions,
+    "",
+    "Revision request:",
+    instruction,
+  ].join("\n");
 }
 
 const DEEP_SEARCH_THINKING_PHASES = [
@@ -1946,9 +1965,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       if (busy) return null;
       const plan = pendingDeepSearchPlan?.id === planId ? pendingDeepSearchPlan : null;
       if (!plan || plan.status !== "pending") return null;
+      const updatePlanMessages = (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+        if (plan.projectId && projectSnapshotsRef.current[plan.projectId]) {
+          updateProjectMessages(plan.projectId, updater);
+          return;
+        }
+        setMessages(updater);
+      };
 
       setPendingDeepSearchPlan(null);
-      setMessages((prev) =>
+      updatePlanMessages((prev) =>
         prev.map((message) =>
           message.deepSearchPlan?.id === planId
             ? {
@@ -1961,7 +1987,93 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       );
       return plan.question;
     },
-    [busy, pendingDeepSearchPlan],
+    [busy, pendingDeepSearchPlan, updateProjectMessages],
+  );
+
+  const reviseDeepSearchPlan = useCallback(
+    async (planId: string, instruction: string) => {
+      if (!authedRef.current || busy) return;
+      const trimmedInstruction = instruction.trim();
+      if (!trimmedInstruction) return;
+
+      const plan = pendingDeepSearchPlan?.id === planId ? pendingDeepSearchPlan : null;
+      if (!plan || plan.status !== "pending") return;
+
+      const revisedQuestion = buildDeepSearchPlanRevisionQuestion(plan, trimmedInstruction);
+      const updatePlanMessages = (updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+        if (plan.projectId && projectSnapshotsRef.current[plan.projectId]) {
+          updateProjectMessages(plan.projectId, updater);
+          return;
+        }
+        setMessages(updater);
+      };
+      const markPlanGenerating = (source: ChatMessage[]) =>
+        source.map((message) =>
+          message.deepSearchPlan?.id === planId
+            ? {
+                ...message,
+                deepSearchPlan: {
+                  ...message.deepSearchPlan,
+                  status: "generating" as const,
+                },
+              }
+            : message,
+        );
+      const applyPlanRevision = (source: ChatMessage[], questions: string[]) =>
+        source.map((message) =>
+          message.deepSearchPlan?.id === planId
+            ? {
+                ...message,
+                content: "Here's a revised research plan for that topic.",
+                deepSearchPlan: {
+                  ...message.deepSearchPlan,
+                  question: revisedQuestion,
+                  status: "pending" as const,
+                  questions,
+                },
+              }
+            : message,
+        );
+      const restorePendingPlan = (source: ChatMessage[]) =>
+        source.map((message) =>
+          message.deepSearchPlan?.id === planId
+            ? {
+                ...message,
+                deepSearchPlan: { ...message.deepSearchPlan, status: "pending" as const },
+              }
+            : message,
+        );
+
+      setComposerNotice(null);
+      setPendingDeepSearchPlan((prev) =>
+        prev?.id === planId ? { ...prev, status: "generating" } : prev,
+      );
+      updatePlanMessages(markPlanGenerating);
+
+      try {
+        const { questions } = await api<{ questions: string[] }>("/pipeline/deep-search/plan", {
+          method: "POST",
+          token: authedRef.current,
+          json: { question: revisedQuestion, mode: plan.mode },
+        });
+        setPendingDeepSearchPlan((prev) =>
+          prev?.id === planId
+            ? { ...prev, question: revisedQuestion, status: "pending", questions }
+            : prev,
+        );
+        updatePlanMessages((prev) => applyPlanRevision(prev, questions));
+      } catch {
+        setPendingDeepSearchPlan((prev) =>
+          prev?.id === planId ? { ...prev, status: "pending" } : prev,
+        );
+        updatePlanMessages(restorePendingPlan);
+        setComposerNotice({
+          tone: "error",
+          message: "Could not revise the Deep Search plan. Try manual edit or a shorter instruction.",
+        });
+      }
+    },
+    [busy, pendingDeepSearchPlan, updateProjectMessages],
   );
 
   const submitMessage = useCallback(
@@ -2348,6 +2460,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       submitMessage,
       startDeepSearchPlan,
       editDeepSearchPlan,
+      reviseDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
       citationGraphCache,
@@ -2384,6 +2497,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       submitMessage,
       startDeepSearchPlan,
       editDeepSearchPlan,
+      reviseDeepSearchPlan,
       uploadReferenceFile,
       togglePaperSelection,
       citationGraphCache,
