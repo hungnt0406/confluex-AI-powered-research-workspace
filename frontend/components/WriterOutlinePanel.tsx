@@ -1,16 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { WriterDocumentRead, WriterSectionRead } from "@/lib/api";
 
 interface WriterOutlinePanelProps {
   document: WriterDocumentRead;
   activeSectionId: string | null;
   onSectionClick: (sectionId: string) => void;
-  onProposeOutline: () => Promise<void>;
-  onSaveOutline: () => Promise<void>;
-  proposingOutline: boolean;
-  savingOutline: boolean;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -79,10 +74,6 @@ export function WriterOutlinePanel({
   document,
   activeSectionId,
   onSectionClick,
-  onProposeOutline,
-  onSaveOutline,
-  proposingOutline,
-  savingOutline,
 }: WriterOutlinePanelProps) {
   const sections = [...(document.sections ?? [])].sort((a, b) => a.order_index - b.order_index);
 
@@ -127,7 +118,7 @@ export function WriterOutlinePanel({
               list_alt
             </span>
             <p className="mt-2 text-xs text-hint">No sections yet.</p>
-            <p className="mt-0.5 text-[10px] text-hint">Propose an outline to get started.</p>
+            <p className="mt-0.5 text-[10px] text-hint">Create a document section to get started.</p>
           </div>
         ) : (
           sections.map((section) => (
@@ -140,54 +131,6 @@ export function WriterOutlinePanel({
           ))
         )}
       </nav>
-
-      {/* Actions */}
-      <div className="shrink-0 border-t border-outline/20 p-2 space-y-1.5">
-        <button
-          type="button"
-          onClick={() => void onProposeOutline()}
-          disabled={proposingOutline || savingOutline}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-outline/25 bg-surface-container-lowest px-3 py-2 text-xs font-medium text-on-surface transition-colors hover:bg-primary/5 hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {proposingOutline ? (
-            <>
-              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
-                progress_activity
-              </span>
-              Proposing…
-            </>
-          ) : (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
-                auto_awesome
-              </span>
-              Propose Outline
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => void onSaveOutline()}
-          disabled={proposingOutline || savingOutline || sections.length === 0}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {savingOutline ? (
-            <>
-              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
-                progress_activity
-              </span>
-              Saving…
-            </>
-          ) : (
-            <>
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
-                save
-              </span>
-              Save Outline
-            </>
-          )}
-        </button>
-      </div>
     </aside>
   );
 }
