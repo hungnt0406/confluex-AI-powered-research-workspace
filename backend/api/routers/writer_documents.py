@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+from datetime import datetime as _dt
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -24,6 +26,12 @@ from backend.api.schemas.projects import ReferenceFileRead
 from backend.api.schemas.writer_documents import (
     AssembleResponse,
     AttachPaperIdRequest,
+    ChatMessageSchema,
+    ChatMeta,
+    ChatRead,
+    ChatSectionPatchSchema,
+    ChatTurnRead,
+    ChatTurnRequest,
     EditPatchResponse,
     EditRequest,
     OutlineApplyRequest,
@@ -54,9 +62,21 @@ from backend.api.schemas.writer_documents import (
 from backend.config import get_settings
 from backend.db.models import Paper, WriterDocument, WriterDocumentSource
 from backend.services.ai_usage import start_usage_collection
+from backend.services.chat_session_store import (
+    ChatMessageRecord,
+    ChatSession,
+    ChatSessionMeta,
+    StoredPatch,
+)
 from backend.services.reference_files import (
     ReferenceFileDuplicateError,
     ReferenceFileValidationError,
+)
+from backend.services.writer_chat import (
+    ChatNotFoundError,
+    ChatPatchNotFoundError,
+    ChatPatchStateError,
+    WriterChatService,
 )
 from backend.services.writer_documents import (
     WriterDocumentNotFoundError,
@@ -73,6 +93,7 @@ SECTION_DRAFT_CREDITS = 5
 SOURCE_SUGGEST_CREDITS = 1
 WRITER_EDITOR_CREDITS = 2
 WRITER_EDITOR_WEB_CREDITS = 4
+WRITER_CHAT_TURN_CREDITS = 3
 
 
 def get_writer_document_service() -> WriterDocumentService:
@@ -83,11 +104,35 @@ def get_writer_editor_service() -> WriterEditorService:
     return WriterEditorService()
 
 
+_writer_chat_service_singleton: WriterChatService | None = None
+
+
+def get_writer_chat_service() -> WriterChatService:
+    """Return a process-scoped WriterChatService.
+
+    Cached because the in-memory session store has to share state across requests.
+    Tests can override via `app.dependency_overrides`.
+    """
+
+    global _writer_chat_service_singleton
+    if _writer_chat_service_singleton is None:
+        _writer_chat_service_singleton = WriterChatService()
+    return _writer_chat_service_singleton
+
+
+def reset_writer_chat_service_for_tests() -> None:
+    global _writer_chat_service_singleton
+    _writer_chat_service_singleton = None
+
+
 WriterDocumentServiceDependency = Annotated[
     WriterDocumentService, Depends(get_writer_document_service)
 ]
 WriterEditorServiceDependency = Annotated[
     WriterEditorService, Depends(get_writer_editor_service)
+]
+WriterChatServiceDependency = Annotated[
+    WriterChatService, Depends(get_writer_chat_service)
 ]
 
 
@@ -929,3 +974,288 @@ async def export_document(
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=paper_{document_id[:8]}.zip"},
     )
+
+
+# ----------------------------------------------------------------- writer chat
+
+
+def _epoch_to_datetime(value: float) -> _dt:
+    return _dt.fromtimestamp(value, tz=UTC)
+
+
+def _serialize_chat_patch(patch: StoredPatch) -> ChatSectionPatchSchema:
+    return ChatSectionPatchSchema(
+        section_id=patch.section_id,
+        section_title=patch.section_title,
+        span=TextSpanSchema(start=patch.span.start, end=patch.span.end),
+        original_text=patch.original_text,
+        new_text=patch.new_text,
+        rationale=patch.rationale,
+        status=patch.status,  # type: ignore[arg-type]
+    )
+
+
+def _serialize_chat_message(message: ChatMessageRecord) -> ChatMessageSchema:
+    return ChatMessageSchema(
+        id=message.id,
+        role=message.role,  # type: ignore[arg-type]
+        content=message.content,
+        patches=[_serialize_chat_patch(p) for p in message.patches],
+        created_at=_epoch_to_datetime(message.created_at),
+    )
+
+
+def _serialize_chat(chat: ChatSession) -> ChatRead:
+    return ChatRead(
+        id=chat.id,
+        document_id=chat.document_id,
+        messages=[_serialize_chat_message(m) for m in chat.messages],
+        last_active_at=_epoch_to_datetime(chat.last_active_at),
+        history_summary=chat.history_summary,
+    )
+
+
+def _serialize_chat_meta(meta: ChatSessionMeta) -> ChatMeta:
+    return ChatMeta(
+        id=meta.id,
+        document_id=meta.document_id,
+        last_active_at=_epoch_to_datetime(meta.last_active_at),
+        message_count=meta.message_count,
+    )
+
+
+@router.post(
+    "/writer/documents/{document_id}/chat",
+    response_model=ChatRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_writer_chat(
+    document_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> ChatRead:
+    try:
+        chat = await svc.create_chat(
+            session=session, document_id=document_id, user_id=current_user.id
+        )
+    except WriterDocumentNotFoundError as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    return _serialize_chat(chat)
+
+
+@router.get(
+    "/writer/documents/{document_id}/chats",
+    response_model=list[ChatMeta],
+)
+async def list_writer_chats(
+    document_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> list[ChatMeta]:
+    try:
+        metas = await svc.list_chats(
+            session=session, document_id=document_id, user_id=current_user.id
+        )
+    except WriterDocumentNotFoundError as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    return [_serialize_chat_meta(meta) for meta in metas]
+
+
+@router.get(
+    "/writer/documents/{document_id}/chat/{chat_id}",
+    response_model=ChatRead,
+)
+async def get_writer_chat(
+    document_id: str,
+    chat_id: str,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> ChatRead:
+    try:
+        chat = await svc.get_chat(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            chat_id=chat_id,
+        )
+    except (WriterDocumentNotFoundError, ChatNotFoundError) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    return _serialize_chat(chat)
+
+
+@router.post(
+    "/writer/documents/{document_id}/chat/{chat_id}/message",
+    response_model=ChatTurnRead,
+)
+async def post_writer_chat_message(
+    document_id: str,
+    chat_id: str,
+    body: ChatTurnRequest,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> ChatTurnRead:
+    guard = await require_credits(
+        WRITER_CHAT_TURN_CREDITS,
+        "writer_chat_turn",
+        current_user=current_user,
+        session=session,
+    )
+    try:
+        chat = await svc.post_message(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            user_message=body.content,
+        )
+    except (WriterDocumentNotFoundError, ChatNotFoundError) as err:
+        await guard.rollback()
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        await guard.rollback()
+        raise _forbidden() from None
+    except Exception:
+        await guard.rollback()
+        raise
+    await guard.commit(reference_id=chat_id)
+    if len(chat.messages) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chat turn did not produce both messages.",
+        )
+    user_msg, assistant_msg = chat.messages[-2], chat.messages[-1]
+    return ChatTurnRead(
+        chat_id=chat.id,
+        user_message=_serialize_chat_message(user_msg),
+        assistant_message=_serialize_chat_message(assistant_msg),
+    )
+
+
+@router.post(
+    "/writer/documents/{document_id}/chat/{chat_id}/message/{message_id}/patch/{patch_index}/accept",
+    response_model=WriterSectionRead,
+)
+async def accept_writer_chat_patch(
+    document_id: str,
+    chat_id: str,
+    message_id: str,
+    patch_index: int,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> WriterSectionRead:
+    try:
+        section = await svc.accept_patch(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            message_id=message_id,
+            patch_index=patch_index,
+        )
+    except (
+        WriterDocumentNotFoundError,
+        WriterSectionNotFoundError,
+        ChatNotFoundError,
+        ChatPatchNotFoundError,
+    ) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    except WriterEditConflictError as err:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"detail": str(err), "status": "stale"},
+        ) from err
+    except ChatPatchStateError as err:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
+        ) from err
+    return WriterSectionRead.model_validate(section)
+
+
+@router.post(
+    "/writer/documents/{document_id}/chat/{chat_id}/message/{message_id}/patch/{patch_index}/reject",
+)
+async def reject_writer_chat_patch(
+    document_id: str,
+    chat_id: str,
+    message_id: str,
+    patch_index: int,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> dict[str, bool]:
+    try:
+        await svc.reject_patch(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            message_id=message_id,
+            patch_index=patch_index,
+        )
+    except (
+        WriterDocumentNotFoundError,
+        ChatNotFoundError,
+        ChatPatchNotFoundError,
+    ) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    except ChatPatchStateError as err:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
+        ) from err
+    return {"ok": True}
+
+
+@router.post(
+    "/writer/documents/{document_id}/chat/{chat_id}/message/{message_id}/patch/{patch_index}/undo",
+    response_model=WriterSectionRead,
+)
+async def undo_writer_chat_patch(
+    document_id: str,
+    chat_id: str,
+    message_id: str,
+    patch_index: int,
+    session: DbSession,
+    current_user: CurrentUser,
+    svc: WriterChatServiceDependency,
+) -> WriterSectionRead:
+    try:
+        section = await svc.undo_patch(
+            session=session,
+            document_id=document_id,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            message_id=message_id,
+            patch_index=patch_index,
+        )
+    except (
+        WriterDocumentNotFoundError,
+        WriterSectionNotFoundError,
+        ChatNotFoundError,
+        ChatPatchNotFoundError,
+    ) as err:
+        raise _not_found(str(err)) from err
+    except WriterDocumentPermissionError:
+        raise _forbidden() from None
+    except ChatPatchStateError as err:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(err),
+        ) from err
+    return WriterSectionRead.model_validate(section)
