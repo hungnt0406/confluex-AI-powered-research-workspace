@@ -1580,3 +1580,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Add a Terms of Usage agreement checkbox to the signup flow; block sign up unless the user agrees.
 - Files changed: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Register mode now renders an "I agree to the Terms of Usage" checkbox linking to `/terms`. Submit button is disabled and a clear error is shown until the box is checked; the same guard applies to the Google sign-in path when in register mode. Switching back to login resets the checkbox/error.
+
+## 2026-05-16T02:19:14+07:00
+- Request: Write a real Terms of Usage page at `/terms` (linked from signup) with both English and Vietnamese content, defaulting to English with a top-right toggle button.
+- Files changed: `frontend/app/terms/page.tsx`, `JOURNAL.md`.
+- Current status: New `/terms` route renders a 12-section ToS (eligibility, accounts, credits/billing, acceptable use, IP, AI-output disclaimer, privacy, termination, liability, changes, governing law, contact). English is the default; a header button switches the entire page (including "Last updated" line and back-to-signup label) between English and Vietnamese. Header also includes a "Back to sign up" link to `/login`. `tsc --noEmit` runs clean.
