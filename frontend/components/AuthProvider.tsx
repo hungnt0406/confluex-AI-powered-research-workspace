@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleAuth = useCallback(async (path: string, email: string, password: string, agreedToTerms?: boolean) => {
-    const json: any = { email, password };
+    const json: Record<string, unknown> = { email, password };
     if (agreedToTerms !== undefined) {
       json.agreed_to_terms = agreedToTerms;
     }
