@@ -40,6 +40,20 @@ def test_frontend_deep_search_requires_plan_approval_before_streaming() -> None:
     assert "Edit plan" in chat_workspace
 
 
+def test_frontend_deep_search_plan_edit_offers_manual_or_llm_revision() -> None:
+    chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+
+    assert "reviseDeepSearchPlan" in chat_provider
+    assert "Revision request:" in chat_provider
+    assert 'json: { question: revisedQuestion, mode: plan.mode }' in chat_provider
+    assert "setPendingDeepSearchPlan((prev) =>" in chat_provider
+    assert "Manual edit" in chat_workspace
+    assert "Ask AI to edit" in chat_workspace
+    assert "Generate revised plan" in chat_workspace
+    assert "Preview the revised plan before starting Deep Search." in chat_workspace
+
+
 def test_frontend_deep_search_thinking_panel_tracks_stream_events() -> None:
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
     chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
@@ -109,6 +123,26 @@ def test_frontend_deep_search_avoids_empty_answer_placeholder() -> None:
     assert "content: \"\"," not in stream_turn.split("await streamDeepSearchRun", 1)[0]
     assert "const targetMessageId = ensureDeepSearchAnswerMessage();" in stream_turn
     assert "const targetMessageId = ensureDeepSearchAnswerMessage(event.data.report_body);" in stream_turn
+
+
+def test_frontend_streaming_chat_does_not_force_scroll_when_user_reads_history() -> None:
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+
+    assert "CHAT_SCROLL_BOTTOM_THRESHOLD" in chat_workspace
+    assert "function isChatScrolledNearBottom" in chat_workspace
+    assert "scrollHeight - scrollTop - clientHeight" in chat_workspace
+    assert "const shouldAutoScrollRef = useRef(true);" in chat_workspace
+    assert "const lastScrollIntentRef = useRef" in chat_workspace
+    assert "const nearBottom = isChatScrolledNearBottom(node);" in chat_workspace
+    assert "if (!shouldAutoScrollRef.current) return;" in chat_workspace
+    assert "function handleChatWheel" in chat_workspace
+    assert "event.deltaY < 0" in chat_workspace
+    assert 'lastScrollIntentRef.current = "up";' in chat_workspace
+    assert "function handleChatTouchMove" in chat_workspace
+    assert "TOUCH_SCROLL_INTENT_THRESHOLD" in chat_workspace
+    assert "onScroll={handleChatScroll}" in chat_workspace
+    assert "onWheel={handleChatWheel}" in chat_workspace
+    assert "onTouchMove={handleChatTouchMove}" in chat_workspace
 
 
 def test_frontend_deep_search_thinking_shows_live_activity_while_waiting() -> None:
