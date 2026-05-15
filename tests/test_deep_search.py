@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -23,6 +24,8 @@ from backend.services.deep_search import (
 )
 from backend.services.paper_types import PaperRecord
 from backend.services.tavily import TavilySearchService
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_DEEP_SEARCH_ACTIVITY_TYPES = {
     "stage_start",
@@ -405,6 +408,54 @@ async def test_deep_search_source_found_activity_for_academic_web_and_project_so
 
 
 @pytest.mark.asyncio
+async def test_arxiv_failure_continues_deep_search_with_other_sources(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+) -> None:
+    async def failing_arxiv_search(query: str, year_start: int, limit: int) -> list[PaperRecord]:
+        raise RuntimeError("timeout (ReadTimeout)")
+
+    service = DeepSearchService(
+        api_key="",
+        use_live_llm=False,
+        tavily_service=TavilySearchService(api_key=""),
+        semantic_scholar_search=one_academic_result,
+        arxiv_search=failing_arxiv_search,
+    )
+    app.dependency_overrides[get_deep_search_service] = lambda: service
+    response = await client.post(
+        f"/projects/{sample_project['id']}/deep-search/stream",
+        headers=auth_headers,
+        json={"paper_ids": [], "question": "Handle arXiv timeout."},
+    )
+    app.dependency_overrides.pop(get_deep_search_service, None)
+
+    events = parse_sse_events(response.text)
+    done_payload = events[-1][1]
+
+    assert response.status_code == 201
+    assert events[-1][0] == "done"
+    assert done_payload["status"] == "completed"
+    assert done_payload["sources"]
+    assert any(source["metadata"]["provider"] == "semantic_scholar" for source in done_payload["sources"])
+    assert any("arxiv search failed" in warning for warning in done_payload["warnings"])
+    assert not any(event_name == "error" for event_name, _ in events)
+
+
+def test_academic_provider_polling_does_not_leave_shielded_failures() -> None:
+    deep_search_source = (REPO_ROOT / "backend/services/deep_search.py").read_text()
+    academic_loop = deep_search_source[
+        deep_search_source.index("    async def _iter_academic_sources_with_activity")
+        : deep_search_source.index("    async def _collect_web_sources")
+    ]
+
+    assert "asyncio.wait({" in academic_loop
+    assert "asyncio.shield(search_task)" not in academic_loop
+
+
+@pytest.mark.asyncio
 async def test_deep_search_run_reads_enforce_project_ownership(
     app: FastAPI,
     client: AsyncClient,
@@ -718,6 +769,64 @@ async def test_deep_search_structured_output_truncation_falls_back_without_faili
 
 
 @pytest.mark.asyncio
+async def test_deep_search_report_writer_failure_falls_back_to_local_report(
+    app: FastAPI,
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    sample_project: dict[str, str],
+) -> None:
+    def openrouter_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload.get("stream") is True:
+            raise httpx.ReadTimeout("network error", request=request)
+
+        system_prompt = payload["messages"][0]["content"]
+        if "planner" in system_prompt.lower():
+            content = {"questions": ["What evidence supports Deep Search?"], "seed_queries": ["deep search"]}
+        elif "compressor" in system_prompt.lower():
+            content = {"sources": [{"source_index": 1, "note": "Condensed academic evidence."}]}
+        else:
+            content = {"qa_flags": []}
+
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": json.dumps(content)}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            },
+        )
+
+    transport = httpx.MockTransport(openrouter_handler)
+    async with httpx.AsyncClient(transport=transport) as openrouter_client:
+        service = DeepSearchService(
+            api_key="sk-test",
+            use_live_llm=True,
+            http_client=openrouter_client,
+            tavily_service=TavilySearchService(api_key=""),
+            semantic_scholar_search=one_academic_result,
+            arxiv_search=no_academic_results,
+        )
+        app.dependency_overrides[get_deep_search_service] = lambda: service
+        response = await client.post(
+            f"/projects/{sample_project['id']}/deep-search/stream",
+            headers=auth_headers,
+            json={"paper_ids": [], "question": "Handle report writer network failure."},
+        )
+        app.dependency_overrides.pop(get_deep_search_service, None)
+
+    events = parse_sse_events(response.text)
+    done_payload = events[-1][1]
+
+    assert response.status_code == 201
+    assert events[-1][0] == "done"
+    assert not any(event_name == "error" for event_name, _ in events)
+    assert done_payload["status"] == "completed"
+    assert done_payload["report_body"].startswith("# Deep Search Report")
+    assert "Condensed academic evidence." in done_payload["report_body"]
+    assert any("report writer fell back" in warning for warning in done_payload["warnings"])
+
+
+@pytest.mark.asyncio
 async def test_deep_search_finalizes_without_run_reload_helper(
     app: FastAPI,
     client: AsyncClient,
@@ -864,14 +973,20 @@ async def test_deep_search_heartbeat_during_slow_planning_emits_stage_updates(
     session_factory: async_sessionmaker[AsyncSession],
     sample_project: dict[str, str],
 ) -> None:
-    """Verify that a slow _plan_questions triggers at least 2 stage_update events."""
+    """Verify that a slow planner triggers at least 2 stage_update events."""
 
     class SlowPlannerDeepSearchService(DeepSearchService):
-        async def _plan_questions(
-            self, *, project_title: str, project_topic: str, question: str
-        ) -> list[str]:
+        async def _plan_research(
+            self,
+            *,
+            project_title: str,
+            project_topic: str,
+            question: str,
+            mode: str = "standard",
+        ) -> tuple[list[str], list[str]]:
+            _ = project_title, project_topic
             await asyncio.sleep(9)
-            return self._build_local_plan_questions(question)
+            return self._build_local_plan_research(question, mode)
 
     service = SlowPlannerDeepSearchService(
         api_key="",
