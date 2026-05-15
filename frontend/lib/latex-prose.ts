@@ -17,10 +17,13 @@ export type InlineNode =
   | { type: "cite"; keys: string[] }
   | { type: "todo"; value: string };
 
+export type TableRow = { cells: InlineNode[][]; isHeader: boolean };
+
 export type Block =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; inline: InlineNode[] }
-  | { type: "raw"; latex: string };
+  | { type: "raw"; latex: string }
+  | { type: "table"; caption: string; rows: TableRow[]; latex: string };
 
 interface MacroMatch {
   start: number;
@@ -90,15 +93,91 @@ function parseInline(text: string): InlineNode[] {
   return result.length > 0 ? result : [{ type: "text", value: text }];
 }
 
+// Split a tabular row's cells by & at brace depth 0.
+function splitTabularCells(text: string): string[] {
+  const cells: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) { i++; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+    else if (ch === "&" && depth === 0) {
+      cells.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  cells.push(text.slice(start));
+  return cells;
+}
+
+function parseTableBlock(latex: string): Block {
+  // Extract \caption{...} if present.
+  let caption = "";
+  const captionMatch = /\\caption\{/.exec(latex);
+  if (captionMatch) {
+    const openBrace = captionMatch.index + captionMatch[0].length - 1;
+    const close = findBalancedBrace(latex, openBrace);
+    if (close !== -1) caption = latex.slice(openBrace + 1, close);
+  }
+
+  // Locate \begin{tabular}{spec} body.
+  const tabularOpen = /\\begin\{tabular\}\{/.exec(latex);
+  if (!tabularOpen) return { type: "raw", latex };
+  const specOpen = tabularOpen.index + tabularOpen[0].length - 1;
+  const specClose = findBalancedBrace(latex, specOpen);
+  if (specClose === -1) return { type: "raw", latex };
+
+  const bodyStart = specClose + 1;
+  const bodyEndMatch = /\\end\{tabular\}/.exec(latex.slice(bodyStart));
+  if (!bodyEndMatch) return { type: "raw", latex };
+  const body = latex.slice(bodyStart, bodyStart + bodyEndMatch.index);
+
+  // Split on \\ (row separator).
+  const segments = body.split(/\\\\/);
+  const rows: TableRow[] = [];
+  for (const seg of segments) {
+    const cleaned = seg.replace(/\\hline/g, "").trim();
+    if (!cleaned) continue;
+    const cells = splitTabularCells(cleaned).map((c) => parseInline(c.trim()));
+    // Treat as header row when every cell is purely \textbf{...}.
+    const isHeader = cells.length > 0 && cells.every(
+      (cell) => cell.length === 1 && cell[0].type === "bold"
+    );
+    rows.push({ cells, isHeader });
+  }
+
+  return { type: "table", caption, rows, latex };
+}
+
 export function parseLatexToBlocks(latex: string): Block[] {
   const blocks: Block[] = [];
-  // Normalize newlines, then split on blank lines for paragraphs.
   const normalized = latex.replace(/\r\n?/g, "\n");
-  const chunks = normalized.split(/\n{2,}/);
+
+  // Pre-extract table environments before blank-line splitting to prevent
+  // blank lines inside a table from fragmenting it into multiple chunks.
+  const tableEnvs: string[] = [];
+  const withPlaceholders = normalized.replace(
+    /\\begin\{table\*?\}[\s\S]*?\\end\{table\*?\}/g,
+    (match) => {
+      tableEnvs.push(match);
+      return `\x00TBL${tableEnvs.length - 1}\x00`;
+    }
+  );
+
+  const chunks = withPlaceholders.split(/\n{2,}/);
 
   for (const rawChunk of chunks) {
     const chunk = rawChunk.replace(/^\n+|\n+$/g, "");
     if (!chunk) continue;
+
+    // Restore captured table environments.
+    const tblMatch = /^\x00TBL(\d+)\x00$/.exec(chunk);
+    if (tblMatch) {
+      blocks.push(parseTableBlock(tableEnvs[Number(tblMatch[1])]));
+      continue;
+    }
 
     // Heading? Allow only when the chunk *is* the heading line (no extra prose).
     const headingMatch = /^\\(section|subsection|subsubsection)\s*\{/.exec(chunk);
@@ -168,6 +247,7 @@ export function serializeBlocksToLatex(blocks: Block[]): string {
     } else if (block.type === "paragraph") {
       parts.push(serializeInline(block.inline));
     } else {
+      // Both "raw" and "table" blocks store their canonical LaTeX in .latex.
       parts.push(block.latex);
     }
   }
