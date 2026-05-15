@@ -32,6 +32,11 @@ import {
 } from "@/components/WriterChatInlineDiff";
 import { WriterChatInlineDiffProse } from "@/components/WriterChatInlineDiffProse";
 import { formatRelativeTime } from "@/lib/time";
+import {
+  WriterShortcutsModal,
+  type WriterShortcutOverlayHandle,
+  useWriterShortcuts,
+} from "@/hooks/useWriterShortcuts";
 
 // Dynamic import Monaco to avoid SSR issues.
 // If @monaco-editor/react is not installed, the import will fail and we fall back to a textarea.
@@ -251,6 +256,8 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string>("");
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const editorOverlayRef = useRef<WriterShortcutOverlayHandle | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const rightPanelDraggingRef = useRef(false);
   const rightPanelStartXRef = useRef(0);
@@ -258,6 +265,10 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
 
   const activeSection = document.sections.find((s) => s.id === activeSectionId) ?? null;
   const chatHref = document.project_id ? `/chat?project=${document.project_id}` : "/writer";
+  const shortcuts = useWriterShortcuts({
+    overlayRef: editorOverlayRef,
+    editorRootRef,
+  });
 
   const clampRightPanelWidth = useCallback((width: number) => {
     const viewportMax =
@@ -890,7 +901,11 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         </div>
 
         {/* Center: Editor (flex-1) */}
-        <div id="ob-editor" className={`flex flex-1 flex-col overflow-hidden ${viewMode === "source" ? "bg-stone-950" : "bg-stone-50"}`}>
+        <div
+          id="ob-editor"
+          ref={editorRootRef}
+          className={`flex flex-1 flex-col overflow-hidden ${viewMode === "source" ? "bg-stone-950" : "bg-stone-50"}`}
+        >
           {/* Section header bar */}
           {activeSection ? (
             <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-4 ${viewMode === "source" ? "border-stone-800" : "border-stone-200"}`}>
@@ -1000,6 +1015,9 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             {activeSection ? (
               <>
                 <div className="flex shrink-0 items-center justify-end gap-3 px-12 pt-3 pb-1 text-[12px] text-stone-500">
+                  <span className="rounded-full bg-stone-200/70 px-2 py-0.5 text-[11px] text-stone-500">
+                    Press ? for shortcuts
+                  </span>
                   <span>{activeSectionWordCount === 1 ? "1 word" : `${activeSectionWordCount} words`}</span>
                   <span>Edited {formatRelativeTime(activeSection.updated_at)}</span>
                 </div>
@@ -1012,6 +1030,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                       onMount={setProseEditorEl}
                     />
                     <WriterEditorOverlay
+                      ref={editorOverlayRef}
                       editor={proseAdapter}
                       documentId={document.id}
                       section={activeSection}
@@ -1030,6 +1049,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                       onMountEditor={setMonacoEditor}
                     />
                     <WriterEditorOverlay
+                      ref={editorOverlayRef}
                       editor={monacoEditor}
                       documentId={document.id}
                       section={activeSection}
@@ -1152,6 +1172,13 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       {/* Assemble modal */}
       {assembleResult && (
         <AssembleModal result={assembleResult} onClose={() => setAssembleResult(null)} />
+      )}
+
+      {shortcuts.showCheatsheet && (
+        <WriterShortcutsModal
+          modifierLabel={shortcuts.modifierLabel}
+          onClose={() => shortcuts.setShowCheatsheet(false)}
+        />
       )}
 
       {/* Document chat panel (floating) */}
