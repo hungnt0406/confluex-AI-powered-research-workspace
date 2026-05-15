@@ -886,6 +886,7 @@ export interface NewResult {
   text: string;
   source_ref: string | null;
   attach_as_citation: boolean;
+  image_data?: string | null;
 }
 
 export interface EditRequest {
