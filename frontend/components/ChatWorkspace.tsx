@@ -7,9 +7,11 @@ import {
   forwardRef,
   KeyboardEvent,
   ReactNode,
+  TouchEvent,
   useEffect,
   useRef,
   useState,
+  WheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import katex from "katex";
@@ -30,6 +32,21 @@ const SUGGESTIONS = [
   "Microplastics in urban soil ecosystems",
   "Policy-driven shifts in remote education",
 ];
+
+const CHAT_SCROLL_BOTTOM_THRESHOLD = 96;
+const TOUCH_SCROLL_INTENT_THRESHOLD = 4;
+
+function isChatScrolledNearBottom({
+  scrollHeight,
+  scrollTop,
+  clientHeight,
+}: {
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
+}) {
+  return scrollHeight - scrollTop - clientHeight <= CHAT_SCROLL_BOTTOM_THRESHOLD;
+}
 
 type PendingReferenceUpload = {
   file: File;
@@ -68,6 +85,7 @@ export default function ChatWorkspace() {
     submitMessage,
     startDeepSearchPlan,
     editDeepSearchPlan,
+    reviseDeepSearchPlan,
     startNewResearch,
     uploadReferenceFile,
     togglePaperSelection,
@@ -85,12 +103,23 @@ export default function ChatWorkspace() {
   const [pendingReferenceUpload, setPendingReferenceUpload] =
     useState<PendingReferenceUpload | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const lastScrollIntentRef = useRef<"up" | "down" | null>(null);
+  const lastTouchYRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerBusy = busy || uploadingReferenceFile;
   const visibleComposerNotice = localComposerNotice ?? composerNotice;
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    shouldAutoScrollRef.current = true;
+    lastScrollIntentRef.current = null;
+  }, [activeProject?.id]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    if (!shouldAutoScrollRef.current) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
@@ -111,8 +140,50 @@ export default function ChatWorkspace() {
 
   async function send(text: string) {
     if (!text.trim() || composerBusy) return;
+    shouldAutoScrollRef.current = true;
+    lastScrollIntentRef.current = null;
     setDraft("");
     await submitMessage(text);
+  }
+
+  function handleChatScroll() {
+    const node = scrollRef.current;
+    if (!node) return;
+    const nearBottom = isChatScrolledNearBottom(node);
+    if (!nearBottom) {
+      shouldAutoScrollRef.current = false;
+      return;
+    }
+    if (lastScrollIntentRef.current !== "up") {
+      shouldAutoScrollRef.current = true;
+    }
+  }
+
+  function handleChatWheel(event: WheelEvent<HTMLDivElement>) {
+    if (event.deltaY < 0) {
+      lastScrollIntentRef.current = "up";
+      shouldAutoScrollRef.current = false;
+    } else if (event.deltaY > 0) {
+      lastScrollIntentRef.current = "down";
+    }
+  }
+
+  function handleChatTouchStart(event: TouchEvent<HTMLDivElement>) {
+    lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handleChatTouchMove(event: TouchEvent<HTMLDivElement>) {
+    const currentY = event.touches[0]?.clientY;
+    const previousY = lastTouchYRef.current;
+    if (currentY === undefined || previousY === null) return;
+    const deltaY = currentY - previousY;
+    if (deltaY > TOUCH_SCROLL_INTENT_THRESHOLD) {
+      lastScrollIntentRef.current = "up";
+      shouldAutoScrollRef.current = false;
+    } else if (deltaY < -TOUCH_SCROLL_INTENT_THRESHOLD) {
+      lastScrollIntentRef.current = "down";
+    }
+    lastTouchYRef.current = currentY;
   }
 
   function onEditDeepSearchPlan(planId: string) {
@@ -219,7 +290,14 @@ export default function ChatWorkspace() {
       </header>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
+        <div
+          ref={scrollRef}
+          onScroll={handleChatScroll}
+          onWheel={handleChatWheel}
+          onTouchStart={handleChatTouchStart}
+          onTouchMove={handleChatTouchMove}
+          className="flex-1 overflow-y-auto custom-scrollbar"
+        >
           <div className="chat-container px-4 py-12 space-y-12">
             {showGreeting && (
               <div className="flex flex-col items-center text-center space-y-6 py-10">
@@ -250,6 +328,9 @@ export default function ChatWorkspace() {
                     isActiveStatus={busy && message.kind === "status" && index === messages.length - 1}
                     onStartDeepSearchPlan={(planId) => void startDeepSearchPlan(planId)}
                     onEditDeepSearchPlan={onEditDeepSearchPlan}
+                    onReviseDeepSearchPlan={(planId, instruction) =>
+                      reviseDeepSearchPlan(planId, instruction)
+                    }
                   />
                 ),
               )}
@@ -339,6 +420,7 @@ export default function ChatWorkspace() {
                 tabIndex={-1}
               />
               <button
+                id="ob-upload"
                 type="button"
                 onClick={openReferencePicker}
                 className="relative top-[2px] flex-shrink-0 p-2 text-secondary hover:bg-primary/5 rounded-lg transition-colors"
@@ -349,6 +431,7 @@ export default function ChatWorkspace() {
                 <span className="material-symbols-outlined text-xl">add_circle</span>
               </button>
               <textarea
+                id="ob-textarea"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={onKey}
@@ -358,7 +441,9 @@ export default function ChatWorkspace() {
                 aria-label={composerPlaceholder}
                 rows={1}
               />
-              <ModeDropdown mode={chatMode} onChange={setChatMode} disabled={composerBusy} />
+              <div id="ob-mode" className="relative flex-shrink-0">
+                <ModeDropdown mode={chatMode} onChange={setChatMode} disabled={composerBusy} />
+              </div>
               <button
                 type="submit"
                 disabled={composerBusy || !draft.trim()}
@@ -599,12 +684,14 @@ function AgentBubble({
   isActiveStatus = false,
   onStartDeepSearchPlan,
   onEditDeepSearchPlan,
+  onReviseDeepSearchPlan,
 }: {
   message: ChatMessage;
   disabled: boolean;
   isActiveStatus?: boolean;
   onStartDeepSearchPlan: (planId: string) => void;
   onEditDeepSearchPlan: (planId: string) => void;
+  onReviseDeepSearchPlan: (planId: string, instruction: string) => Promise<void>;
 }) {
   const kind = message.kind ?? "text";
   const isStatus = kind === "status";
@@ -634,6 +721,9 @@ function AgentBubble({
             disabled={disabled}
             onStart={() => onStartDeepSearchPlan(message.deepSearchPlan!.id)}
             onEdit={() => onEditDeepSearchPlan(message.deepSearchPlan!.id)}
+            onRevise={(instruction) =>
+              onReviseDeepSearchPlan(message.deepSearchPlan!.id, instruction)
+            }
           />
         ) : isThinking ? (
           <DeepSearchThinkingPanel thinking={message.thinking!} />
@@ -652,12 +742,18 @@ function DeepSearchPlanCard({
   disabled,
   onStart,
   onEdit,
+  onRevise,
 }: {
   plan: DeepSearchPlanMessage;
   disabled: boolean;
   onStart: () => void;
   onEdit: () => void;
+  onRevise: (instruction: string) => Promise<void>;
 }) {
+  const [editChoiceOpen, setEditChoiceOpen] = useState(false);
+  const [aiEditOpen, setAiEditOpen] = useState(false);
+  const [aiEditInstruction, setAiEditInstruction] = useState("");
+  const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const generating = plan.status === "generating";
   const pending = plan.status === "pending";
   const statusLabel = generating
@@ -703,6 +799,20 @@ function DeepSearchPlanCard({
       ],
     },
   ];
+
+  async function submitAiEdit() {
+    const instruction = aiEditInstruction.trim();
+    if (!instruction || disabled || aiEditSubmitting) return;
+    setAiEditSubmitting(true);
+    try {
+      await onRevise(instruction);
+      setAiEditInstruction("");
+      setAiEditOpen(false);
+      setEditChoiceOpen(false);
+    } finally {
+      setAiEditSubmitting(false);
+    }
+  }
 
   return (
     <div className="max-w-3xl rounded-2xl bg-surface-container-low px-5 py-5 shadow-sm ring-1 ring-outline/20">
@@ -784,24 +894,87 @@ function DeepSearchPlanCard({
         </div>
       </div>
       {pending && (
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            disabled={disabled}
-            className="inline-flex h-10 items-center justify-center rounded-full border border-outline/50 px-5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 disabled:opacity-40"
-          >
-            Edit plan
-          </button>
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={disabled}
-            className="inline-flex h-10 items-center justify-center rounded-full bg-primary px-6 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            Start research
-          </button>
-        </div>
+        <>
+          {editChoiceOpen && (
+            <div className="mt-5 rounded-2xl border border-outline/20 bg-background/70 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  disabled={disabled || aiEditSubmitting}
+                  className="flex-1 rounded-xl border border-outline/30 bg-surface-container-lowest px-4 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold text-on-surface">Manual edit</span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-on-surface-variant">
+                    Move the topic back to the composer and rewrite it yourself.
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAiEditOpen((value) => !value)}
+                  disabled={disabled || aiEditSubmitting}
+                  className="flex-1 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 disabled:opacity-40"
+                >
+                  <span className="block text-xs font-semibold text-primary">Ask AI to edit</span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-on-surface-variant">
+                    Describe the change and preview the revised plan before starting.
+                  </span>
+                </button>
+              </div>
+              {aiEditOpen && (
+                <div className="mt-3 rounded-xl border border-primary/15 bg-surface-container-lowest p-3">
+                  <label
+                    htmlFor={`deep-search-ai-edit-${plan.id}`}
+                    className="text-[11px] font-semibold uppercase tracking-[0.16em] text-hint"
+                  >
+                    AI edit instruction
+                  </label>
+                  <textarea
+                    id={`deep-search-ai-edit-${plan.id}`}
+                    value={aiEditInstruction}
+                    onChange={(event) => setAiEditInstruction(event.target.value)}
+                    disabled={disabled || aiEditSubmitting}
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-xl border border-outline/30 bg-background px-3 py-2 text-xs leading-relaxed text-on-surface outline-none transition-colors placeholder:text-hint focus:border-primary/40 disabled:opacity-60"
+                    placeholder="Example: focus the plan on recent clinical trials and remove broad policy questions."
+                  />
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] text-on-surface-variant">
+                      Preview the revised plan before starting Deep Search.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void submitAiEdit()}
+                      disabled={disabled || aiEditSubmitting || !aiEditInstruction.trim()}
+                      className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      {aiEditSubmitting ? "Revising…" : "Generate revised plan"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditChoiceOpen((value) => !value)}
+              disabled={disabled || aiEditSubmitting}
+              aria-expanded={editChoiceOpen}
+              className="inline-flex h-10 items-center justify-center rounded-full border border-outline/50 px-5 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 disabled:opacity-40"
+            >
+              Edit plan
+            </button>
+            <button
+              type="button"
+              onClick={onStart}
+              disabled={disabled || aiEditSubmitting}
+              className="inline-flex h-10 items-center justify-center rounded-full bg-primary px-6 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              Start research
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
