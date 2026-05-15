@@ -280,7 +280,6 @@ export default function ChatWorkspace() {
         </button>
         <div className="text-sm font-bold text-on-surface flex items-center gap-2">
           <Logo size="sm" />
-          <span className="material-symbols-outlined text-xs text-hint">expand_more</span>
         </div>
         <div className="md:hidden">
           <button onClick={startNewResearch} className="p-2 text-on-surface-variant">
