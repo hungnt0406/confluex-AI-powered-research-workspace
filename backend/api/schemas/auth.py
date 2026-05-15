@@ -8,12 +8,14 @@ class AuthRequest(BaseModel):
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    agreed_to_terms: bool = False
 
 
 class GoogleAuthRequest(BaseModel):
     """Request body for Google Sign-In endpoint."""
 
     credential: str = Field(min_length=1, description="Google ID token from GIS callback")
+    agreed_to_terms: bool = False
 
 
 class UserRead(BaseModel):
