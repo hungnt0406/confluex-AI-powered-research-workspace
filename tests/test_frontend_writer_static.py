@@ -143,6 +143,22 @@ def test_writer_questions_panel_gates_drafting_on_approved_outline() -> None:
     assert "if (!activeSection || !hasApprovedOutline) return;" in questions_panel
 
 
+def test_writer_outline_panel_removes_full_document_outline_actions() -> None:
+    outline_panel = (REPO_ROOT / "frontend/components/WriterOutlinePanel.tsx").read_text()
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "onProposeOutline" not in outline_panel
+    assert "onSaveOutline" not in outline_panel
+    assert "outlineActionMessage" not in outline_panel
+    assert "Propose Outline" not in outline_panel
+    assert "Generate Outline" not in outline_panel
+    assert "Save Outline" not in outline_panel
+    assert "Propose an outline to get started." not in outline_panel
+    assert "handleProposeOutline" not in workspace
+    assert "handleSaveOutline" not in workspace
+    assert "outlineActionMessage" not in workspace
+
+
 def test_writer_right_panel_is_resizable_from_forty_percent_default() -> None:
     workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
     loading_page = (REPO_ROOT / "frontend/app/writer/[documentId]/page.tsx").read_text()
@@ -292,6 +308,147 @@ def test_sidebar_writer_nav_shows_beta_badge() -> None:
     assert "Beta" in sidebar
     assert "aria-label=\"Writer Workspace beta\"" in sidebar
     assert "title=\"Writer Workspace beta\"" in sidebar
+
+
+def test_writer_chat_api_exports_client_functions() -> None:
+    api_client = (REPO_ROOT / "frontend/lib/api.ts").read_text()
+
+    assert "export async function createWriterChat" in api_client
+    assert "export async function listWriterChats" in api_client
+    assert "export async function getWriterChat" in api_client
+    assert "export async function sendWriterChatMessage" in api_client
+    assert "export async function acceptWriterChatPatch" in api_client
+    assert "export async function rejectWriterChatPatch" in api_client
+    assert "export async function undoWriterChatPatch" in api_client
+    assert "export interface ChatSectionPatch" in api_client
+    assert "export interface ChatMessage" in api_client
+    assert "export interface ChatRead" in api_client
+    assert "export interface ChatTurnRead" in api_client
+    assert "`/writer/documents/${documentId}/chat`" in api_client
+    assert "/message/${messageId}/patch/${patchIndex}/accept`" in api_client
+    assert "/message/${messageId}/patch/${patchIndex}/reject`" in api_client
+    assert "/message/${messageId}/patch/${patchIndex}/undo`" in api_client
+
+
+def test_writer_chat_panel_is_mounted_in_workspace() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "WriterChatPanel" in workspace
+    assert '"@/components/WriterChatPanel"' in workspace
+    assert "<WriterChatPanel" in workspace
+    assert "onScrollToInlineDiff={scrollToInlineDiff}" in workspace
+    assert "onAfterPatchApplied={refreshDocument}" in workspace
+    assert "onChatBusyChange={setChatApplyInFlight}" in workspace
+    assert "onPatchesAvailable={handlePatchesAvailable}" in workspace
+    assert "chatApplyInFlight" in workspace
+
+
+def test_writer_chat_panel_renders_compact_rows_without_bulk_actions() -> None:
+    panel = (REPO_ROOT / "frontend/components/WriterChatPanel.tsx").read_text()
+
+    # Inline-diff blocks must no longer live in the chat panel — they moved to
+    # WriterChatInlineDiff. The chat panel keeps rose-bg only for the credits
+    # banner and emerald only in the compact "edits ready" pill.
+    assert "line-through" not in panel
+    assert "Accept all" not in panel
+    assert "Reject all" not in panel
+    assert "writer-chat-panel:" in panel
+    assert "writer-chat-id:" in panel
+    assert "text-rose-" in panel
+    assert "createWriterChat" in panel
+    assert "sendWriterChatMessage" in panel
+    assert "acceptWriterChatPatch" in panel
+    assert "rejectWriterChatPatch" in panel
+    assert "undoWriterChatPatch" in panel
+    assert "isInsufficientCreditsError" in panel
+    assert "3 credits per turn" in panel
+    # Compact row indicator text.
+    assert "edits ready in editor" in panel
+    assert "in editor" in panel
+
+
+def test_writer_chat_panel_does_not_render_inline_diff_blocks() -> None:
+    panel = (REPO_ROOT / "frontend/components/WriterChatPanel.tsx").read_text()
+    inline = (REPO_ROOT / "frontend/components/WriterChatInlineDiff.tsx").read_text()
+
+    # The old diff card classes for the original/strikethrough block must
+    # not appear in the chat panel any more — they belong to the inline
+    # overlay's CSS.
+    assert "bg-rose-50 dark:bg-rose-950/30" not in panel
+    # But the inline component owns the strikethrough class string and
+    # uses Monaco APIs for decorations / view zones / content widgets.
+    assert "writer-chat-removed" in inline
+    assert "writer-chat-zone-block" in inline
+    assert "writer-chat-accept-toolbar" in inline
+    assert "writer-chat-flash" in inline
+
+
+def test_writer_chat_inline_diff_uses_monaco_apis() -> None:
+    inline = (REPO_ROOT / "frontend/components/WriterChatInlineDiff.tsx").read_text()
+
+    assert "changeViewZones" in inline
+    assert "addContentWidget" in inline
+    assert "deltaDecorations" in inline
+    assert "createPortal" in inline
+    assert "acceptWriterChatPatch" in inline
+    assert "rejectWriterChatPatch" in inline
+    # Stale guard: 409 from accept flips the patch to a "draft changed" pill.
+    assert "err.status === 409" in inline
+    assert "Draft changed" in inline
+
+
+def test_writer_workspace_mounts_inline_diff_and_prose_banner() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "WriterChatInlineDiff" in workspace
+    assert "pendingChatPatches" in workspace
+    assert "handlePatchesAvailable" in workspace
+    assert "handleInlinePatchResolved" in workspace
+    assert "scrollToInlineDiff" in workspace
+    # Visual mode now mounts a working inline-diff overlay built on
+    # latexOffsetToDomPosition + Range.getClientRects(). The previous
+    # "Switch to source" pill has been replaced.
+    assert "WriterChatInlineDiffProse" in workspace
+    assert "switch to\n            source view to review." not in workspace
+    assert ">Switch to source<" not in workspace
+
+
+def test_writer_chat_inline_diff_prose_uses_dom_latex_map() -> None:
+    prose = (REPO_ROOT / "frontend/components/WriterChatInlineDiffProse.tsx").read_text()
+
+    # Must use the proper repo primitive (NOT DOM text search).
+    assert "from \"@/lib/dom-latex-map\"" in prose
+    assert "latexOffsetToDomPosition" in prose
+    # Renders prose, not raw latex.
+    assert "from \"@/lib/latex-prose\"" in prose
+    assert "parseLatexToBlocks" in prose
+    # Negative assertions: must not regress to text-based search of the DOM.
+    assert ".indexOf(" not in prose
+    assert ".findIndex(" not in prose
+    # Negative assertions: must not import Monaco-only APIs.
+    assert "deltaDecorations" not in prose
+    assert "changeViewZones" not in prose
+    assert "addContentWidget" not in prose
+    # Reposition primitives must be wired.
+    assert "MutationObserver" in prose
+    assert "requestAnimationFrame" in prose
+    assert "ResizeObserver" in prose
+    # Range-based geometry.
+    assert "getClientRects" in prose
+    # Accept/reject + stale guard duplicated from source mode.
+    assert "acceptWriterChatPatch" in prose
+    assert "rejectWriterChatPatch" in prose
+    assert "err.status === 409" in prose
+    assert "Draft changed" in prose
+
+
+def test_writer_workspace_mounts_prose_inline_diff_in_visual_mode() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+
+    assert "import { WriterChatInlineDiffProse }" in workspace
+    assert "<WriterChatInlineDiffProse" in workspace
+    assert "proseAdapter={proseAdapter}" in workspace
+    assert "onRequestSourceView={() => setViewMode(\"source\")}" in workspace
 
 
 def test_sidebar_project_clicks_route_to_project_chat() -> None:
