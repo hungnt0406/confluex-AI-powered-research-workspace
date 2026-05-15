@@ -18,8 +18,8 @@ type AuthContextValue = {
   user: AuthUser | null;
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (credential: string) => Promise<void>;
+  register: (email: string, password: string, agreedToTerms: boolean) => Promise<void>;
+  loginWithGoogle: (credential: string, agreedToTerms?: boolean) => Promise<void>;
   logout: () => void;
 };
 
@@ -37,10 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setReady(true);
   }, []);
 
-  const handleAuth = useCallback(async (path: string, email: string, password: string) => {
+  const handleAuth = useCallback(async (path: string, email: string, password: string, agreedToTerms?: boolean) => {
+    const json: any = { email, password };
+    if (agreedToTerms !== undefined) {
+      json.agreed_to_terms = agreedToTerms;
+    }
     const response = await api<AuthResponse>(path, {
       method: "POST",
-      json: { email, password },
+      json,
     });
     saveSession(response.access_token, response.user);
     setToken(response.access_token);
@@ -52,14 +56,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [handleAuth],
   );
   const register = useCallback(
-    (email: string, password: string) => handleAuth("/auth/register", email, password),
+    (email: string, password: string, agreedToTerms: boolean) => handleAuth("/auth/register", email, password, agreedToTerms),
     [handleAuth],
   );
 
-  const loginWithGoogle = useCallback(async (credential: string) => {
+  const loginWithGoogle = useCallback(async (credential: string, agreedToTerms: boolean = false) => {
     const response = await api<AuthResponse>("/auth/google", {
       method: "POST",
-      json: { credential },
+      json: { credential, agreed_to_terms: agreedToTerms },
     });
     saveSession(response.access_token, response.user);
     setToken(response.access_token);
