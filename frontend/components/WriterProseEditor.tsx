@@ -53,6 +53,39 @@ function inlineToHtml(node: InlineNode): string {
   }
 }
 
+function tableBlockToHtml(block: Extract<Block, { type: "table" }>): string {
+  const captionHtml = block.caption
+    ? `<figcaption class="wp-table-caption">${escapeHtml(block.caption)}</figcaption>`
+    : "";
+
+  const headerRows = block.rows.filter((r) => r.isHeader);
+  const bodyRows = block.rows.filter((r) => !r.isHeader);
+
+  const theadHtml =
+    headerRows.length > 0
+      ? `<thead><tr>${headerRows[0].cells
+          .map((cell) => `<th class="wp-table-th">${cell.map(inlineToHtml).join("")}</th>`)
+          .join("")}</tr></thead>`
+      : "";
+
+  const tbodyHtml =
+    bodyRows.length > 0
+      ? `<tbody>${bodyRows
+          .map(
+            (row) =>
+              `<tr>${row.cells
+                .map((cell) => `<td class="wp-table-td">${cell.map(inlineToHtml).join("")}</td>`)
+                .join("")}</tr>`
+          )
+          .join("")}</tbody>`
+      : "";
+
+  // Store original LaTeX in a hidden <pre> for lossless round-trip serialization.
+  const latexStore = `<pre class="wp-table-latex" aria-hidden="true" style="display:none">${escapeHtml(block.latex)}</pre>`;
+
+  return `<figure contenteditable="false" data-block-type="table" class="wp-table-figure">${latexStore}${captionHtml}<table class="wp-table">${theadHtml}${tbodyHtml}</table></figure>`;
+}
+
 function blockToHtml(block: Block): string {
   if (block.type === "heading") {
     const level = block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4";
@@ -62,6 +95,9 @@ function blockToHtml(block: Block): string {
   }
   if (block.type === "raw") {
     return `<pre data-block-type="raw" class="wp-raw">${escapeHtml(block.latex)}</pre>`;
+  }
+  if (block.type === "table") {
+    return tableBlockToHtml(block);
   }
   const inner = block.inline.map(inlineToHtml).join("") || "<br />";
   return `<p data-block-type="paragraph" class="wp-paragraph">${inner}</p>`;
@@ -146,6 +182,12 @@ function readBlocksFromDom(container: HTMLElement): Block[] {
     }
     if (blockType === "raw") {
       blocks.push({ type: "raw", latex: el.textContent ?? "" });
+      return;
+    }
+    if (blockType === "table") {
+      // Recover the original LaTeX from the hidden store element.
+      const latex = (el.querySelector(".wp-table-latex") as HTMLElement | null)?.textContent ?? "";
+      blocks.push({ type: "raw", latex });
       return;
     }
     // Default: paragraph.
@@ -278,6 +320,42 @@ function WriterProseEditorImpl({ value, onChange, onMount }: WriterProseEditorPr
         .wp-editor .wp-cite .material-symbols-outlined,
         .wp-editor .wp-todo .material-symbols-outlined {
           font-size: 13px;
+        }
+        .wp-editor .wp-table-figure {
+          margin: 1.25rem 0;
+          overflow-x: auto;
+        }
+        .wp-editor .wp-table-caption {
+          font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+          font-size: 13px;
+          color: rgb(87, 83, 78);
+          text-align: center;
+          margin-bottom: 0.5rem;
+        }
+        .wp-editor .wp-table {
+          border-collapse: collapse;
+          width: 100%;
+          font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+          font-size: 13.5px;
+          line-height: 1.5;
+        }
+        .wp-editor .wp-table-th,
+        .wp-editor .wp-table-td {
+          border: 1px solid rgb(214, 211, 208);
+          padding: 0.45rem 0.75rem;
+          vertical-align: top;
+          text-align: left;
+        }
+        .wp-editor .wp-table-th {
+          background: rgb(245, 245, 244);
+          font-weight: 600;
+          color: rgb(28, 25, 23);
+        }
+        .wp-editor .wp-table-td {
+          color: rgb(41, 37, 36);
+        }
+        .wp-editor .wp-table tbody tr:nth-child(even) .wp-table-td {
+          background: rgb(250, 250, 249);
         }
         .wp-editor strong {
           font-weight: 700;
