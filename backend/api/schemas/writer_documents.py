@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -230,3 +230,46 @@ class EditPatchResponse(BaseModel):
     rationale: str
     web_citations: list[WebCitationSchema] = Field(default_factory=list)
     original_text: str = ""
+
+
+class ChatSectionPatchSchema(BaseModel):
+    section_id: str
+    section_title: str
+    span: TextSpanSchema
+    original_text: str
+    new_text: str
+    rationale: str
+    status: Literal["pending", "applied", "rejected", "stale"] = "pending"
+
+
+class ChatMessageSchema(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    patches: list[ChatSectionPatchSchema] = Field(default_factory=list)
+    created_at: datetime
+
+
+class ChatRead(BaseModel):
+    id: str
+    document_id: str
+    messages: list[ChatMessageSchema] = Field(default_factory=list)
+    last_active_at: datetime
+    history_summary: str = ""
+
+
+class ChatMeta(BaseModel):
+    id: str
+    document_id: str
+    last_active_at: datetime
+    message_count: int
+
+
+class ChatTurnRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4_000)
+
+
+class ChatTurnRead(BaseModel):
+    chat_id: str
+    user_message: ChatMessageSchema
+    assistant_message: ChatMessageSchema
