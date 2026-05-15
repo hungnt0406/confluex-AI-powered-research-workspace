@@ -1069,6 +1069,120 @@ export async function applyWriterEdit(
   );
 }
 
+// ---- Writer Chat types ----------------------------------------------------
+
+export type ChatPatchStatus = "pending" | "applied" | "rejected" | "stale";
+
+export interface ChatSectionPatch {
+  section_id: string;
+  section_title: string;
+  span: TextSpan;
+  original_text: string;
+  new_text: string;
+  rationale: string;
+  status: ChatPatchStatus;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  patches: ChatSectionPatch[];
+  created_at: string;
+}
+
+export interface ChatRead {
+  id: string;
+  document_id: string;
+  messages: ChatMessage[];
+  last_active_at: string;
+}
+
+export interface ChatMeta {
+  id: string;
+  document_id: string;
+  last_active_at: string;
+}
+
+export interface ChatTurnRead {
+  chat_id: string;
+  user_message: ChatMessage;
+  assistant_message: ChatMessage;
+}
+
+// ---- Writer Chat API helpers ----------------------------------------------
+
+export async function createWriterChat(documentId: string, token: string): Promise<ChatRead> {
+  return api<ChatRead>(`/writer/documents/${documentId}/chat`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function listWriterChats(documentId: string, token: string): Promise<ChatMeta[]> {
+  return api<ChatMeta[]>(`/writer/documents/${documentId}/chats`, { token });
+}
+
+export async function getWriterChat(
+  documentId: string,
+  chatId: string,
+  token: string,
+): Promise<ChatRead> {
+  return api<ChatRead>(`/writer/documents/${documentId}/chat/${chatId}`, { token });
+}
+
+export async function sendWriterChatMessage(
+  documentId: string,
+  chatId: string,
+  content: string,
+  token: string,
+): Promise<ChatTurnRead> {
+  return api<ChatTurnRead>(`/writer/documents/${documentId}/chat/${chatId}/message`, {
+    method: "POST",
+    token,
+    json: { content },
+  });
+}
+
+export async function acceptWriterChatPatch(
+  documentId: string,
+  chatId: string,
+  messageId: string,
+  patchIndex: number,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/chat/${chatId}/message/${messageId}/patch/${patchIndex}/accept`,
+    { method: "POST", token },
+  );
+}
+
+export async function rejectWriterChatPatch(
+  documentId: string,
+  chatId: string,
+  messageId: string,
+  patchIndex: number,
+  token: string,
+): Promise<{ ok: true }> {
+  return api<{ ok: true }>(
+    `/writer/documents/${documentId}/chat/${chatId}/message/${messageId}/patch/${patchIndex}/reject`,
+    { method: "POST", token },
+  );
+}
+
+export async function undoWriterChatPatch(
+  documentId: string,
+  chatId: string,
+  messageId: string,
+  patchIndex: number,
+  token: string,
+): Promise<WriterSectionRead> {
+  return api<WriterSectionRead>(
+    `/writer/documents/${documentId}/chat/${chatId}/message/${messageId}/patch/${patchIndex}/undo`,
+    { method: "POST", token },
+  );
+}
+
 export async function getSectionVersions(
   documentId: string,
   sectionId: string,
