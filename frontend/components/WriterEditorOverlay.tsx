@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   EditPatchResponse,
@@ -11,6 +19,7 @@ import {
   previewWriterEdit,
 } from "@/lib/api";
 import { domPositionToLatexOffset } from "@/lib/dom-latex-map";
+import type { WriterShortcutOverlayHandle } from "@/hooks/useWriterShortcuts";
 
 export interface MonacoPosition {
   lineNumber: number;
@@ -164,16 +173,20 @@ function isBetweenParagraphs(model: MonacoModelLike, position: MonacoPosition | 
   return line === "" && (prev !== "" || next !== "");
 }
 
-export function WriterEditorOverlay({
-  editor,
-  documentId,
-  section,
-  token,
-  onSectionUpdate,
-  onPendingChange,
-  onError,
-  proseMode = false,
-}: WriterEditorOverlayProps) {
+export const WriterEditorOverlay = forwardRef<WriterShortcutOverlayHandle, WriterEditorOverlayProps>(
+function WriterEditorOverlay(
+  {
+    editor,
+    documentId,
+    section,
+    token,
+    onSectionUpdate,
+    onPendingChange,
+    onError,
+    proseMode = false,
+  },
+  ref,
+) {
   const [selection, setSelection] = useState<MonacoSelection | null>(null);
   const [selectionPoint, setSelectionPoint] = useState<FloatingPoint | null>(null);
   const [insertPoint, setInsertPoint] = useState<FloatingPoint | null>(null);
@@ -472,6 +485,63 @@ export function WriterEditorOverlay({
     setPendingPatch(null);
   }, [lastRequest]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      openSelection: () => {
+        if (!editor || !model || pendingPatch || isLoading) return false;
+        const nextSelection = editor.getSelection();
+        if (!nextSelection || nextSelection.isEmpty()) return false;
+        setSelection(nextSelection);
+        const point = positionForOffset(
+          editor,
+          model,
+          model.getOffsetAt({
+            lineNumber: nextSelection.startLineNumber,
+            column: nextSelection.startColumn,
+          }),
+        );
+        setSelectionPoint(point);
+        setInsertPoint(null);
+        resetPanel();
+        setPanelMode("selection");
+        return true;
+      },
+      openInsertion: () => {
+        if (!editor || !model || pendingPatch || isLoading) return false;
+        const position = editor.getPosition();
+        if (!position) return false;
+        const offset = model.getOffsetAt(position);
+        setInsertOffset(offset);
+        setInsertPoint(positionForOffset(editor, model, offset));
+        setSelection(null);
+        setSelectionPoint(null);
+        resetPanel();
+        setPanelMode("insertion");
+        return true;
+      },
+      acceptPreview: () => {
+        if (!pendingPatch || isLoading) return false;
+        void acceptPatch();
+        return true;
+      },
+      rejectOrClose: () => {
+        if (pendingPatch) {
+          setPendingPatch(null);
+          return true;
+        }
+        if (panelMode) {
+          resetPanel();
+          return true;
+        }
+        return false;
+      },
+      isOpen: () => Boolean(panelMode || pendingPatch),
+      hasPreview: () => Boolean(pendingPatch),
+    }),
+    [acceptPatch, editor, isLoading, model, panelMode, pendingPatch, resetPanel],
+  );
+
   if (!editor || !model || !section || !portalRoot) return null;
 
   const panelTitle = panelMode === "insertion" ? "Write new paragraph" : "Edit selection";
@@ -481,7 +551,7 @@ export function WriterEditorOverlay({
       : "Tell the editor what to do — fix grammar, paraphrase, expand, tighten, or rewrite using the findings below.";
 
   return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-[70]">
+    <div className="pointer-events-none fixed inset-0 z-[70]" data-writer-editor-overlay="true">
       {selection && selectionPoint && !pendingPatch && !panelMode && (
         <div
           className="pointer-events-auto absolute flex gap-1 rounded-full border border-outline/20 bg-surface-container px-1 py-1 shadow-lg"
@@ -685,4 +755,6 @@ export function WriterEditorOverlay({
     </div>,
     portalRoot,
   );
-}
+});
+
+WriterEditorOverlay.displayName = "WriterEditorOverlay";
