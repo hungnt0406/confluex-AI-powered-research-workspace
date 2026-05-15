@@ -173,6 +173,41 @@ def collect_openrouter_usage(
     _append_event(event)
 
 
+def collect_xiaomi_usage(
+    *,
+    endpoint: str,
+    feature: str,
+    model: str | None,
+    response_payload: dict[str, Any],
+    status: str = "success",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Record provider usage from a parsed Xiaomi MiMo (OpenAI-compatible) response."""
+
+    usage = response_payload.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+
+    metadata_json = dict(metadata or {})
+    metadata_json.update(_compact_usage_metadata(usage))
+
+    event = CollectedAIUsageEvent(
+        provider="xiaomi",
+        endpoint=endpoint,
+        feature=feature,
+        model=model,
+        status=status,
+        prompt_tokens=_int_or_none(usage.get("prompt_tokens")) or 0,
+        completion_tokens=_int_or_none(usage.get("completion_tokens")) or 0,
+        total_tokens=_int_or_none(usage.get("total_tokens")) or 0,
+        reasoning_tokens=_extract_reasoning_tokens(usage),
+        cached_tokens=_extract_cached_tokens(usage),
+        cost_credits=_float_or_none(_first_present(usage, "cost", "total_cost", "cost_credits")),
+        metadata_json=metadata_json,
+    )
+    _append_event(event)
+
+
 async def flush_usage_events(
     *,
     session: AsyncSession,
