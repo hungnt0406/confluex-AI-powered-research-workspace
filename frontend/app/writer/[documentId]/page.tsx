@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { WriterWorkspace } from "@/components/WriterWorkspace";
 import { ChatProvider } from "@/components/ChatProvider";
 import { WriterDocumentRead, getWriterDocument } from "@/lib/api";
+import OnboardingTour from "@/components/OnboardingTour";
 
 function WriterDocumentLoader({ documentId, token }: { documentId: string; token: string }) {
   const [document, setDocument] = useState<WriterDocumentRead | null>(null);
@@ -82,7 +83,12 @@ function WriterDocumentLoader({ documentId, token }: { documentId: string; token
     );
   }
 
-  return <WriterWorkspace initialDocument={document} token={token} />;
+  return (
+    <>
+      <WriterWorkspace initialDocument={document} token={token} />
+      <OnboardingTour variant="writer" />
+    </>
+  );
 }
 
 export default function WriterDocumentPage() {
