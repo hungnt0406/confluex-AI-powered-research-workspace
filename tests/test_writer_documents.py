@@ -2344,3 +2344,73 @@ class TestWriterDocumentRouter:
             f"/projects/{writer_project['id']}/writer/documents"
         )
         assert response.status_code == 401
+
+
+class TestWriterChatRouterAuth:
+    """Router-level cross-user/missing-doc/auth checks for the chat endpoints."""
+
+    async def test_create_chat_requires_auth(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        response = await client.post("/writer/documents/some-doc/chat")
+        assert response.status_code == 401
+
+    async def test_create_chat_missing_document(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+    ) -> None:
+        response = await client.post(
+            "/writer/documents/nonexistent/chat", headers=writer_auth_headers
+        )
+        assert response.status_code == 404
+
+    async def test_other_user_cannot_access_chat_document(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+        session_factory: async_sessionmaker[AsyncSession],
+    ) -> None:
+        from backend.security import create_access_token, hash_password
+
+        create = await client.post(
+            "/writer/documents",
+            json={"topic": "cross-user test", "title": "X-User"},
+            headers=writer_auth_headers,
+        )
+        doc_id = create.json()["id"]
+
+        async with session_factory() as session:
+            other = User(
+                email="other-writer@example.com",
+                hashed_password=hash_password("writerpass"),
+                credit_balance=1_000,
+            )
+            session.add(other)
+            await session.commit()
+            await session.refresh(other)
+        other_headers = {"Authorization": f"Bearer {create_access_token(other.id)}"}
+
+        # Other user gets 404 (not the doc owner) when trying to start a chat.
+        response = await client.post(
+            f"/writer/documents/{doc_id}/chat", headers=other_headers
+        )
+        assert response.status_code in (403, 404)
+
+    async def test_get_chat_missing_returns_404(
+        self,
+        client: AsyncClient,
+        writer_auth_headers: dict[str, str],
+    ) -> None:
+        create = await client.post(
+            "/writer/documents",
+            json={"topic": "chat 404 test", "title": "X"},
+            headers=writer_auth_headers,
+        )
+        doc_id = create.json()["id"]
+        response = await client.get(
+            f"/writer/documents/{doc_id}/chat/missing-chat",
+            headers=writer_auth_headers,
+        )
+        assert response.status_code == 404
