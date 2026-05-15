@@ -433,6 +433,10 @@ class WriterEditorAgent:
                         "\"add a concrete example\", \"rewrite in a more formal tone\")."
                     )
 
+        if _looks_like_prompt_echo(directive, new_text):
+            new_text = _restore_missing_citation_macros(selected, _deterministic_paraphrase(selected))
+            rationale = "Paraphrased selected text while preserving citations."
+
         return EditPatch(
             span=bounded,
             original_text=selected,
