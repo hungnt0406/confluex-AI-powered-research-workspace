@@ -47,6 +47,35 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-15T15:43:22+07:00
+- **Request:** Fix Deep Search returning `network error` during the final “Synthesizing the answer” phase.
+- **Files changed:** `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`.
+- **Current status:** Added a live report-writer fallback. If the streaming writer provider fails after sources are condensed, Deep Search now logs a warning, appends a persisted fallback warning, streams a local evidence-grounded report built from the condensed source notes, verifies it, persists the run as completed, and emits `done` instead of an SSE `error`. Removed the remaining 10-second debug delay before report writing. Verification passed for the new report-writer network failure regression, arXiv fallback regression, nearby live-LLM Deep Search tests, Ruff, and mypy.
+
+### 2026-05-15T15:23:28+07:00
+- **Request:** Make streaming chat scroll handoff smoother so one upward scroll immediately lets the user read earlier messages.
+- **Files changed:** `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`.
+- **Current status:** Added explicit wheel/touch scroll-intent tracking. Upward wheel or touch gestures now disable auto-follow immediately, even if the viewport is still inside the near-bottom threshold while streaming tokens arrive. Scrolling down near the bottom or sending a new message re-enables follow mode. Verification passed for the focused scroll regression, the full Deep Search frontend static suite, and frontend TypeScript.
+
+### 2026-05-15T15:15:15+07:00
+- **Request:** Keep Deep Search running when arXiv times out or fails during academic search.
+- **Files changed:** `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`.
+- **Current status:** Replaced shielded progress polling in Deep Search with non-canceling `asyncio.wait` polling, so provider tasks can time out for progress updates without leaving failed shield futures. arXiv/provider exceptions are now consumed, logged, and persisted as warnings while the run continues with Semantic Scholar, project evidence, Tavily, and any already gathered sources. Removed a debug `await asyncio.sleep(10)` from planning and updated the planning heartbeat test to target `_plan_research`. Verification passed for focused arXiv fallback tests, nearby Deep Search streaming tests, Ruff, and mypy. Full `tests/test_deep_search.py` now has one remaining unrelated failure: `test_tavily_search_uses_expected_payload_and_bearer_auth` expects `search_depth: "basic"` while the current Tavily service sends `"advanced"`.
+
+### 2026-05-15T14:52:59+07:00
+- **Request:** Fix chat streaming so users can scroll up while the model is generating instead of being forced back to the latest token.
+- **Files changed:** `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`.
+- **Current status:** Added a bottom-stickiness guard to the chat scroll container. Streaming message updates now auto-scroll only when the viewport is already near the bottom; scrolling up disables forced follow mode until the user returns near the bottom, sends a new message, or switches projects. Added a static regression for the behavior. Verification passed for `python3 -m pytest tests/test_frontend_deep_search_static.py::test_frontend_streaming_chat_does_not_force_scroll_when_user_reads_history -q`, `python3 -m pytest tests/test_frontend_deep_search_static.py -q`, and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
+### 2026-05-15T02:59:00+07:00
+- **Request:** Implement `plans/in-progress/writer-document-chat.md` end-to-end on a new branch without pushing.
+- **Files changed:**
+  - Backend (new): `backend/services/llm_xiaomi.py`, `backend/services/redis_client.py`, `backend/services/chat_session_store.py`, `backend/services/writer_chat.py`, `backend/agents/writer_chat.py`, `tests/test_writer_chat.py`.
+  - Backend (modified): `backend/services/llm.py` (provider abstraction + `generate_chat`), `backend/services/ai_usage.py` (`collect_xiaomi_usage`), `backend/config.py` (LlmProvider enum + 8 chat/redis settings), `.env.example`, `backend/api/schemas/writer_documents.py` (chat schemas), `backend/api/routers/writer_documents.py` (8 chat endpoints + `WRITER_CHAT_TURN_CREDITS=3`), `tests/test_writer_documents.py` (router auth/permission cases).
+  - Frontend (new): `frontend/components/WriterChatPanel.tsx`.
+  - Frontend (modified): `frontend/lib/api.ts` (chat types + 7 client helpers), `frontend/components/WriterWorkspace.tsx` (mount panel, scroll/flash callback, auto-save gate), `tests/test_frontend_writer_static.py`.
+- **Current status:** Branch `feature/writer-document-chat` created off `main`; no pushes. Backend implements multi-section chat with Xiaomi as default provider, OpenRouter retained, in-memory + Redis session stores (Redis gracefully degrades when package or env missing), citation guard, single-retry on bad JSON, stale-span 409 reuse via existing `WriterEditorService.apply`, undo via most-recent `WriterSectionVersion`. Frontend ships docked-bottom default + draggable floating mode + collapsed chip + localStorage persistence, per-patch Accept/Reject/Undo + Accept-all/Reject-all, rose/emerald diff blocks, 402 credits banner, 409 → stale stripe. Verification: `uv run ruff check backend/ tests/` clean; `uv run mypy backend/` reports only 1 pre-existing baseline error in `backend/api/routers/projects.py:196`; `uv run pytest tests/test_writer_chat.py tests/test_writer_documents.py tests/test_frontend_writer_static.py` → 105 passed, 1 skipped (Redis path, gated on `REDIS_URL`); `cd frontend && npm run build` succeeded.
+
 ### 2026-05-13T12:04:26+07:00
 - **Request:** Make sidebar project clicks leave the Writer page and open the independent project chat workspace.
 - **Files changed:** `frontend/components/Sidebar.tsx`, `frontend/README.md`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
@@ -1425,6 +1454,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
 - **Current status:** Found and fixed three issues. (1) **Critical Tailwind collision:** `landing.css` declared `.h-1`, `.h-2`, `.h-3` (and `.h-display`) as global serif-typography rules; Next.js CSS imports are app-wide, so those selectors were overriding Tailwind's `h-1`/`h-2`/`h-3` height utilities used by `ChatWorkspace.tsx:323`, `ChatWorkspace.tsx:858`, `WriterOutlinePanel.tsx:105`, and `WriterQuestionsPanel.tsx:287` — turning thin progress bars / skeleton lines into giant serif headings across the chat and writer surfaces. Scoped them under `.landing-root` so they only apply on the landing page. (2) **Body-class restoration was fragile:** `useEffect` saved `body.className` whole and reassigned it on cleanup, which could clobber any concurrent classes and behaved oddly under React 18 strict-mode double-invocation. Switched to `classList.add/remove` for just `h-screen` and `overflow-hidden`, recording which were present at mount. (3) **Typewriter SSR flash:** initial `typed` state was 0, so the SSR/initial paint showed an empty greeting before the interval ticked. Initialised to full length and only reset-to-zero after `hasMounted && !reduced`, so reduced-motion users and slow-JS clients see the full sentence immediately while motion-OK users still get the typewriter. Other potential issues considered and accepted: tiny landing flash for already-authenticated users (fixed redirect happens within one tick), and `useAuthedHref` returning the bare target while `!ready` (chat-page fallback still routes them through `/login`). No collisions found for other landing-only class names (`.lede`, `.body`, `.brand-mark`, `.wordmark`, `.nav`, `.hero`, etc.) when grepped across `frontend/app` and `frontend/components`.
 
+## 2026-05-15T14:28:00+07:00
+- **Request:** Implement Deep Search plan editing options so users can manually edit or ask the LLM to revise a pending plan before running it.
+- **Files changed:** `frontend/components/ChatProvider.tsx`, `frontend/components/ChatWorkspace.tsx`, `frontend/README.md`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`.
+- **Current status:** Added an `Edit plan` choice panel with `Manual edit` and `Ask AI to edit`. Manual edit preserves the existing composer workflow. AI edit accepts a revision instruction, calls the existing `/pipeline/deep-search/plan` endpoint with the original topic, current questions, and revision request, then previews the regenerated questions while keeping `Start research` as the explicit approval step. Focused frontend static tests and TypeScript passed; the normal `uv run` command was unavailable in this shell, so static tests were run with `python3 -m pytest`.
+
 ## 2026-05-14T02:00:00+07:00
 - **Request:** Fix the landing page rendering as washed-out / not scrollable.
 - **Files changed:** `frontend/app/landing.css`, `frontend/components/landing/LandingPage.tsx`.
@@ -1501,3 +1535,33 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
   - `WriterWorkspace` builds the adapter via `useMemo` from the mounted prose DOM element and an `editorContentRef` getter, mounts `WriterEditorOverlay` in Visual mode too, and bumps a `proseRefreshToken` inside `handleSectionUpdate` so AI patches show. Visual mode reads its initial content from `activeSection.draft_latex` so section switches show the right section.
   - Added per-section Undo/Redo: `historyBySection` with capped past/present/future stacks (limit 50), `pushHistory` after every autosave and after AI apply, seeded on section switch. Undo/Redo buttons in the top header bar (`aria-label`s "Undo" / "Redo"), disabled when empty. `applyHistoricalContent` updates the editor, cancels pending autosave, and persists via `saveSectionEdit`.
   - `uv run pytest tests/test_frontend_writer_static.py -x` → 24 passed; `npx tsc --noEmit -p tsconfig.json` clean; `npx next build` succeeds.
+
+## 2026-05-15T20:43:58+07:00
+- Request: Writer chat inline-diff in prose mode was rendering two overlapping overlays (struck-out old text in a narrow left column, suggested green text on the right), with a React "duplicate key `block-0-0`" console error.
+- Files changed: `frontend/components/WriterChatInlineDiffProse.tsx`.
+- Current status: `computePlacements` now skips patches whose section draft no longer matches `original_text` at `[span.start, span.end)` — stale patches were collapsing to position (0,0) after a refresh and stacking on top of each other. The block-overlay `<div>` key now derives from the joined patch entry keys instead of `blockTop`/`blockLeft`, so any future positional ties stop crashing React's reconciler. No backend or test changes.
+
+## 2026-05-15T20:50:11+07:00
+- Request: Follow-up — the previous fix still threw a duplicate React key (`af818ee1-...:5860ac23-...:8`) and the inline diff was still garbled.
+- Files changed: `frontend/components/WriterChatInlineDiffProse.tsx`.
+- Current status: Root cause was multi-block patches. A single patch spanning N blocks creates N `BlockOverlay`s, all of which carry the same patch `entry.key`, so joining the entry keys still produced the same string for every overlay. React reused one DOM node across the separate overlays and mixed segments from different blocks together — that's the garbled "Semi-rdg/trackingn" strikethrough in the original screenshot. The overlay key is now `ov-${ovIdx}:${firstSeg.entry.key}:${firstSeg.textStart}`, which is unique per block within a render.
+
+## 2026-05-15T20:58:33+07:00
+- Request: Remove the "Accept all" / "Reject all" bulk buttons from the chat panel — the user found them confusing.
+- Files changed: `frontend/components/WriterChatPanel.tsx`.
+- Current status: Deleted the bulk button block (rendered when ≥2 patches were pending), the now-dead `acceptAll` / `rejectAll` callbacks, and the unused `showBulk` const. Per-patch Accept/Reject in `PatchRow` is unchanged. `npx tsc --noEmit -p frontend/tsconfig.json` clean.
+
+## 2026-05-15T21:05:42+07:00
+- Request: Accept → Undo → Accept returned "stale".
+- Files changed: `backend/services/writer_chat.py`.
+- Current status: `WriterChatService.undo_patch` was marking the patch as `"rejected"` after revert, so a subsequent accept tripped `ChatPatchStateError("Patch is already rejected.")` → HTTP 409 → frontend marked it stale. Since `revert_to_version` restores the section content, the patch's `original_text` still matches the draft span and re-applying is safe. Changed the post-undo status to `"pending"` so accept-after-undo works. `uv run pytest tests/test_writer_chat.py -x` → 16 passed, 1 skipped.
+
+## 2026-05-15T21:05:08+07:00
+- Request: Make the Writer full-outline buttons feel functional.
+- Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterOutlinePanel.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Added visible success feedback after generating or saving the full-document outline, clarified the generate button/title text, disabled save until outline text exists, and synced the active section outline textarea when a full outline is applied so the Questions panel reflects the generated outline immediately. Focused static coverage was updated. `python -m pytest tests/test_frontend_writer_static.py -x` → 33 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
+
+## 2026-05-15T21:26:50+07:00
+- Request: Remove the left-panel Writer outline action buttons entirely.
+- Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterOutlinePanel.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Removed the full-document `Generate Outline` / `Save Outline` buttons, their panel props, workspace state, and workspace handlers. Section-level outline generation/approval in the Questions panel remains unchanged. `python -m pytest tests/test_frontend_writer_static.py -x` → 33 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
