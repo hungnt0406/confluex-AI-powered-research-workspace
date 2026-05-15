@@ -183,6 +183,26 @@ async def test_edit_paraphrase_noop_uses_deterministic_fallback() -> None:
     assert patch.rationale == "Paraphrased selected text while preserving citations."
 
 
+async def test_edit_revision_replaces_prompt_echo_and_preserves_citation_macro() -> None:
+    instruction = "Explain why this matters"
+    selected = r"This result remains important for tracking accuracy \cite{paper-1}."
+    agent = WriterEditorAgent(
+        llm_client=FakeEditorLLM({"new_text": instruction, "rationale": "Revised draft text."})  # type: ignore[arg-type]
+    )
+
+    patch = await agent.edit(
+        draft=selected,
+        instruction=instruction,
+        section_heading="Body",
+        span=TextSpan(start=0, end=len(selected)),
+        known_citation_keys={"paper-1"},
+    )
+
+    assert patch.new_text != instruction
+    assert r"\cite{paper-1}" in patch.new_text
+    assert patch.rationale == "Paraphrased selected text while preserving citations."
+
+
 async def test_edit_insertion_offline_returns_deterministic_insert() -> None:
     agent = WriterEditorAgent(llm_client=FakeEditorLLM(configured=False))  # type: ignore[arg-type]
     draft = r"\section{Results} Existing paragraph."
