@@ -6,7 +6,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.config import get_settings
 from backend.services.llm import OpenRouterStructuredOutputService, StructuredOutputError
+from backend.services.llm_xiaomi import XiaomiStructuredOutputService
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,7 @@ class NewResult:
     text: str
     source_ref: str | None = None
     attach_as_citation: bool = False
+    image_data: str | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,9 @@ def _strip_instruction_prefix(topic: str) -> str:
     return cleaned.strip() or topic.strip()
 
 
+_LATEX_ENV_RE = re.compile(r"\\begin\{[a-zA-Z*]+\}", re.IGNORECASE)
+
+
 def _looks_like_prompt_echo(topic: str, generated: str) -> bool:
     norm_topic = _normalized(topic).lower()
     norm_gen = _normalized(generated).lower()
@@ -149,12 +155,41 @@ def _looks_like_prompt_echo(topic: str, generated: str) -> bool:
         return True
     if norm_topic == norm_gen:
         return True
-    return norm_gen.startswith(("explain ", "describe ", "introduce ", "motivate ", "write ", "add "))
+    # If the output contains an actual LaTeX environment it's structural content, not an echo.
+    if _LATEX_ENV_RE.search(generated):
+        return False
+    if norm_gen.startswith(("explain ", "describe ", "introduce ", "motivate ", "write ", "add ")):
+        return True
+    # Instruction text appearing verbatim inside the output is also an echo.
+    if len(norm_topic) > 20 and norm_topic in norm_gen:
+        return True
+    return False
+
+
+_STRUCTURAL_INSTRUCTION_RE = re.compile(
+    r"\b(convert|table|tabular|figure|equation|insert|put|paste|add table|add figure)\b",
+    re.IGNORECASE,
+)
 
 
 def _deterministic_intro_paragraph(topic: str, section_heading: str) -> str:
-    focus = _strip_instruction_prefix(topic).rstrip(".")
     lower_topic = topic.lower()
+    if _STRUCTURAL_INSTRUCTION_RE.search(lower_topic):
+        return (
+            "\\begin{table}[h]\n"
+            "\\centering\n"
+            "\\caption{[Add caption]}\n"
+            "\\label{tab:[label]}\n"
+            "\\begin{tabular}{lll}\n"
+            "\\hline\n"
+            "Column 1 & Column 2 & Column 3 \\\\\n"
+            "\\hline\n"
+            "Value & Value & Value \\\\\n"
+            "\\hline\n"
+            "\\end{tabular}\n"
+            "\\end{table}"
+        )
+    focus = _strip_instruction_prefix(topic).rstrip(".")
     lower_focus = focus.lower()
     if "research gap" in lower_topic and "blurred" in lower_focus and "few frames" in lower_focus:
         return (
@@ -247,8 +282,18 @@ def _format_new_results(results: list[NewResult]) -> str:
 class WriterEditorAgent:
     """One edit operation: revise a selected span, or insert at a cursor position."""
 
-    def __init__(self, *, llm_client: OpenRouterStructuredOutputService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        llm_client: OpenRouterStructuredOutputService | None = None,
+        vision_llm_client: XiaomiStructuredOutputService | None = None,
+    ) -> None:
         self.llm_client = llm_client or OpenRouterStructuredOutputService()
+        if vision_llm_client is not None:
+            self.vision_llm_client = vision_llm_client
+        else:
+            vision_model = get_settings().writer_editor_vision_model
+            self.vision_llm_client = XiaomiStructuredOutputService(model=vision_model)
 
     async def edit(
         self,
@@ -340,6 +385,8 @@ class WriterEditorAgent:
             )
 
         directive = instruction or "Improve grammar, clarity, and phrasing."
+        result_image = next((r.image_data for r in new_results if r.image_data), None)
+        image_note = "\n- A screenshot has been attached. Use it as visual evidence." if result_image else ""
         prompt = (
             f"### Instruction (highest priority)\n{directive}\n\n"
             f"### Section heading\n{section_heading}\n\n"
@@ -351,9 +398,9 @@ class WriterEditorAgent:
             "- Return JSON: { \"new_text\": ..., \"rationale\": ... }\n"
             "- `new_text` MUST differ from the selected span and satisfy the instruction.\n"
             "- Keep every \\cite{...} command and key that appears in the selected span.\n"
-            "- Do not invent citations, sources, numbers, or authors."
+            f"- Do not invent citations, sources, numbers, or authors.{image_note}"
         )
-        payload = await self._generate_or_stub(prompt, selected, temperature=0.5)
+        payload = await self._generate_or_stub(prompt, selected, temperature=0.5, image_data=result_image)
         new_text = _strip_unknown_citations(str(payload["new_text"]), allowed)
         new_text = _restore_missing_citation_macros(selected, new_text)
         rationale = str(payload["rationale"]).strip() or "Revised selected text."
@@ -367,7 +414,7 @@ class WriterEditorAgent:
                 f"directly follows this instruction: {directive}. "
                 "Keep the \\cite{...} commands intact but rewrite the surrounding prose."
             )
-            retry = await self._generate_or_stub(retry_prompt, selected, temperature=0.8)
+            retry = await self._generate_or_stub(retry_prompt, selected, temperature=0.8, image_data=result_image)
             new_text = _strip_unknown_citations(str(retry["new_text"]), allowed)
             new_text = _restore_missing_citation_macros(selected, new_text)
             rationale = str(retry["rationale"]).strip() or "Revised selected text."
@@ -419,6 +466,8 @@ class WriterEditorAgent:
                 web_citations=web_hits,
             )
 
+        result_image = next((r.image_data for r in new_results if r.image_data), None)
+        image_note = "\n- A screenshot has been attached. Use it as visual evidence." if result_image else ""
         prompt = (
             f"### Instruction (highest priority)\n{topic}\n\n"
             f"### Section heading\n{section_heading}\n\n"
@@ -428,11 +477,12 @@ class WriterEditorAgent:
             f"### Web snippets (optional)\n{_format_web_hits(web_hits)}\n\n"
             "### Output rules\n"
             "- Return JSON: { \"new_text\": ..., \"rationale\": ... }\n"
-            "- `new_text` MUST be one concise LaTeX paragraph that fulfills the instruction.\n"
-            "- Do NOT echo or restate the instruction verbatim — write actual prose.\n"
-            "- Do not invent citations, sources, numbers, or authors."
+            "- `new_text` MUST be valid LaTeX that fulfills the instruction — a paragraph, table, figure, equation, or any appropriate LaTeX environment.\n"
+            "- For conversion requests (e.g. 'convert to table', 'convert to LaTeX'), output the complete LaTeX structure directly.\n"
+            "- Do NOT echo or restate the instruction verbatim — produce the actual content.\n"
+            f"- Do not invent citations, sources, numbers, or authors.{image_note}"
         )
-        payload = await self._generate_or_stub(prompt, topic, temperature=0.6)
+        payload = await self._generate_or_stub(prompt, topic, temperature=0.6, image_data=result_image)
         source_keys = {
             key for key in (sanitize_citation_key(r.source_ref) for r in new_results) if key
         }
@@ -442,7 +492,12 @@ class WriterEditorAgent:
 
         if _looks_like_prompt_echo(topic, new_text):
             new_text = _deterministic_intro_paragraph(topic, section_heading)
-            rationale = "Generated a paragraph from the requested topic."
+            rationale = (
+                "Inserted a table template — the model did not produce a usable conversion. "
+                "Fill in the rows from your screenshot."
+                if _STRUCTURAL_INSTRUCTION_RE.search(topic)
+                else "Generated a paragraph from the requested topic."
+            )
 
         return EditPatch(
             span=span,
@@ -458,15 +513,22 @@ class WriterEditorAgent:
         fallback_text: str,
         *,
         temperature: float = 0.5,
+        image_data: str | None = None,
     ) -> dict[str, str]:
+        client = (
+            self.vision_llm_client
+            if image_data and self.vision_llm_client.is_configured()
+            else self.llm_client
+        )
         try:
-            payload = await self.llm_client.generate_json(
+            payload = await client.generate_json(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 schema=EDITOR_PATCH_SCHEMA,
                 max_tokens=900,
                 feature="writer_editor",
                 temperature=temperature,
+                image_data=image_data,
             )
         except StructuredOutputError:
             return {"new_text": fallback_text, "rationale": "offline_stub"}
