@@ -3,8 +3,17 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { ApiError } from "@/lib/api";
+import { API_BASE_URL, ApiError } from "@/lib/api";
 import Logo from "@/components/Logo";
+
+function formatAuthError(err: unknown, action: string): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof TypeError) {
+    return `Couldn't reach the server at ${API_BASE_URL}. Make sure the backend is running, then try to ${action} again.`;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return `Something went wrong while trying to ${action}.`;
+}
 
 export default function LoginPage() {
   const { login, register, loginWithGoogle } = useAuth();
@@ -32,10 +41,10 @@ export default function LoginPage() {
     setError(null);
     try {
       if (mode === "login") await login(email, password);
-      else await register(email, password);
+      else await register(email, password, agreedToTerms);
       router.replace(safeNextPath());
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong.");
+      setError(formatAuthError(err, "create your account"));
     } finally {
       setBusy(false);
     }
@@ -43,6 +52,7 @@ export default function LoginPage() {
 
   const handleGoogleLogin = useCallback(
     async (credential: string) => {
+      // Catch clicks from register mode when terms are unchecked, though the button should be disabled anyway.
       if (mode === "register" && !agreedToTerms) {
         setError("You must agree to the Terms of Usage to create an account.");
         return;
@@ -50,10 +60,15 @@ export default function LoginPage() {
       setBusy(true);
       setError(null);
       try {
-        await loginWithGoogle(credential);
+        await loginWithGoogle(credential, mode === "register" ? agreedToTerms : false);
         router.replace(safeNextPath());
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Google sign-in failed.");
+        if (err instanceof ApiError && err.status === 400 && err.message.includes("Terms of Usage")) {
+          setError("Account not found. Please switch to Register, agree to the Terms of Usage, and try again.");
+          setMode("register");
+        } else {
+          setError(err instanceof ApiError ? err.message : "Google sign-in failed.");
+        }
       } finally {
         setBusy(false);
       }
@@ -148,7 +163,7 @@ export default function LoginPage() {
         </div>
 
         {/* Google Sign-In */}
-        <GoogleSignInButton onSuccess={handleGoogleLogin} disabled={busy} />
+        <GoogleSignInButton onSuccess={handleGoogleLogin} disabled={busy || (mode === "register" && !agreedToTerms)} />
 
         <button
           type="button"
