@@ -1585,3 +1585,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Write a real Terms of Usage page at `/terms` (linked from signup) with both English and Vietnamese content, defaulting to English with a top-right toggle button.
 - Files changed: `frontend/app/terms/page.tsx`, `JOURNAL.md`.
 - Current status: New `/terms` route renders a 12-section ToS (eligibility, accounts, credits/billing, acceptable use, IP, AI-output disclaimer, privacy, termination, liability, changes, governing law, contact). English is the default; a header button switches the entire page (including "Last updated" line and back-to-signup label) between English and Vietnamese. Header also includes a "Back to sign up" link to `/login`. `tsc --noEmit` runs clean.
+
+## 2026-05-16T02:23:08+07:00
+- Request: Debug "Something went wrong" error shown after agreeing to terms and clicking Create account.
+- Files changed: `frontend/app/login/page.tsx`, `JOURNAL.md`.
+- Current status: Root cause is the generic catch-all in the login page — any non-`ApiError` exception (most often `fetch` failing because the backend isn't reachable at `NEXT_PUBLIC_API_BASE_URL` / `http://localhost:8000`) was reported as "Something went wrong." Replaced the inline handler with a `formatAuthError` helper that surfaces `ApiError.message` on HTTP errors, points at the configured API base URL on `TypeError` (network/CORS), and falls back to the underlying `Error.message` otherwise. `tsc --noEmit` clean.
