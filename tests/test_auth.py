@@ -5,7 +5,11 @@ import pytest
 async def test_register_returns_access_token(client) -> None:
     response = await client.post(
         "/auth/register",
-        json={"email": "new.user@example.com", "password": "strongpass123"},
+        json={
+            "email": "new.user@example.com",
+            "password": "strongpass123",
+            "agreed_to_terms": True,
+        },
     )
 
     assert response.status_code == 201
@@ -13,6 +17,31 @@ async def test_register_returns_access_token(client) -> None:
     assert payload["token_type"] == "bearer"
     assert payload["user"]["email"] == "new.user@example.com"
     assert payload["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_register_requires_terms_agreement(client) -> None:
+    response = await client.post(
+        "/auth/register",
+        json={"email": "no.terms@example.com", "password": "strongpass123"},
+    )
+
+    assert response.status_code == 400
+    assert "Terms of Usage" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_explicit_false_agreement(client) -> None:
+    response = await client.post(
+        "/auth/register",
+        json={
+            "email": "no.terms2@example.com",
+            "password": "strongpass123",
+            "agreed_to_terms": False,
+        },
+    )
+
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio
