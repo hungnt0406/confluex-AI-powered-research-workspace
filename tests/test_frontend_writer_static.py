@@ -244,6 +244,28 @@ def test_writer_workspace_offers_visual_source_toggle() -> None:
     assert "editorKey={`${activeSection.id}:${proseRefreshToken}`}" in workspace
 
 
+def test_writer_workspace_renders_section_metadata_from_live_draft() -> None:
+    workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
+    time_util = (REPO_ROOT / "frontend/lib/time.ts").read_text()
+
+    assert "import { formatRelativeTime } from \"@/lib/time\";" in workspace
+    assert "const activeSectionWordCount = useMemo(" in workspace
+    assert "editorContent.trim().split(/\\s+/).filter(Boolean).length" in workspace
+    assert "1 word" in workspace
+    assert "words" in workspace
+    assert "Edited {formatRelativeTime(activeSection.updated_at)}" in workspace
+    assert "justify-end" in workspace
+    assert "border" not in re.search(
+        r"<div className=\"flex shrink-0 items-center justify-end[^\"]+\".*?</div>",
+        workspace,
+        flags=re.DOTALL,
+    ).group(0)
+
+    assert "export function formatRelativeTime(iso: string)" in time_util
+    assert "new Date(iso).getTime()" in time_util
+    assert "Intl.DateTimeFormat" not in time_util
+
+
 def test_writer_workspace_has_undo_redo_buttons() -> None:
     workspace = (REPO_ROOT / "frontend/components/WriterWorkspace.tsx").read_text()
 
