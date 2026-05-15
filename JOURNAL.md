@@ -1561,7 +1561,17 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterOutlinePanel.tsx`, `frontend/components/WriterQuestionsPanel.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Added visible success feedback after generating or saving the full-document outline, clarified the generate button/title text, disabled save until outline text exists, and synced the active section outline textarea when a full outline is applied so the Questions panel reflects the generated outline immediately. Focused static coverage was updated. `python -m pytest tests/test_frontend_writer_static.py -x` → 33 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
 
+## 2026-05-15T22:10:00+07:00
+- Request: (1) Remove underline on chevron icon in "Add findings" toggle. (2) Allow users to paste screenshots into the findings textarea.
+- Files changed: `frontend/components/WriterEditorOverlay.tsx`, `frontend/lib/api.ts`, `backend/agents/writer_editor.py`, `backend/api/schemas/writer_documents.py`, `backend/api/routers/writer_documents.py`, `backend/services/llm.py`, `backend/services/llm_xiaomi.py`.
+- Current status: Chevron underline fix: scoped `hover:underline` to a `<span>` wrapping only the text label. Screenshot paste: added `handleFindingsPaste` handler on the findings textarea that reads clipboard image items via `FileReader`, stores base64 in `findingsImage` state, and shows a thumbnail with a remove button. `buildNewResults` now passes `image_data` (base64) to the backend. Backend: `NewResultSchema`, `NewResult`, `generate_json` (both `OpenRouterStructuredOutputService` and `XiaomiStructuredOutputService`), and `_generate_or_stub` updated to accept and forward `image_data`; `_revise` and `_insert` in `WriterEditorAgent` extract the first image and send it as a vision content block in the LLM call. `uv run mypy` → clean; `npx tsc --noEmit` → clean.
+
 ## 2026-05-15T21:26:50+07:00
 - Request: Remove the left-panel Writer outline action buttons entirely.
 - Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterOutlinePanel.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Removed the full-document `Generate Outline` / `Save Outline` buttons, their panel props, workspace state, and workspace handlers. Section-level outline generation/approval in the Questions panel remains unchanged. `python -m pytest tests/test_frontend_writer_static.py -x` → 33 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
+
+## 2026-05-15T23:22:43+07:00
+- Request: Remove the downward icon next to the Confluex logo on the chat page.
+- Files changed: `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Removed the header `expand_more` icon next to the chat-page logo and added a static regression so the logo does not render that adjacent dropdown icon again. `python -m pytest tests/test_frontend_deep_search_static.py -x` → 19 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
