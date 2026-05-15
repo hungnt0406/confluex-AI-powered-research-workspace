@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,6 +24,10 @@ export default function LoginPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (mode === "register" && !agreedToTerms) {
+      setError("You must agree to the Terms of Usage to create an account.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -38,6 +43,10 @@ export default function LoginPage() {
 
   const handleGoogleLogin = useCallback(
     async (credential: string) => {
+      if (mode === "register" && !agreedToTerms) {
+        setError("You must agree to the Terms of Usage to create an account.");
+        return;
+      }
       setBusy(true);
       setError(null);
       try {
@@ -49,7 +58,7 @@ export default function LoginPage() {
         setBusy(false);
       }
     },
-    [loginWithGoogle, router],
+    [loginWithGoogle, router, mode, agreedToTerms],
   );
 
   return (
@@ -95,11 +104,34 @@ export default function LoginPage() {
           </label>
         </div>
 
+        {mode === "register" && (
+          <label className="flex items-start gap-2 text-xs text-on-surface-variant">
+            <input
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-outline/40 text-primary focus:ring-primary"
+            />
+            <span>
+              I agree to the{" "}
+              <a
+                href="/terms"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                Terms of Usage
+              </a>
+              .
+            </span>
+          </label>
+        )}
+
         {error && <p className="text-xs text-error">{error}</p>}
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || (mode === "register" && !agreedToTerms)}
           className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md active:translate-y-0 active:shadow-sm disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-primary disabled:hover:shadow-none"
         >
           {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
@@ -120,7 +152,11 @@ export default function LoginPage() {
 
         <button
           type="button"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
+          onClick={() => {
+            setMode(mode === "login" ? "register" : "login");
+            setError(null);
+            setAgreedToTerms(false);
+          }}
           className="w-full text-xs text-secondary hover:text-primary"
         >
           {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
