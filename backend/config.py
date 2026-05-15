@@ -1,8 +1,16 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class LlmProvider(StrEnum):
+    """Supported structured-output / chat providers."""
+
+    OPENROUTER = "openrouter"
+    XIAOMI = "xiaomi"
 
 DEFAULT_CORS_ALLOWED_ORIGINS = (
     "http://localhost:3000",
@@ -180,6 +188,30 @@ class Settings(BaseSettings):
     credit_cost_paper_chat: int = Field(default=2, alias="CREDIT_COST_PAPER_CHAT")
     credit_cost_pdf_upload: int = Field(default=5, alias="CREDIT_COST_PDF_UPLOAD")
     credit_cost_pipeline_run: int = Field(default=20, alias="CREDIT_COST_PIPELINE_RUN")
+    xiaomi_chat_model: str = Field(default="mimo-v2.5-pro", alias="XIAOMI_CHAT_MODEL")
+    writer_chat_provider: LlmProvider = Field(
+        default=LlmProvider.XIAOMI,
+        alias="WRITER_CHAT_PROVIDER",
+    )
+    writer_chat_max_tokens: int = Field(default=16_384, alias="WRITER_CHAT_MAX_TOKENS")
+    writer_chat_credits_per_turn: int = Field(default=3, alias="WRITER_CHAT_CREDITS_PER_TURN")
+    writer_chat_session_ttl_seconds: int = Field(
+        default=86_400,
+        alias="WRITER_CHAT_SESSION_TTL_SECONDS",
+    )
+    writer_chat_context_window_turns: int = Field(
+        default=6,
+        alias="WRITER_CHAT_CONTEXT_WINDOW_TURNS",
+    )
+    writer_chat_max_included_sections: int = Field(
+        default=4,
+        alias="WRITER_CHAT_MAX_INCLUDED_SECTIONS",
+    )
+    writer_chat_request_timeout_seconds: float = Field(
+        default=300.0,
+        alias="WRITER_CHAT_REQUEST_TIMEOUT_SECONDS",
+    )
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
