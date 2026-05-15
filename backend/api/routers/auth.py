@@ -28,6 +28,12 @@ def build_auth_response(user: User) -> AuthResponse:
 async def register_user(payload: AuthRequest, session: DbSession) -> AuthResponse:
     """Register a new user and immediately return an access token."""
 
+    if not payload.agreed_to_terms:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You must agree to the Terms of Usage to create an account.",
+        )
+
     existing_user = await session.execute(select(User).where(User.email == payload.email))
     if existing_user.scalar_one_or_none() is not None:
         raise HTTPException(
@@ -123,6 +129,11 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
     user = result.scalar_one_or_none()
 
     if user is None:
+        if not payload.agreed_to_terms:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Account not found. Please switch to Register and agree to the Terms of Usage to create one.",
+            )
         # Auto-register a new Google user (no password needed).
         # Handle race condition: if a concurrent request already inserted
         # this user, catch the IntegrityError and re-fetch.
