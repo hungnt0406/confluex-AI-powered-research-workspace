@@ -621,6 +621,7 @@ async def preview_section_edit(
                     text=result.text,
                     source_ref=result.source_ref,
                     attach_as_citation=result.attach_as_citation,
+                    image_data=result.image_data,
                 )
                 for result in body.new_results
             ],
