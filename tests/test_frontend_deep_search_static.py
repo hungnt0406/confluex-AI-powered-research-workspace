@@ -3,6 +3,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_chat_header_logo_has_no_dropdown_icon() -> None:
+    chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
+
+    assert '<Logo size="sm" />' in chat_workspace
+    assert '<Logo size="sm" />\n          <span className="material-symbols-outlined text-xs text-hint">expand_more</span>' not in chat_workspace
+
+
 def test_frontend_deep_search_mode_wiring() -> None:
     chat_workspace = (REPO_ROOT / "frontend/components/ChatWorkspace.tsx").read_text()
     chat_provider = (REPO_ROOT / "frontend/components/ChatProvider.tsx").read_text()
