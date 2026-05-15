@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Writer · Confluex</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: {
+      background: "#faf9f7",
+      surface: "#faf9f7",
+      "surface-container": "#efeeec",
+      "surface-container-low": "#f4f3f1",
+      "surface-container-lowest": "#ffffff",
+      "surface-container-high": "#e9e8e6",
+      "surface-container-highest": "#e3e2e0",
+      "on-surface": "#1a1c1b",
+      "on-surface-variant": "#444841",
+      primary: "#1d2d18",
+      "primary-container": "#32432c",
+      "on-primary": "#ffffff",
+      "on-primary-container": "#9cb092",
+      secondary: "#596154",
+      "secondary-container": "#dee5d5",
+      "on-secondary-container": "#5f675a",
+      tertiary: "#3b212c",
+      outline: "#747870",
+      "outline-variant": "#c4c8be",
+      hint: "#8C8375",
+      accent: "#5D4037",
+      error: "#ba1a1a",
+      warn: "#8a5a00",
+    },
+    borderRadius: { DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", "2xl": "0.75rem", "3xl": "1rem", full: "9999px" },
+    fontFamily: { headline: ["'Noto Serif'", "serif"], body: ["Inter", "sans-serif"], ui: ["Inter", "sans-serif"], mono: ["'JetBrains Mono'", "monospace"] },
+  }},
+};
+</script>
+<style>
+  body { background: #faf9f7; color: #1a1c1b; font-family: Inter, sans-serif; }
+  .material-symbols-outlined { font-family: "Material Symbols Outlined"; font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20; font-size: 18px; line-height: 1; display: inline-block; }
+  .ring-ink { box-shadow: inset 0 0 0 1px rgba(116,120,112,.28); }
+  .pill-btn { transition: all .18s ease; }
+  .pill-btn:hover { transform: translateY(-1px); }
+  .scroll-thin { scrollbar-color: #1d2d1840 transparent; scrollbar-width: thin; }
+  .scroll-thin::-webkit-scrollbar { width: 4px; height: 4px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #1d2d1840; border-radius: 10px; }
+  .tex { font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7; }
+  .tex .cmd { color: #32432c; font-weight: 600; }
+  .tex .arg { color: #5D4037; }
+  .tex .cmt { color: #8C8375; font-style: italic; }
+  .tex .str { color: #3b212c; }
+  .tex .todo { background: rgba(186,26,26,0.07); border-bottom: 1.5px wavy #ba1a1a; padding: 0 2px; border-radius: 2px; cursor: pointer; }
+  .tex .cite { color: #1d2d18; background: rgba(50,67,44,.08); padding: 0 3px; border-radius: 3px; }
+  .gutter { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #c4c8be; user-select: none; text-align: right; padding-right: 12px; line-height: 1.7; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+  .step-dot { width: 18px; height: 18px; border-radius: 9999px; display:inline-flex; align-items:center; justify-content:center; font-size:10px; font-weight:600; }
+  .underline-soft { text-decoration: underline; text-decoration-color: rgba(50,67,44,.35); text-underline-offset: 3px; }
+  .grain { background-image: radial-gradient(circle at 1px 1px, rgba(29,45,24,0.08) 1px, transparent 0); background-size: 22px 22px; }
+  .tab-active { color:#1a1c1b; }
+  .tab-active::after { content:""; display:block; height:2px; background:#1d2d18; margin-top:8px; border-radius:2px; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform: rotate(180deg); }
+  .chev { transition: transform .2s ease; }
+  textarea, input { font-family: inherit; }
+  .focus-ring:focus-within { box-shadow: inset 0 0 0 1.5px #32432c; }
+</style>
+</head>
+<body class="font-ui text-on-surface h-screen overflow-hidden flex flex-col">
+
+<!-- ─── TOP BAR ─── -->
+<header class="h-14 border-b border-outline/20 bg-background flex items-center px-4 gap-4 flex-shrink-0">
+  <a href="#" class="flex items-center gap-2">
+    <svg viewBox="0 0 62 60" width="24" height="24" aria-hidden="true">
+      <path d="M 4,50 C 8,35 18,15 32,6"  stroke="#32432c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      <path d="M 14,53 C 19,37 30,17 45,8" stroke="#32432c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      <path d="M 24,55 C 30,39 42,19 56,10" stroke="#32432c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      <path d="M 33,54 C 40,41 51,24 58,20" stroke="#32432c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+      <path d="M 40,52 C 45,43 53,31 56,32" stroke="#32432c" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+    </svg>
+    <span style="font-weight:600;letter-spacing:-0.01em;">confluex</span>
+  </a>
+  <span class="text-on-surface-variant/40">/</span>
+  <a href="#" class="text-sm text-on-surface-variant hover:text-on-surface">Clinical RAG project</a>
+  <span class="text-on-surface-variant/40">/</span>
+  <span class="text-sm font-medium">Writer</span>
+
+  <div class="flex-1 flex items-center justify-center gap-3">
+    <span class="material-symbols-outlined text-on-surface-variant" style="font-size:18px">description</span>
+    <input class="font-headline text-[18px] bg-transparent text-center outline-none focus:bg-surface-container/50 px-2 py-1 rounded-lg w-[420px]" value="Retrieval-Augmented Generation for Clinical QA" />
+    <span class="tag bg-secondary-container text-primary">IMRaD · APA</span>
+    <span class="text-[11px] text-on-surface-variant flex items-center gap-1">
+      <span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span> Auto-saved 12s ago
+    </span>
+  </div>
+
+  <div class="flex items-center gap-2">
+    <button class="text-sm text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-lg hover:bg-surface-container/60 flex items-center gap-1.5">
+      <span class="material-symbols-outlined" style="font-size:16px">history</span> Versions
+    </button>
+    <button class="text-sm text-on-surface px-3 py-2 rounded-lg ring-ink hover:bg-surface-container/60 flex items-center gap-1.5">
+      <span class="material-symbols-outlined" style="font-size:16px">build_circle</span> Assemble
+    </button>
+    <button class="text-sm bg-primary text-white px-4 py-2 rounded-full pill-btn flex items-center gap-1.5">
+      <span class="material-symbols-outlined" style="font-size:16px">download</span> Export .tex + .bib
+    </button>
+  </div>
+</header>
+
+<!-- ─── BODY ─── -->
+<div class="flex-1 grid grid-cols-[280px_1fr_400px] min-h-0">
+
+  <!-- LEFT — OUTLINE -->
+  <aside class="border-r border-outline/20 bg-surface-container-low/60 flex flex-col min-h-0">
+    <div class="px-5 pt-5 pb-3">
+      <p class="text-[11px] tracking-[0.18em] uppercase font-semibold text-primary mb-2">Manuscript</p>
+      <h2 class="font-headline text-[20px] leading-tight">Outline & sections</h2>
+      <p class="text-[12px] text-on-surface-variant mt-1 italic">IMRaD · 7 sections</p>
+    </div>
+
+    <!-- progress -->
+    <div class="px-5 pb-3">
+      <div class="flex items-center gap-2 text-[11px] text-on-surface-variant mb-1.5">
+        <span class="font-medium text-on-surface">3 of 7 drafted</span>
+        <span class="ml-auto">42%</span>
+      </div>
+      <div class="h-1.5 bg-surface-container rounded-full overflow-hidden">
+        <div class="h-full w-[42%] bg-primary-container rounded-full"></div>
+      </div>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto scroll-thin px-3 pb-4 space-y-0.5">
+      <!-- section item template -->
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3 group">
+        <span class="step-dot bg-secondary-container text-primary mt-0.5">1</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Abstract</span>
+          <span class="block text-[11px] text-on-surface-variant">Generated last from final draft</span>
+        </span>
+        <span class="tag bg-surface-container text-on-surface-variant">Pending</span>
+      </button>
+
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3">
+        <span class="step-dot bg-primary-container text-white mt-0.5"><span class="material-symbols-outlined" style="font-size:11px">check</span></span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Introduction</span>
+          <span class="block text-[11px] text-on-surface-variant">624 words · 14 citations</span>
+        </span>
+        <span class="tag bg-secondary-container text-primary">Drafted</span>
+      </button>
+
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3">
+        <span class="step-dot bg-primary-container text-white mt-0.5"><span class="material-symbols-outlined" style="font-size:11px">check</span></span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Related Work</span>
+          <span class="block text-[11px] text-on-surface-variant">812 words · 21 citations · 1 todo</span>
+        </span>
+        <span class="tag bg-[#fff4e6] text-warn">Edited</span>
+      </button>
+
+      <!-- ACTIVE -->
+      <button class="w-full text-left px-3 py-2.5 rounded-lg bg-primary-container/12 ring-ink relative flex items-start gap-3">
+        <span class="absolute left-0 top-2 bottom-2 w-[3px] bg-primary-container rounded-r"></span>
+        <span class="step-dot bg-primary text-white mt-0.5"><span class="material-symbols-outlined" style="font-size:11px">edit</span></span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-semibold">Methods</span>
+          <span class="block text-[11px] text-on-surface-variant">488 words · 9 citations · 3 todos</span>
+        </span>
+        <span class="tag bg-secondary-container text-primary">Drafted</span>
+      </button>
+
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3">
+        <span class="step-dot bg-[#fff4e6] text-warn mt-0.5"><span class="material-symbols-outlined" style="font-size:11px">priority_high</span></span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Results</span>
+          <span class="block text-[11px] text-on-surface-variant">Awaiting your inputs (2/2)</span>
+        </span>
+        <span class="tag bg-[#fff4e6] text-warn">Awaiting</span>
+      </button>
+
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3">
+        <span class="step-dot bg-surface-container text-on-surface-variant mt-0.5">6</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Discussion</span>
+          <span class="block text-[11px] text-on-surface-variant">Outline ready · 3 questions</span>
+        </span>
+        <span class="tag bg-surface-container text-on-surface-variant">Planned</span>
+      </button>
+
+      <button class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-surface-container/70 flex items-start gap-3">
+        <span class="step-dot bg-surface-container text-on-surface-variant mt-0.5">7</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-sm font-medium">Conclusion</span>
+          <span class="block text-[11px] text-on-surface-variant">Outline ready · 2 questions</span>
+        </span>
+        <span class="tag bg-surface-container text-on-surface-variant">Planned</span>
+      </button>
+
+      <!-- topic / thesis card -->
+      <div class="mt-5 mx-1 p-4 rounded-xl bg-surface-container-lowest ring-ink">
+        <p class="text-[10px] tracking-[0.16em] uppercase font-semibold text-primary mb-2">Thesis</p>
+        <p class="font-headline text-[14px] italic leading-snug text-on-surface">
+          Domain-adapted retrieval improves clinical-QA factuality more than larger backbone models alone.
+        </p>
+        <button class="mt-3 text-[11px] text-on-surface-variant hover:text-on-surface flex items-center gap-1 underline-soft">
+          <span class="material-symbols-outlined" style="font-size:13px">edit</span> Edit topic & thesis
+        </button>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- CENTER — EDITOR -->
+  <main class="flex flex-col min-h-0 bg-surface-container-lowest border-r border-outline/20">
+    <!-- editor header -->
+    <div class="px-6 py-3 border-b border-outline/20 flex items-center gap-3">
+      <span class="step-dot bg-primary text-white">M</span>
+      <div class="flex-1">
+        <h3 class="font-headline text-[18px] leading-none">Methods</h3>
+        <p class="text-[11px] text-on-surface-variant mt-1">Section 4 of 7 · Drafted from 6 sources · <span class="text-warn font-medium">3 unresolved tags</span></p>
+      </div>
+      <div class="flex items-center gap-1 text-on-surface-variant">
+        <button class="p-1.5 rounded-lg hover:bg-surface-container" title="Re-draft from inputs"><span class="material-symbols-outlined" style="font-size:18px">auto_awesome</span></button>
+        <button class="p-1.5 rounded-lg hover:bg-surface-container" title="Diff vs last version"><span class="material-symbols-outlined" style="font-size:18px">compare_arrows</span></button>
+        <button class="p-1.5 rounded-lg hover:bg-surface-container" title="Section settings"><span class="material-symbols-outlined" style="font-size:18px">tune</span></button>
+        <span class="w-px h-5 bg-outline/30 mx-1"></span>
+        <button class="text-[12px] px-2.5 py-1.5 rounded-lg ring-ink hover:bg-surface-container flex items-center gap-1.5">
+          <span class="material-symbols-outlined" style="font-size:14px">visibility</span> Source view
+        </button>
+      </div>
+    </div>
+
+    <!-- monaco-style editor -->
+    <div class="flex-1 overflow-auto scroll-thin flex">
+      <div class="gutter pt-4 pl-3" style="min-width:48px">
+        <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div><div>7</div><div>8</div><div>9</div><div>10</div>
+        <div>11</div><div>12</div><div>13</div><div>14</div><div>15</div><div>16</div><div>17</div><div>18</div><div>19</div><div>20</div>
+        <div>21</div><div>22</div><div>23</div><div>24</div><div>25</div><div>26</div><div>27</div><div>28</div>
+      </div>
+      <pre class="tex pt-4 pr-6 flex-1 whitespace-pre-wrap"><span class="cmt">% Methods — auto-drafted 2026-05-09 14:22</span>
+<span class="cmd">\section</span><span class="arg">{Methods}</span>
+<span class="cmd">\label</span><span class="arg">{sec:methods}</span>
+
+<span class="cmd">\subsection</span><span class="arg">{Dataset}</span>
+We evaluate on the MIMIC-III clinical QA split released by Pampari et al.~<span class="cite">\cite{pampari2018emrqa}</span>,
+restricted to discharge summaries with at least one structured
+diagnosis code. Following <span class="cite">\cite{soni2023clinicalqa}</span>, we exclude
+notes with fewer than 200 tokens and de-duplicate by patient ID,
+yielding 18{,}241 question--answer pairs across 9{,}812 unique notes.
+
+<span class="cmd">\subsection</span><span class="arg">{Retriever}</span>
+The dense retriever is a domain-adapted MedCPT encoder
+<span class="cite">\cite{jin2023medcpt}</span> fine-tuned for an additional 3 epochs on
+in-domain query--passage pairs. Passages are chunked at
+512 tokens with a 64-token stride, <span class="todo" data-todo="chunk-size">a setting we
+selected after preliminary sweeps over {256, 512, 1024} tokens</span>.
+
+<span class="cmd">\subsection</span><span class="arg">{Generator and Baselines}</span>
+Generation uses Llama-3.1-8B-Instruct with greedy decoding.
+We compare against three baselines: (1) closed-book generation,
+(2) BM25 retrieval, and (3) a generic Contriever retriever
+<span class="cite">\cite{izacard2022contriever}</span>. <span class="todo" data-todo="prompt-template">Prompt templates are held
+constant across conditions to isolate the retriever's contribution.</span>
+
+<span class="cmd">\subsection</span><span class="arg">{Evaluation}</span>
+We report exact-match (EM) and token-level F1 against the
+reference answer set, plus a clinician-rated factuality score
+on a 200-question stratified sample. <span class="todo" data-todo="rater-agreement">Inter-rater agreement
+was substantial (κ = 0.74).</span></pre>
+    </div>
+
+    <!-- footer toolbar -->
+    <div class="px-6 py-2.5 border-t border-outline/20 bg-surface-container/40 flex items-center gap-3 text-[11px] text-on-surface-variant flex-shrink-0">
+      <span class="flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:14px">code</span> LaTeX</span>
+      <span>·</span>
+      <span>Ln 18, Col 42</span>
+      <span>·</span>
+      <span>488 words</span>
+      <span>·</span>
+      <span class="flex items-center gap-1 text-warn"><span class="material-symbols-outlined" style="font-size:14px">flag</span> 3 unresolved citations</span>
+      <span class="ml-auto flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:14px">cloud_done</span> Saved</span>
+    </div>
+  </main>
+
+  <!-- RIGHT — TABS -->
+  <aside class="flex flex-col min-h-0 bg-background">
+    <!-- tab bar -->
+    <div class="border-b border-outline/20 px-5 pt-4 flex items-center gap-6 text-[12px] font-medium text-on-surface-variant">
+      <button class="pb-2 tab-active flex items-center gap-1.5">
+        <span class="material-symbols-outlined" style="font-size:14px">help</span> Questions <span class="tag bg-[#fff4e6] text-warn">2</span>
+      </button>
+      <button class="pb-2 hover:text-on-surface flex items-center gap-1.5">
+        <span class="material-symbols-outlined" style="font-size:14px">menu_book</span> Sources <span class="tag bg-surface-container text-on-surface-variant">6</span>
+      </button>
+      <button class="pb-2 hover:text-on-surface flex items-center gap-1.5">
+        <span class="material-symbols-outlined" style="font-size:14px">rule</span> QA <span class="tag bg-[#fff4e6] text-warn">3</span>
+      </button>
+    </div>
+
+    <div class="flex-1 overflow-y-auto scroll-thin">
+      <!-- QUESTIONS PANEL -->
+      <div class="px-5 py-5 space-y-5">
+        <div>
+          <p class="text-[11px] tracking-[0.16em] uppercase font-semibold text-primary mb-1">Methods · inputs</p>
+          <h4 class="font-headline text-[18px] leading-tight">Tell the agent what you did.</h4>
+          <p class="text-[12px] text-on-surface-variant mt-1 italic">Answers ground the draft. Leave blank to let the agent infer from sources.</p>
+        </div>
+
+        <!-- Q1 answered -->
+        <div class="rounded-xl ring-ink bg-surface-container-lowest p-4 focus-ring">
+          <div class="flex items-start gap-2 mb-2">
+            <span class="step-dot bg-primary-container text-white"><span class="material-symbols-outlined" style="font-size:11px">check</span></span>
+            <p class="text-[13px] font-medium flex-1">What dataset(s) did you use?</p>
+          </div>
+          <p class="text-[13px] text-on-surface leading-relaxed">MIMIC-III clinical QA split (emrQA), discharge summaries only, ≥200 tokens, deduped by patient ID. ~18k QA pairs over 9.8k notes.</p>
+        </div>
+
+        <!-- Q2 answered -->
+        <div class="rounded-xl ring-ink bg-surface-container-lowest p-4 focus-ring">
+          <div class="flex items-start gap-2 mb-2">
+            <span class="step-dot bg-primary-container text-white"><span class="material-symbols-outlined" style="font-size:11px">check</span></span>
+            <p class="text-[13px] font-medium flex-1">What model/algorithm/approach?</p>
+          </div>
+          <p class="text-[13px] text-on-surface leading-relaxed">Domain-adapted MedCPT retriever fine-tuned 3 epochs on in-domain Q&P pairs. Generator: Llama-3.1-8B-Instruct, greedy decoding.</p>
+        </div>
+
+        <!-- Q3 unanswered, expanded -->
+        <div class="rounded-xl bg-primary-container/10 ring-ink p-4">
+          <div class="flex items-start gap-2 mb-2">
+            <span class="step-dot bg-primary text-white">3</span>
+            <p class="text-[13px] font-medium flex-1">What are the baselines?</p>
+          </div>
+          <textarea rows="3" class="w-full bg-surface-container-lowest rounded-lg p-3 text-[13px] outline-none ring-ink resize-none placeholder:text-hint" placeholder="e.g. Closed-book, BM25, Contriever (general-domain)…">Closed-book Llama, BM25, Contriever (general-domain). Same prompt template across all.</textarea>
+          <div class="flex items-center justify-between mt-2">
+            <span class="text-[11px] text-on-surface-variant italic">Will be quoted into §Methods.Generator</span>
+            <button class="text-[12px] bg-primary text-white px-3 py-1.5 rounded-full pill-btn">Save & re-draft</button>
+          </div>
+        </div>
+
+        <!-- Q4 unanswered -->
+        <div class="rounded-xl ring-ink p-4 bg-surface-container-lowest">
+          <div class="flex items-start gap-2 mb-2">
+            <span class="step-dot bg-surface-container text-on-surface-variant">4</span>
+            <p class="text-[13px] font-medium flex-1 text-on-surface-variant">What is the evaluation metric?</p>
+          </div>
+          <button class="text-[12px] text-primary underline-soft">Answer this question →</button>
+        </div>
+      </div>
+
+      <!-- SOURCES PANEL (peek of next tab) -->
+      <div class="border-t border-outline/15 px-5 py-5 bg-surface-container-low/40">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <p class="text-[11px] tracking-[0.16em] uppercase font-semibold text-primary">Cited in this section</p>
+            <h4 class="font-headline text-[16px] leading-tight mt-0.5">3 of 6 project sources</h4>
+          </div>
+          <button class="text-[12px] flex items-center gap-1 text-primary underline-soft">
+            <span class="material-symbols-outlined" style="font-size:14px">add</span> Suggest more
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <!-- source row -->
+          <div class="rounded-lg bg-surface-container-lowest ring-ink p-3 flex gap-3">
+            <span class="material-symbols-outlined text-primary flex-shrink-0 mt-0.5" style="font-size:18px">picture_as_pdf</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-medium leading-snug">emrQA: A Large Corpus for QA on Electronic Medical Records</p>
+              <p class="text-[11px] text-on-surface-variant mt-0.5">Pampari et al. · EMNLP 2018 · arXiv:1809.00732</p>
+              <div class="flex items-center gap-2 mt-1.5">
+                <span class="tag bg-secondary-container text-primary">Dataset</span>
+                <span class="tag bg-surface-container text-on-surface-variant">cited 4×</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-lg bg-surface-container-lowest ring-ink p-3 flex gap-3">
+            <span class="material-symbols-outlined text-primary flex-shrink-0 mt-0.5" style="font-size:18px">picture_as_pdf</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-medium leading-snug">MedCPT: Contrastive Pre-trained Transformers for Biomedical Retrieval</p>
+              <p class="text-[11px] text-on-surface-variant mt-0.5">Jin et al. · Bioinformatics 2023 · auto-fetched from arXiv</p>
+              <div class="flex items-center gap-2 mt-1.5">
+                <span class="tag bg-secondary-container text-primary">Retriever</span>
+                <span class="tag bg-surface-container text-on-surface-variant">cited 1×</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-lg bg-surface-container-lowest ring-ink p-3 flex gap-3">
+            <span class="material-symbols-outlined text-primary flex-shrink-0 mt-0.5" style="font-size:18px">picture_as_pdf</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-medium leading-snug">Unsupervised Dense Information Retrieval with Contrastive Learning</p>
+              <p class="text-[11px] text-on-surface-variant mt-0.5">Izacard et al. · TMLR 2022 · uploaded by you</p>
+              <div class="flex items-center gap-2 mt-1.5">
+                <span class="tag bg-secondary-container text-primary">Baseline</span>
+                <span class="tag bg-surface-container text-on-surface-variant">cited 1×</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- suggested -->
+        <div class="mt-4 rounded-xl ring-ink p-3 bg-surface-container-lowest">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="material-symbols-outlined text-accent" style="font-size:14px">auto_awesome</span>
+            <p class="text-[11px] tracking-[0.14em] uppercase font-semibold text-accent">Suggested for this section</p>
+          </div>
+          <p class="text-[13px] font-medium leading-snug">A Survey of Retrieval-Augmented Generation in Biomedical NLP</p>
+          <p class="text-[11px] text-on-surface-variant mt-0.5">Soni & Roberts · 2023 · arXiv · <span class="text-primary">PDF available</span></p>
+          <div class="flex items-center gap-2 mt-2">
+            <button class="text-[12px] bg-primary text-white px-3 py-1.5 rounded-full pill-btn flex items-center gap-1.5">
+              <span class="material-symbols-outlined" style="font-size:14px">download</span> Auto-fetch & attach
+            </button>
+            <button class="text-[12px] text-on-surface-variant px-2 py-1.5 rounded-full hover:text-on-surface">Skip</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- QA PANEL (peek) -->
+      <div class="border-t border-outline/15 px-5 py-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <p class="text-[11px] tracking-[0.16em] uppercase font-semibold text-warn">Citation gaps</p>
+            <h4 class="font-headline text-[16px] leading-tight mt-0.5">3 unsupported claims</h4>
+          </div>
+          <span class="text-[11px] text-on-surface-variant italic">in this section</span>
+        </div>
+
+        <div class="space-y-2">
+          <div class="rounded-lg p-3 bg-[#fff4e6]/50 ring-ink">
+            <p class="text-[12px] text-on-surface leading-snug">"a setting we selected after preliminary sweeps over {256, 512, 1024} tokens"</p>
+            <p class="text-[11px] text-warn mt-1.5 italic">No chunk matched · suggested query: <span class="font-mono not-italic text-on-surface">retrieval chunk size ablation</span></p>
+            <div class="flex items-center gap-1.5 mt-2">
+              <button class="text-[11px] bg-primary text-white px-2.5 py-1 rounded-full">Find sources</button>
+              <button class="text-[11px] ring-ink px-2.5 py-1 rounded-full hover:bg-surface-container">Mark as own work</button>
+              <button class="text-[11px] text-on-surface-variant px-2 py-1 hover:text-on-surface">Dismiss</button>
+            </div>
+          </div>
+
+          <div class="rounded-lg p-3 bg-[#fff4e6]/50 ring-ink">
+            <p class="text-[12px] text-on-surface leading-snug">"Prompt templates are held constant across conditions…"</p>
+            <p class="text-[11px] text-warn mt-1.5 italic">Methodology claim · suggested query: <span class="font-mono not-italic text-on-surface">RAG prompt fairness ablation</span></p>
+            <div class="flex items-center gap-1.5 mt-2">
+              <button class="text-[11px] bg-primary text-white px-2.5 py-1 rounded-full">Find sources</button>
+              <button class="text-[11px] ring-ink px-2.5 py-1 rounded-full hover:bg-surface-container">Mark as own work</button>
+            </div>
+          </div>
+
+          <div class="rounded-lg p-3 bg-[#fff4e6]/50 ring-ink">
+            <p class="text-[12px] text-on-surface leading-snug">"Inter-rater agreement was substantial (κ = 0.74)."</p>
+            <p class="text-[11px] text-warn mt-1.5 italic">Numeric result · suggested: cite Landis & Koch interpretation of κ</p>
+            <div class="flex items-center gap-1.5 mt-2">
+              <button class="text-[11px] bg-primary text-white px-2.5 py-1 rounded-full">Find sources</button>
+              <button class="text-[11px] ring-ink px-2.5 py-1 rounded-full hover:bg-surface-container">Mark as own work</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ─── BOTTOM STATUS / EXPORT GATE ─── -->
+<footer class="h-9 border-t border-outline/20 bg-primary text-white text-[11px] flex items-center px-4 gap-4 flex-shrink-0">
+  <span class="flex items-center gap-1.5"><span class="material-symbols-outlined" style="font-size:14px">eco</span> Confluex Writer · IMRaD pipeline</span>
+  <span class="opacity-50">·</span>
+  <span>6 sources · 4 auto-fetched · 2 uploaded</span>
+  <span class="opacity-50">·</span>
+  <span>preamble: <span class="font-mono">todonotes, natbib, geometry</span></span>
+  <span class="ml-auto flex items-center gap-1.5">
+    <span class="material-symbols-outlined" style="font-size:14px">policy</span>
+    Grounded mode · every claim must cite an attached source
+  </span>
+</footer>
+
+</body>
+</html>
