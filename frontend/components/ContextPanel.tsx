@@ -73,6 +73,7 @@ export default function ContextPanel() {
 
   return (
     <aside
+      id="ob-context"
       style={{
         width: open ? `${width}px` : "0",
         opacity: open ? 1 : 0,

@@ -50,7 +50,7 @@ npm run dev:reset
 - Assistant answers render grounded-source Markdown directly in the chat transcript: named inline links such as `[Databricks Lakehouse](https://example.com)` appear as compact citation pills with hover/focus previews, and final `## Sources` bullets remain clean Markdown links with publisher and relevance notes.
 - Composer mode toggle:
   1. `Standard` keeps the existing project conversation behavior.
-  2. `Deep Search` first shows a pending research plan card with `Edit plan` and `Start research` actions instead of starting the stream immediately.
+  2. `Deep Search` first shows a pending research plan card with `Edit plan` and `Start research` actions instead of starting the stream immediately. `Edit plan` opens a choice between manual composer editing and an AI-assisted revision prompt; AI revisions regenerate the visible plan and still require explicit `Start research` approval.
   3. `Start research` sends the approved prompt and selected `paper_ids` to `POST /projects/{id}/deep-search/stream`.
   4. With no active project, approved Deep Search first creates a project from the prompt, runs `POST /projects/{id}/run` to populate the related-paper panel, then streams the Deep Search run.
   5. With an active project that has no discovered related papers yet, approved Deep Search runs the same discovery refresh before streaming; projects that already have discovered papers keep the existing paper list.
