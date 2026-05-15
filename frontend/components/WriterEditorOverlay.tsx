@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   EditPatchResponse,
@@ -10,6 +10,7 @@ import {
   isInsufficientCreditsError,
   previewWriterEdit,
 } from "@/lib/api";
+import { domPositionToLatexOffset } from "@/lib/dom-latex-map";
 
 export interface MonacoPosition {
   lineNumber: number;
@@ -56,6 +57,7 @@ interface WriterEditorOverlayProps {
   onSectionUpdate: (section: WriterSectionRead) => void;
   onPendingChange: (pending: boolean) => void;
   onError: (message: string) => void;
+  proseMode?: boolean;
 }
 
 interface FloatingPoint {
@@ -170,6 +172,7 @@ export function WriterEditorOverlay({
   onSectionUpdate,
   onPendingChange,
   onError,
+  proseMode = false,
 }: WriterEditorOverlayProps) {
   const [selection, setSelection] = useState<MonacoSelection | null>(null);
   const [selectionPoint, setSelectionPoint] = useState<FloatingPoint | null>(null);
@@ -186,6 +189,11 @@ export function WriterEditorOverlay({
   const [citeSource, setCiteSource] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+
+  const panelModeRef = useRef(panelMode);
+  panelModeRef.current = panelMode;
+  const pendingPatchRef = useRef(pendingPatch);
+  pendingPatchRef.current = pendingPatch;
 
   const model = useMemo(() => editor?.getModel() ?? null, [editor]);
   const patchPlacement = useMemo<PopoverPlacement | null>(() => {
@@ -244,6 +252,7 @@ export function WriterEditorOverlay({
   }, [editor, model]);
 
   const refreshCursor = useCallback(() => {
+    if (proseMode) return;
     if (!editor || !model) return;
     const currentSelection = editor.getSelection();
     if (currentSelection && !currentSelection.isEmpty()) return;
@@ -258,7 +267,7 @@ export function WriterEditorOverlay({
     const origin = editorViewportOrigin(editor);
     setInsertOffset(model.getOffsetAt(position));
     setInsertPoint({ top: origin.top + visible.top - 3, left: origin.left + 10 });
-  }, [editor, model]);
+  }, [editor, model, proseMode]);
 
   useEffect(() => {
     if (!editor) return undefined;
@@ -277,6 +286,43 @@ export function WriterEditorOverlay({
     setPanelMode(null);
     setLastRequest(null);
   }, [section?.id]);
+
+  // Prose mode: show + button when hovering between block elements.
+  useEffect(() => {
+    if (!proseMode) return undefined;
+    const dom = editor?.getDomNode?.();
+    if (!dom) return undefined;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (panelModeRef.current || pendingPatchRef.current) return;
+      const blocks = Array.from(
+        dom.querySelectorAll(":scope > [data-block-type]"),
+      ) as HTMLElement[];
+      if (blocks.length < 2) {
+        setInsertPoint(null);
+        setInsertOffset(null);
+        return;
+      }
+      for (let i = 0; i < blocks.length - 1; i++) {
+        const above = blocks[i].getBoundingClientRect();
+        const below = blocks[i + 1].getBoundingClientRect();
+        if (e.clientY >= above.bottom - 6 && e.clientY <= below.top + 6) {
+          const midY = (above.bottom + below.top) / 2;
+          const editorRect = dom.getBoundingClientRect();
+          setInsertOffset(domPositionToLatexOffset(dom, dom, i + 1));
+          setInsertPoint({ top: midY - 12, left: Math.max(8, editorRect.left - 28) });
+          return;
+        }
+      }
+      setInsertPoint(null);
+      setInsertOffset(null);
+    };
+
+    dom.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      dom.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [proseMode, editor]);
 
   // Close an open Edit panel when the user clicks back into the editor.
   // Without this, panelMode stays "selection" indefinitely (e.g., if the user
