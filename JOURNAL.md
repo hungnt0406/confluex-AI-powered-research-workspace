@@ -1600,3 +1600,13 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Extend Writer Editor prompt-echo rejection from insertions to selected-span revisions.
 - Files changed: `backend/agents/writer_editor.py`, `tests/test_writer_editor.py`, `JOURNAL.md`.
 - Current status: Added a revise-path prompt-echo guard after the existing no-op retry loop. If the provider echoes the instruction, the editor now falls back to deterministic paraphrase text and restores citation macros from the selected span. Added regression coverage for an echoed revision instruction preserving `\cite{...}`. `uv run ruff check backend/agents/writer_editor.py tests/test_writer_editor.py` → clean; `uv run pytest tests/test_writer_editor.py -x` → 12 passed.
+
+## 2026-05-16T04:23:52+07:00
+- Request: Add live section metadata above the Writer editor showing word count and relative edited time.
+- Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/lib/time.ts`, `tests/test_frontend_writer_static.py`, `frontend/eslint.config.mjs`, `frontend/package.json`, `JOURNAL.md`.
+- Current status: Added a single muted right-aligned metadata row above the active section editor, computed from the in-memory draft via `editorContent.trim().split(/\s+/).filter(Boolean).length`, and rendered `Edited ...` from `activeSection.updated_at` through a local `formatRelativeTime` helper. Added static coverage for the word-count formula and relative-time wiring. Restored frontend verification scripts for Next 16 with ESLint CLI and `typecheck`. `uv run pytest tests/test_frontend_writer_static.py::test_writer_workspace_renders_section_metadata_from_live_draft -q` → passed; `cd frontend && npm run typecheck` → clean; `cd frontend && npm run lint` → exits 0 with 18 existing warnings.
+
+## 2026-05-16T04:32:34+07:00
+- Request: Add discoverable keyboard shortcuts to the Writer workspace.
+- Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/hooks/useWriterShortcuts.tsx`, `frontend/hooks/useWriterShortcuts.test.tsx`, `frontend/vitest.config.ts`, `frontend/package.json`, `JOURNAL.md`.
+- Current status: Added document-scoped Writer shortcuts via `useWriterShortcuts`, using Cmd on macOS and Ctrl elsewhere. The editor overlay now exposes an imperative handle for edit, insert, preview apply, and close/reject actions. Added a plain cheatsheet modal and a "Press ? for shortcuts" badge near the section metadata. Added Vitest/jsdom coverage for Cmd+E, Escape, and Shift+?. `cd frontend && npm run lint` → exits 0 with 18 existing warnings; `cd frontend && npm run typecheck` → clean; `cd frontend && npm test` → 3 passed.
