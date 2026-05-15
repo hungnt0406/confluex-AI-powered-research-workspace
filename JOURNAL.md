@@ -1575,3 +1575,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Remove the downward icon next to the Confluex logo on the chat page.
 - Files changed: `frontend/components/ChatWorkspace.tsx`, `tests/test_frontend_deep_search_static.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Removed the header `expand_more` icon next to the chat-page logo and added a static regression so the logo does not render that adjacent dropdown icon again. `python -m pytest tests/test_frontend_deep_search_static.py -x` → 19 passed; `cd frontend && ./node_modules/.bin/tsc --noEmit` → clean.
+
+## 2026-05-16T02:01:38+07:00
+- Request: Add a Terms of Usage agreement checkbox to the signup flow; block sign up unless the user agrees.
+- Files changed: `frontend/app/login/page.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Register mode now renders an "I agree to the Terms of Usage" checkbox linking to `/terms`. Submit button is disabled and a clear error is shown until the box is checked; the same guard applies to the Google sign-in path when in register mode. Switching back to login resets the checkbox/error.
