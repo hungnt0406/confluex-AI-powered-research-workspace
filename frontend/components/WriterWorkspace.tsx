@@ -55,6 +55,7 @@ const MonacoEditor = dynamic(
 
 type RightTab = "questions" | "sources" | "qa";
 type EditorViewMode = "visual" | "source";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const WRITER_OUTLINE_PANEL_WIDTH = 220;
 const WRITER_EDITOR_MIN_WIDTH = 280;
@@ -64,6 +65,81 @@ const WRITER_RIGHT_PANEL_MAX_WIDTH = 720;
 interface WriterWorkspaceProps {
   initialDocument: WriterDocumentRead;
   token: string;
+}
+
+function SaveStatusPill({
+  status,
+  lastSavedAt,
+  error,
+  onRetry,
+}: {
+  status: SaveStatus;
+  lastSavedAt: number | null;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (status === "idle") return null;
+
+  if (status === "saving") {
+    return (
+      <span
+        aria-live="polite"
+        className="inline-flex items-center gap-1 text-stone-500"
+      >
+        <span
+          className="material-symbols-outlined animate-spin"
+          style={{ fontSize: "13px" }}
+          aria-hidden="true"
+        >
+          progress_activity
+        </span>
+        Saving…
+      </span>
+    );
+  }
+
+  if (status === "saved") {
+    return (
+      <span
+        aria-live="polite"
+        className="inline-flex items-center gap-1 text-emerald-600"
+      >
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: "13px" }}
+          aria-hidden="true"
+        >
+          check_circle
+        </span>
+        Saved {lastSavedAt ? formatRelativeTime(new Date(lastSavedAt).toISOString()) : "just now"}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      aria-live="polite"
+      className="inline-flex items-center gap-1.5 text-red-600"
+      title={error ?? "Save failed"}
+    >
+      <span
+        className="material-symbols-outlined"
+        style={{ fontSize: "13px" }}
+        aria-hidden="true"
+      >
+        warning
+      </span>
+      Save failed
+      <button
+        type="button"
+        onClick={onRetry}
+        aria-label="Retry saving section"
+        className="rounded-full border border-red-200 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-50"
+      >
+        Retry
+      </button>
+    </span>
+  );
 }
 
 function findScrollAncestor(el: HTMLElement | null): HTMLElement | null {
@@ -110,7 +186,7 @@ function AssembleModal({
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant hover:bg-primary/5 transition-colors"
             aria-label="Close"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>close</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }} aria-hidden="true">close</span>
           </button>
         </div>
 
@@ -253,9 +329,14 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   >([]);
   const [inlineFlashKey, setInlineFlashKey] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef<string>("");
+  const saveGenerationRef = useRef(0);
+  const activeSectionIdRef = useRef<string | null>(activeSectionId);
   const editorRootRef = useRef<HTMLDivElement | null>(null);
   const editorOverlayRef = useRef<WriterShortcutOverlayHandle | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -264,7 +345,9 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const rightPanelStartWidthRef = useRef(0);
 
   const activeSection = document.sections.find((s) => s.id === activeSectionId) ?? null;
+  activeSectionIdRef.current = activeSectionId;
   const chatHref = document.project_id ? `/chat?project=${document.project_id}` : "/writer";
+  const writerChatUserId = useMemo(() => loadUser()?.id ?? "anon", []);
   const shortcuts = useWriterShortcuts({
     overlayRef: editorOverlayRef,
     editorRootRef,
@@ -352,6 +435,14 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
     setEditorContent(content);
     editorContentRef.current = content;
     lastSavedContentRef.current = content;
+    saveGenerationRef.current += 1;
+    setSaveStatus("idle");
+    setLastSavedAt(null);
+    setSaveError(null);
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
     if (activeSectionId) {
       setHistoryBySection((prev) => {
         if (prev[activeSectionId]) return prev;
@@ -385,10 +476,21 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const activeHistory = activeSectionId ? historyBySection[activeSectionId] : undefined;
   const canUndo = (activeHistory?.past.length ?? 0) > 0;
   const canRedo = (activeHistory?.future.length ?? 0) > 0;
-  const activeSectionWordCount = useMemo(
-    () => editorContent.trim().split(/\s+/).filter(Boolean).length,
-    [editorContent],
-  );
+  const editorMetrics = useMemo(() => {
+    const trimmed = editorContent.trim();
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    const paragraphs = trimmed ? trimmed.split(/\n\s*\n/).filter(Boolean).length : 0;
+    const minutes = Math.max(1, Math.round(words / 200));
+    return { words, paragraphs, minutes };
+  }, [editorContent]);
+  const editorMetricsLabel =
+    editorMetrics.words === 0
+      ? "Empty section"
+      : `${editorMetrics.words} ${editorMetrics.words === 1 ? "word" : "words"} · ${
+          editorMetrics.paragraphs
+        } ¶ · ~${editorMetrics.minutes} ${
+          editorMetrics.minutes === 1 ? "min" : "mins"
+        }`;
 
   // Focus title input when editing
   useEffect(() => {
@@ -397,6 +499,38 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       titleInputRef.current?.select();
     }
   }, [editingTitle]);
+
+  const persistSectionContent = useCallback(
+    async (sectionId: string, value: string, generation: number) => {
+      const isCurrentSection = () =>
+        activeSectionIdRef.current === sectionId && saveGenerationRef.current === generation;
+
+      if (isCurrentSection()) {
+        setSaveStatus("saving");
+      }
+
+      try {
+        const updated = await saveSectionEdit(document.id, sectionId, value, token);
+        if (isCurrentSection()) {
+          lastSavedContentRef.current = value;
+          setLastSavedAt(Date.now());
+          setSaveStatus("saved");
+          setSaveError(null);
+        }
+        setDocument((prev) => ({
+          ...prev,
+          sections: prev.sections.map((s) => (s.id === updated.id ? updated : s)),
+        }));
+        pushHistory(sectionId, value);
+      } catch (err) {
+        if (isCurrentSection()) {
+          setSaveStatus("error");
+          setSaveError(err instanceof Error ? err.message : "Save failed");
+        }
+      }
+    },
+    [document.id, pushHistory, token],
+  );
 
   // Auto-save debounced
   const handleEditorChange = useCallback(
@@ -408,23 +542,35 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
 
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
-      saveTimerRef.current = setTimeout(async () => {
-        if (!activeSection || value === lastSavedContentRef.current) return;
-        try {
-          const updated = await saveSectionEdit(document.id, activeSection.id, value, token);
-          lastSavedContentRef.current = value;
-          setDocument((prev) => ({
-            ...prev,
-            sections: prev.sections.map((s) => (s.id === updated.id ? updated : s)),
-          }));
-          pushHistory(activeSection.id, value);
-        } catch {
-          // Silent auto-save failure — user can retry manually
+      const sectionId = activeSection?.id;
+      saveGenerationRef.current += 1;
+      const generation = saveGenerationRef.current;
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        if (!sectionId) return;
+        if (value === lastSavedContentRef.current) {
+          setSaveStatus("idle");
+          return;
         }
+        void persistSectionContent(sectionId, value, generation);
       }, 1000);
     },
-    [activeSection, chatApplyInFlight, document.id, hasPendingEditorPatch, pushHistory, token],
+    [
+      activeSection?.id,
+      chatApplyInFlight,
+      hasPendingEditorPatch,
+      persistSectionContent,
+    ],
   );
+
+  const retrySave = useCallback(() => {
+    if (!activeSection) return;
+    void persistSectionContent(
+      activeSection.id,
+      editorContentRef.current,
+      saveGenerationRef.current,
+    );
+  }, [activeSection, persistSectionContent]);
 
   // Refresh the document from the server (called after a chat-driven patch is applied).
   const refreshDocument = useCallback(async () => {
@@ -582,6 +728,14 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
     [activeSectionId, flashSpan, pendingChatPatches],
   );
 
+  const closeChatPanel = useCallback(() => {
+    setChatOpen(false);
+  }, []);
+
+  const requestSourceView = useCallback(() => {
+    setViewMode("source");
+  }, []);
+
   // Cleanup timer
   useEffect(() => {
     return () => {
@@ -722,6 +876,12 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background font-ui text-on-surface">
+      <a
+        href="#writer-editor"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-xs focus:font-semibold focus:text-white"
+      >
+        Skip to editor
+      </a>
       {/* Top bar */}
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-outline/20 bg-surface-container px-4">
         {/* Editable title */}
@@ -775,7 +935,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                 className="flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant hover:bg-primary/10 transition-colors disabled:opacity-40"
                 aria-label="Save title"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>check</span>
+                <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">check</span>
               </button>
               <button
                 type="button"
@@ -784,7 +944,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                 className="flex h-7 w-7 items-center justify-center rounded-md text-on-surface-variant hover:bg-primary/10 transition-colors disabled:opacity-40"
                 aria-label="Cancel title edit"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>close</span>
+                <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">close</span>
               </button>
             </form>
           ) : (
@@ -798,6 +958,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               <span
                 className="material-symbols-outlined shrink-0 text-hint opacity-0 group-hover:opacity-100 transition-opacity"
                 style={{ fontSize: "14px" }}
+                aria-hidden="true"
               >
                 edit
               </span>
@@ -833,7 +994,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               title="Undo"
               className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>undo</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }} aria-hidden="true">undo</span>
             </button>
             <button
               type="button"
@@ -843,7 +1004,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               title="Redo"
               className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>redo</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }} aria-hidden="true">redo</span>
             </button>
           </div>
           <button
@@ -853,11 +1014,11 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             className="flex h-8 items-center gap-1.5 rounded-full border border-outline/25 bg-surface-container-lowest px-3 text-xs font-semibold text-on-surface hover:bg-primary/5 hover:border-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {assembling ? (
-              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }} aria-hidden="true">
                 progress_activity
               </span>
             ) : (
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>code</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">code</span>
             )}
             {assembling ? "Assembling…" : "Assemble"}
           </button>
@@ -868,11 +1029,11 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             className="flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {exporting ? (
-              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }} aria-hidden="true">
                 progress_activity
               </span>
             ) : (
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>download</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">download</span>
             )}
             {exporting ? "Exporting…" : "Export"}
           </button>
@@ -884,7 +1045,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         <div className="shrink-0 border-b border-rose-500/20 bg-rose-50 px-4 py-2 text-[11px] text-rose-700 md:hidden">
           {error}
           <button type="button" onClick={() => setError(null)} className="ml-2 text-rose-500 hover:text-rose-700">
-            <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>close</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "12px" }} aria-hidden="true">close</span>
           </button>
         </div>
       )}
@@ -965,7 +1126,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                       }`}
                       title={mode === "visual" ? "Visual prose editor" : "LaTeX source editor"}
                     >
-                      <span className="material-symbols-outlined" style={{ fontSize: "12px" }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: "12px" }} aria-hidden="true">
                         {mode === "visual" ? "edit_note" : "code"}
                       </span>
                       {mode}
@@ -986,7 +1147,11 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               the prose editor's root — no banner needed. */}
 
           {/* Editor */}
-          <div className="relative flex-1 overflow-hidden">
+          <div
+            id="writer-editor"
+            tabIndex={0}
+            className="relative flex-1 overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-inset"
+          >
             {!chatOpen && (
               <button
                 type="button"
@@ -1018,8 +1183,16 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                   <span className="rounded-full bg-stone-200/70 px-2 py-0.5 text-[11px] text-stone-500">
                     Press ? for shortcuts
                   </span>
-                  <span>{activeSectionWordCount === 1 ? "1 word" : `${activeSectionWordCount} words`}</span>
-                  <span>Edited {formatRelativeTime(activeSection.updated_at)}</span>
+                  <SaveStatusPill
+                    status={saveStatus}
+                    lastSavedAt={lastSavedAt}
+                    error={saveError}
+                    onRetry={retrySave}
+                  />
+                  <span>{editorMetricsLabel}</span>
+                  {saveStatus !== "saved" && (
+                    <span>Edited {formatRelativeTime(activeSection.updated_at)}</span>
+                  )}
                 </div>
                 {viewMode === "visual" ? (
                   <>
@@ -1088,7 +1261,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             aria-label="Open side panel"
             className="flex h-full w-8 shrink-0 items-center justify-center border-l border-outline/20 bg-surface-container text-on-surface-variant hover:bg-primary/5 hover:text-primary"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }} aria-hidden="true">
               chevron_left
             </span>
           </button>
@@ -1125,7 +1298,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                 aria-selected={rightTab === tab.id}
                 role="tab"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">
                   {tab.icon}
                 </span>
                 <span className="hidden sm:inline">{tab.label}</span>
@@ -1137,7 +1310,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               aria-label="Close side panel"
               className="flex h-full w-9 items-center justify-center border-l border-outline/20 text-on-surface-variant hover:bg-primary/5 hover:text-primary"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }} aria-hidden="true">
                 chevron_right
               </span>
             </button>
@@ -1184,7 +1357,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
       {/* Document chat panel (floating) */}
       <WriterChatPanel
         documentId={document.id}
-        userId={loadUser()?.id ?? "anon"}
+        userId={writerChatUserId}
         token={token}
         sections={document.sections}
         onAfterPatchApplied={refreshDocument}
@@ -1193,7 +1366,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
         onPatchesAvailable={handlePatchesAvailable}
         externalPatchStatusUpdates={chatPatchStatusUpdates}
         open={chatOpen}
-        onClose={() => setChatOpen(false)}
+        onClose={closeChatPanel}
       />
 
       {/* Inline diff overlay. Source mode uses Monaco APIs (decorations / view zones).
@@ -1225,7 +1398,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
           onAfterPatchApplied={refreshDocument}
           setChatBusy={setChatApplyInFlight}
           flashKey={inlineFlashKey}
-          onRequestSourceView={() => setViewMode("source")}
+          onRequestSourceView={requestSourceView}
         />
       )}
     </div>
