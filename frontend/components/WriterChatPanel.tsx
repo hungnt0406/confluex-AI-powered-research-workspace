@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -247,7 +248,7 @@ function PatchRow({
   );
 }
 
-export function WriterChatPanel({
+export function WriterChatPanelImpl({
   documentId,
   userId,
   token,
@@ -644,7 +645,7 @@ export function WriterChatPanel({
             aria-label="Close chat panel"
             className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-outline/15 hover:text-on-surface"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>close</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }} aria-hidden="true">close</span>
           </button>
         </div>
       </div>
@@ -756,7 +757,7 @@ export function WriterChatPanel({
           <div className="flex justify-start">
             <div className="max-w-[60%] rounded-2xl rounded-bl-sm border border-outline/20 bg-surface-container-lowest px-3 py-2 text-xs text-on-surface-variant">
               <span className="inline-flex items-center gap-2">
-                <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+                <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }} aria-hidden="true">
                   progress_activity
                 </span>
                 Thinking…
@@ -810,11 +811,11 @@ export function WriterChatPanel({
             aria-label="Send"
           >
             {isSending ? (
-              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }}>
+              <span className="material-symbols-outlined animate-spin" style={{ fontSize: "14px" }} aria-hidden="true">
                 progress_activity
               </span>
             ) : (
-              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>arrow_upward</span>
+              <span className="material-symbols-outlined" style={{ fontSize: "14px" }} aria-hidden="true">arrow_upward</span>
             )}
           </button>
         </div>
@@ -832,3 +833,7 @@ export function WriterChatPanel({
     </div>
   );
 }
+
+export const WriterChatPanel = memo(WriterChatPanelImpl);
+WriterChatPanel.displayName = "WriterChatPanel";
+export default WriterChatPanel;
