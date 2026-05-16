@@ -1,0 +1,1 @@
+- 2026-05-16T11:29:49+0700: Verified Writer Workspace features (Prompt-echo revision, section metadata, and shortcuts) via browser tests.
