@@ -1,4 +1,12 @@
-import { RefObject, useEffect, useMemo, useState } from "react";
+import {
+  type RefObject,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export interface WriterShortcutOverlayHandle {
   openSelection: () => boolean;
@@ -116,28 +124,83 @@ export function WriterShortcutsModal({
   modifierLabel: string;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const bindings = SHORTCUTS.map((shortcut) => ({
     ...shortcut,
     label: keyLabel(modifierLabel, shortcut.keys),
   }));
 
+  const closeModal = useCallback(() => {
+    onClose();
+  }, [onClose]);
+
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeModal();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          "a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [closeModal],
+  );
+
+  useEffect(() => {
+    previouslyFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+
+    return () => {
+      previouslyFocusedRef.current?.focus();
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Keyboard shortcuts"
+        aria-labelledby="writer-shortcuts-title"
+        onKeyDown={handleKeyDown}
         className="w-[420px] max-w-[92vw] rounded-2xl border border-outline/20 bg-surface p-4 shadow-2xl"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-on-surface">Keyboard shortcuts</h2>
+          <h2 id="writer-shortcuts-title" className="text-sm font-semibold text-on-surface">
+            Keyboard shortcuts
+          </h2>
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={onClose}
+            onClick={closeModal}
             aria-label="Close shortcuts"
             className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant hover:bg-primary/5"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: "16px" }} aria-hidden="true">
               close
             </span>
           </button>
