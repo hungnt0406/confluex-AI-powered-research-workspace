@@ -187,6 +187,7 @@ function AcceptToolbar({
   onReject,
 }: AcceptToolbarProps) {
   const rationale = resolved.entry.patch.rationale || "Suggested edit";
+  const sectionTitle = resolved.entry.patch.section_title || "section";
 
   if (stale) {
     return (
@@ -214,7 +215,7 @@ function AcceptToolbar({
         onClick={onAccept}
         disabled={busy}
         className="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-        aria-label="Accept inline edit"
+        aria-label={`Accept inline edit for ${sectionTitle}`}
       >
         {busy ? (
           <span
@@ -234,7 +235,7 @@ function AcceptToolbar({
         onClick={onReject}
         disabled={busy}
         className="inline-flex h-6 items-center gap-1 rounded-full border border-outline/30 bg-surface-container-lowest px-2.5 text-[11px] font-semibold text-on-surface hover:bg-primary/5 disabled:opacity-50"
-        aria-label="Reject inline edit"
+        aria-label={`Reject inline edit for ${sectionTitle}`}
       >
         <span aria-hidden="true">✕</span>
         Reject
@@ -590,7 +591,12 @@ export function WriterChatInlineDiff({
   );
 
   return (
-    <>
+    <div role="status" aria-live="polite" className="contents">
+      <span className="sr-only">
+        {resolved.length > 0
+          ? `${resolved.length} suggested ${resolved.length === 1 ? "edit" : "edits"} available`
+          : ""}
+      </span>
       {globalStyles}
       {creditsExhausted && (
         <div className="pointer-events-auto fixed bottom-4 left-1/2 z-[80] -translate-x-1/2 rounded-full border border-rose-200/60 bg-rose-50 px-4 py-2 text-[11px] font-semibold text-rose-700 shadow dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
@@ -622,6 +628,6 @@ export function WriterChatInlineDiff({
           node,
         );
       })}
-    </>
+    </div>
   );
 }
