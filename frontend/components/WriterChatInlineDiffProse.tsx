@@ -294,6 +294,7 @@ function AcceptToolbar({
   onReject,
 }: AcceptToolbarProps) {
   const rationale = entry.patch.rationale || "Suggested edit";
+  const sectionTitle = entry.patch.section_title || "section";
 
   if (stale) {
     return (
@@ -321,7 +322,7 @@ function AcceptToolbar({
         onClick={onAccept}
         disabled={busy}
         className="inline-flex h-5 items-center justify-center rounded-full bg-emerald-600 px-1.5 text-[10px] font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50"
-        aria-label="Accept inline edit"
+        aria-label={`Accept inline edit for ${sectionTitle}`}
       >
         {busy ? (
           <span
@@ -340,7 +341,7 @@ function AcceptToolbar({
         onClick={onReject}
         disabled={busy}
         className="inline-flex h-5 items-center justify-center rounded-full border border-stone-300 bg-white px-1.5 text-[10px] font-semibold text-stone-700 shadow-sm hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-        aria-label="Reject inline edit"
+        aria-label={`Reject inline edit for ${sectionTitle}`}
       >
         <span aria-hidden="true">✕</span>
       </button>
@@ -909,7 +910,14 @@ export function WriterChatInlineDiffProse({
   if (!proseAdapter || !overlayRoot) return null;
 
   const overlayContent = (
-    <>
+    <div role="status" aria-live="polite" className="contents">
+      <span className="sr-only">
+        {visiblePatches.length > 0
+          ? `${visiblePatches.length} suggested ${
+              visiblePatches.length === 1 ? "edit" : "edits"
+            } available`
+          : ""}
+      </span>
       {overlays.map((ov, ovIdx) => {
         const fullText = ov.block.textContent ?? "";
         const segments: JSX.Element[] = [];
@@ -1120,7 +1128,7 @@ export function WriterChatInlineDiffProse({
           </div>
         );
       })}
-    </>
+    </div>
   );
 
   return (
