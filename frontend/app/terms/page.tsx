@@ -196,7 +196,7 @@ export default function TermsPage() {
   const t = UI[lang];
 
   return (
-    <main className="min-h-screen bg-background font-ui text-on-surface">
+    <main className="h-screen overflow-y-auto bg-background font-ui text-on-surface custom-scrollbar">
       <header className="sticky top-0 z-10 border-b border-outline/20 bg-background/85 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
