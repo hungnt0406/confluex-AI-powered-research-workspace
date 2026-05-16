@@ -47,6 +47,16 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-16T12:02:41+07:00
+- **Request:** Implement Batch A writer workspace polish: autosave status, editor metrics, chat panel memoization, and accessibility sweep.
+- **Files changed:** `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterChatPanel.tsx`, `frontend/components/WriterChatInlineDiff.tsx`, `frontend/components/WriterChatInlineDiffProse.tsx`, `frontend/hooks/useWriterShortcuts.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
+- **Current status:** Added live autosave feedback with retry, richer section metrics, stable chat-panel props with `React.memo`, skip-to-editor/focus-trap/aria-live improvements, and updated writer static assertions. Verification passed for frontend typecheck, frontend lint with warnings only, targeted writer lint with warnings only, and `uv run pytest tests/test_frontend_writer_static.py -q`.
+
+### 2026-05-16T11:30:42+07:00
+- **Request:** Fix the Terms of Usage page so users can scroll down.
+- **Files changed:** `frontend/app/terms/page.tsx`, `tests/test_frontend_terms_static.py`, `JOURNAL.md`.
+- **Current status:** Made the terms page root its own `h-screen overflow-y-auto` scroll container because the global app layout locks body scrolling. Added a static regression that keeps this route scrollable under the locked body shell. Verification passed for `uv run pytest tests/test_frontend_terms_static.py -q` and `cd frontend && ./node_modules/.bin/tsc --noEmit`.
+
 ### 2026-05-15T15:43:22+07:00
 - **Request:** Fix Deep Search returning `network error` during the final “Synthesizing the answer” phase.
 - **Files changed:** `backend/services/deep_search.py`, `tests/test_deep_search.py`, `JOURNAL.md`.
@@ -1610,3 +1620,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Add discoverable keyboard shortcuts to the Writer workspace.
 - Files changed: `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterEditorOverlay.tsx`, `frontend/hooks/useWriterShortcuts.tsx`, `frontend/hooks/useWriterShortcuts.test.tsx`, `frontend/vitest.config.ts`, `frontend/package.json`, `JOURNAL.md`.
 - Current status: Added document-scoped Writer shortcuts via `useWriterShortcuts`, using Cmd on macOS and Ctrl elsewhere. The editor overlay now exposes an imperative handle for edit, insert, preview apply, and close/reject actions. Added a plain cheatsheet modal and a "Press ? for shortcuts" badge near the section metadata. Added Vitest/jsdom coverage for Cmd+E, Escape, and Shift+?. `cd frontend && npm run lint` → exits 0 with 18 existing warnings; `cd frontend && npm run typecheck` → clean; `cd frontend && npm test` → 3 passed.
+
+## 2026-05-16T11:29:49+0700
+- Request: Test each of these feature sequentially, do the items in the test sequentially (Prompt 1, 2, 3 browser tests).
+- Files changed: `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Executed the BROWSER TEST (antigravity) scenarios for Writer Workspace features using the browser_subagent. Verified the prompt-echo rejection on the revise path, the live section metadata header (word count and relative time), and the discoverable keyboard shortcuts (?, Cmd+E, Cmd+Shift+E, Undo/Redo) with the cheatsheet modal. All UI flows behave as expected.
