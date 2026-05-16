@@ -249,10 +249,14 @@ def test_writer_workspace_renders_section_metadata_from_live_draft() -> None:
     time_util = (REPO_ROOT / "frontend/lib/time.ts").read_text()
 
     assert "import { formatRelativeTime } from \"@/lib/time\";" in workspace
-    assert "const activeSectionWordCount = useMemo(" in workspace
-    assert "editorContent.trim().split(/\\s+/).filter(Boolean).length" in workspace
-    assert "1 word" in workspace
-    assert "words" in workspace
+    assert "const editorMetrics = useMemo(() => {" in workspace
+    assert "const words = trimmed ? trimmed.split(/\\s+/).length : 0;" in workspace
+    assert "const paragraphs = trimmed ? trimmed.split(/\\n\\s*\\n/).filter(Boolean).length : 0;" in workspace
+    assert "const minutes = Math.max(1, Math.round(words / 200));" in workspace
+    assert "Empty section" in workspace
+    assert 'editorMetrics.words === 1 ? "word" : "words"' in workspace
+    assert "¶" in workspace
+    assert "~${editorMetrics.minutes}" in workspace
     assert "Edited {formatRelativeTime(activeSection.updated_at)}" in workspace
     assert "justify-end" in workspace
     assert "border" not in re.search(
@@ -271,7 +275,7 @@ def test_writer_workspace_has_undo_redo_buttons() -> None:
 
     assert "const [historyBySection, setHistoryBySection] = useState<" in workspace
     assert "const pushHistory = useCallback((sectionId: string, content: string)" in workspace
-    assert "pushHistory(activeSection.id, value);" in workspace
+    assert "pushHistory(sectionId, value);" in workspace
     assert "pushHistory(section.id, newContent);" in workspace
     assert "const handleUndo = useCallback(" in workspace
     assert "const handleRedo = useCallback(" in workspace
@@ -470,7 +474,8 @@ def test_writer_workspace_mounts_prose_inline_diff_in_visual_mode() -> None:
     assert "import { WriterChatInlineDiffProse }" in workspace
     assert "<WriterChatInlineDiffProse" in workspace
     assert "proseAdapter={proseAdapter}" in workspace
-    assert "onRequestSourceView={() => setViewMode(\"source\")}" in workspace
+    assert "const requestSourceView = useCallback(() => {" in workspace
+    assert "onRequestSourceView={requestSourceView}" in workspace
 
 
 def test_sidebar_project_clicks_route_to_project_chat() -> None:
