@@ -47,7 +47,11 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
-### 2026-05-16T12:02:41+07:00
+### 2026-05-17T16:20:53+07:00
+- **Request:** Follow `PULL_REQUEST.md` to commit and merge changes from `copyfail` branch.
+- **Files changed:** `frontend/components/ChatWorkspace.tsx`, `frontend/pnpm-workspace.yaml`, `frontend/tsconfig.tsbuildinfo`.
+- **Current status:** Added `MessageActions` component (copy, helpful/not-helpful) to `ChatWorkspace.tsx`, fixed `unrs-resolver` in `pnpm-workspace.yaml`, and updated `tsconfig.tsbuildinfo`. Changes were committed individually, pushed, and merged into `main` via two pull requests following the batch-of-2-files workflow in `PULL_REQUEST.md`. Verification: frontend typecheck passed; local working tree clean.
+
 - **Request:** Implement Batch A writer workspace polish: autosave status, editor metrics, chat panel memoization, and accessibility sweep.
 - **Files changed:** `frontend/components/WriterWorkspace.tsx`, `frontend/components/WriterChatPanel.tsx`, `frontend/components/WriterChatInlineDiff.tsx`, `frontend/components/WriterChatInlineDiffProse.tsx`, `frontend/hooks/useWriterShortcuts.tsx`, `tests/test_frontend_writer_static.py`, `JOURNAL.md`.
 - **Current status:** Added live autosave feedback with retry, richer section metrics, stable chat-panel props with `React.memo`, skip-to-editor/focus-trap/aria-live improvements, and updated writer static assertions. Verification passed for frontend typecheck, frontend lint with warnings only, targeted writer lint with warnings only, and `uv run pytest tests/test_frontend_writer_static.py -q`.
