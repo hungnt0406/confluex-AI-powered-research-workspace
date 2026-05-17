@@ -698,3 +698,40 @@ class WriterOutput(Base):
     )
 
     project: Mapped[Project] = relationship(back_populates="writer_outputs")
+
+
+class MessageFeedbackEvent(Base):
+    __tablename__ = "message_feedback_events"
+    __table_args__ = (
+        Index(
+            "ix_message_feedback_events_user_created_at",
+            "user_id",
+            "created_at",
+        ),
+        Index(
+            "ix_message_feedback_events_surface_action",
+            "surface",
+            "action",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_identifier)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    message_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    surface: Mapped[str] = mapped_column(String(32))
+    action: Mapped[str] = mapped_column(String(16))
+    content_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
