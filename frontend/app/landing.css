@@ -1386,3 +1386,31 @@
   transition: border-color var(--dur-fast) var(--ease);
 }
 .landing-root .plan-foot-link:hover { border-bottom-color: var(--primary); }
+
+/* Scroll reveal — fade + slide up, with optional stagger via data-reveal-delay */
+.landing-root [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity 700ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transition-delay: calc(var(--reveal-step, 0) * 90ms);
+  will-change: opacity, transform;
+}
+.landing-root [data-reveal].is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+.landing-root [data-reveal-delay="1"] { --reveal-step: 1; }
+.landing-root [data-reveal-delay="2"] { --reveal-step: 2; }
+.landing-root [data-reveal-delay="3"] { --reveal-step: 3; }
+.landing-root [data-reveal-delay="4"] { --reveal-step: 4; }
+.landing-root [data-reveal-delay="5"] { --reveal-step: 5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-root [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
