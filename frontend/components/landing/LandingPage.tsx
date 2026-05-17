@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRevealOnScroll } from "./useRevealOnScroll";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -234,7 +235,7 @@ function Hero() {
     <section id="top" className="hero surface-primary">
       <div className="container">
         <div className="hero-grid">
-          <div>
+          <div data-reveal>
             <div className="hero-eyebrow-row">
               <span className="pip"></span>
               <span className="label">AI Research Agent</span>
@@ -299,7 +300,7 @@ function Hero() {
             </div>
           </div>
 
-          <aside className="hero-side">
+          <aside className="hero-side" data-reveal data-reveal-delay="1">
             <ChatPreview />
           </aside>
         </div>
@@ -348,7 +349,7 @@ function VideoSection() {
   return (
     <section id="video" className="surface-paper video-section">
       <div className="container">
-        <div className="video-section-head">
+        <div className="video-section-head" data-reveal>
           <div>
             <div className="section-eyebrow">
               <span className="dot"></span>
@@ -369,7 +370,7 @@ function VideoSection() {
           </p>
         </div>
 
-        <div className="video-section-frame">
+        <div className="video-section-frame" data-reveal data-reveal-delay="1">
           <VideoSlot />
         </div>
 
@@ -399,7 +400,7 @@ function Sources() {
   return (
     <section id="sources" className="surface-container">
       <div className="container">
-        <div className="sources-top">
+        <div className="sources-top" data-reveal>
           <div>
             <div className="section-eyebrow">
               <span className="dot"></span>
@@ -421,8 +422,8 @@ function Sources() {
         </div>
 
         <div className="sources-grid">
-          {items.map((it) => (
-            <div className="source-cell" key={it.name}>
+          {items.map((it, idx) => (
+            <div className="source-cell" key={it.name} data-reveal data-reveal-delay={idx}>
               <span className="source-icon">
                 <MIcon name={it.icon} className="icon-20 icon-fill" />
               </span>
@@ -456,7 +457,7 @@ function Sample() {
   return (
     <section id="sample" className="surface-container">
       <div className="container">
-        <div className="sample-head">
+        <div className="sample-head" data-reveal>
           <div>
             <div className="section-eyebrow">
               <span className="dot"></span>
@@ -478,7 +479,7 @@ function Sample() {
           </p>
         </div>
 
-        <article className="doc">
+        <article className="doc" data-reveal data-reveal-delay="1">
           <header className="doc-header">
             <span className="meta">
               <span className="pip"></span>
@@ -618,12 +619,16 @@ const LANDING_PLANS: LandingPlan[] = [
   },
 ];
 
-function PlanCard({ plan }: { plan: LandingPlan }) {
+function PlanCard({ plan, revealIndex }: { plan: LandingPlan; revealIndex?: number }) {
   const target = plan.packId ? `/billing/checkout?pack=${plan.packId}` : CHAT_HREF;
   const href = useAuthedHref(target);
   const highlighted = plan.id === "researcher";
   return (
-    <article className={`plan-card ${highlighted ? "plan-card--featured" : ""}`}>
+    <article
+      className={`plan-card ${highlighted ? "plan-card--featured" : ""}`}
+      data-reveal
+      data-reveal-delay={revealIndex}
+    >
       {plan.badge && <span className="plan-badge">{plan.badge}</span>}
       <h3 className="plan-name">{plan.name}</h3>
       <p className="plan-tagline">{plan.tagline}</p>
@@ -653,7 +658,7 @@ function Pricing() {
   return (
     <section id="pricing" className="surface-paper">
       <div className="container">
-        <div className="pricing-head">
+        <div className="pricing-head" data-reveal>
           <div>
             <div className="section-eyebrow">
               <span className="dot"></span>
@@ -674,8 +679,8 @@ function Pricing() {
         </div>
 
         <div className="plan-grid">
-          {LANDING_PLANS.map((plan) => (
-            <PlanCard key={plan.id} plan={plan} />
+          {LANDING_PLANS.map((plan, idx) => (
+            <PlanCard key={plan.id} plan={plan} revealIndex={idx} />
           ))}
         </div>
 
@@ -697,7 +702,7 @@ function Footer() {
   const ctaLabel = ready && token ? "Open workspace" : "Start a review";
   return (
     <section className="surface-container">
-      <div className="container cta-wrap">
+      <div className="container cta-wrap" data-reveal>
         <div className="section-eyebrow" style={{ marginBottom: 24 }}>
           <span className="dot"></span>
           <span className="num">07</span>
@@ -739,6 +744,7 @@ function Footer() {
 }
 
 export default function LandingPage() {
+  useRevealOnScroll();
   return (
     <div className="landing-root">
       <TopNav />
