@@ -1899,14 +1899,41 @@ function MessageActions({ text }: { text: string }) {
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
 
   const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopyState("copied");
-      setTimeout(() => setCopyState("idle"), 2000);
-    } catch {
-      setCopyState("failed");
-      setTimeout(() => setCopyState("idle"), 2000);
+    const fallbackCopy = (value: string) => {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "0";
+      textarea.style.left = "0";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      let ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      document.body.removeChild(textarea);
+      return ok;
+    };
+
+    let succeeded = false;
+    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        succeeded = true;
+      } catch {
+        succeeded = false;
+      }
     }
+    if (!succeeded) {
+      succeeded = fallbackCopy(text);
+    }
+    setCopyState(succeeded ? "copied" : "failed");
+    setTimeout(() => setCopyState("idle"), 2000);
   };
 
   return (
@@ -1914,30 +1941,42 @@ function MessageActions({ text }: { text: string }) {
       <button
         type="button"
         onClick={() => setFeedback(feedback === "like" ? null : "like")}
-        className={`p-1.5 rounded-lg hover:bg-surface-container-high transition-colors ${feedback === "like" ? "text-primary" : ""}`}
-        title="Helpful"
+        className={`p-1 rounded-md transition-colors active:scale-95 ${feedback === "like" ? "bg-primary/15 text-primary ring-1 ring-primary/40" : "hover:bg-surface-container-high"}`}
+        title={feedback === "like" ? "Marked helpful" : "Helpful"}
         aria-label="Helpful"
+        aria-pressed={feedback === "like"}
       >
-        <span className="material-symbols-outlined text-[16px]">thumb_up</span>
+        <span
+          className="material-symbols-outlined text-[14px]"
+          style={feedback === "like" ? { fontVariationSettings: "'FILL' 1" } : undefined}
+        >
+          thumb_up
+        </span>
       </button>
       <button
         type="button"
         onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
-        className={`p-1.5 rounded-lg hover:bg-surface-container-high transition-colors ${feedback === "dislike" ? "text-rose-500" : ""}`}
-        title="Not helpful"
+        className={`p-1 rounded-md transition-colors active:scale-95 ${feedback === "dislike" ? "bg-rose-500/15 text-rose-500 ring-1 ring-rose-500/40" : "hover:bg-surface-container-high"}`}
+        title={feedback === "dislike" ? "Marked not helpful" : "Not helpful"}
         aria-label="Not helpful"
+        aria-pressed={feedback === "dislike"}
       >
-        <span className="material-symbols-outlined text-[16px]">thumb_down</span>
+        <span
+          className="material-symbols-outlined text-[14px]"
+          style={feedback === "dislike" ? { fontVariationSettings: "'FILL' 1" } : undefined}
+        >
+          thumb_down
+        </span>
       </button>
       <button
         type="button"
         onClick={() => void copyToClipboard()}
-        className="p-1.5 rounded-lg hover:bg-surface-container-high transition-colors flex items-center gap-1"
-        title="Copy"
+        className={`p-1 rounded-md hover:bg-surface-container-high transition-colors flex items-center gap-1 ${copyState === "copied" ? "text-primary" : copyState === "failed" ? "text-rose-500" : ""}`}
+        title={copyState === "failed" ? "Copy failed" : copyState === "copied" ? "Copied" : "Copy"}
         aria-label="Copy"
       >
-        <span className="material-symbols-outlined text-[16px]">
-          {copyState === "copied" ? "check" : "content_copy"}
+        <span className="material-symbols-outlined text-[14px]">
+          {copyState === "copied" ? "check" : copyState === "failed" ? "error" : "content_copy"}
         </span>
       </button>
     </div>
