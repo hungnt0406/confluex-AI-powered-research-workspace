@@ -329,6 +329,8 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   >([]);
   const [inlineFlashKey, setInlineFlashKey] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatButtonY, setChatButtonY] = useState<number | null>(null);
+  const chatButtonDragRef = useRef<{ startY: number; startOffsetY: number } | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1155,9 +1157,34 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
             {!chatOpen && (
               <button
                 type="button"
-                onClick={() => setChatOpen(true)}
+                onClick={() => {
+                  if (!chatButtonDragRef.current) setChatOpen(true);
+                }}
+                onMouseDown={(e) => {
+                  const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                  const btnRect = e.currentTarget.getBoundingClientRect();
+                  chatButtonDragRef.current = {
+                    startY: e.clientY,
+                    startOffsetY: btnRect.top - rect.top + btnRect.height / 2,
+                  };
+                  const onMove = (me: MouseEvent) => {
+                    if (!chatButtonDragRef.current) return;
+                    const delta = me.clientY - chatButtonDragRef.current.startY;
+                    const newY = chatButtonDragRef.current.startOffsetY + delta;
+                    const clampedY = Math.max(20, Math.min(rect.height - 20, newY));
+                    setChatButtonY(clampedY);
+                  };
+                  const onUp = () => {
+                    window.removeEventListener("mousemove", onMove);
+                    window.removeEventListener("mouseup", onUp);
+                    setTimeout(() => { chatButtonDragRef.current = null; }, 0);
+                  };
+                  window.addEventListener("mousemove", onMove);
+                  window.addEventListener("mouseup", onUp);
+                }}
                 aria-label="Open document chat"
-                className={`absolute top-3/4 right-0 z-10 -translate-y-1/2 inline-flex items-center gap-2 rounded-l-full rounded-r-none border-y border-l px-4 py-2.5 text-sm font-semibold shadow-md transition-all hover:shadow-lg ${
+                style={chatButtonY !== null ? { top: chatButtonY, transform: "translateY(-50%)" } : undefined}
+                className={`absolute ${chatButtonY === null ? "top-3/4 -translate-y-1/2" : ""} right-0 z-10 inline-flex cursor-grab items-center gap-2 rounded-l-full rounded-r-none border-y border-l px-4 py-2.5 text-sm font-semibold shadow-md transition-shadow hover:shadow-lg active:cursor-grabbing ${
                   viewMode === "source"
                     ? "border-stone-700 bg-stone-900 text-stone-200 hover:bg-stone-800"
                     : "border-outline/20 bg-surface text-on-surface hover:bg-primary/5"
