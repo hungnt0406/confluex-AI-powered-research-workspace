@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "d3-force-3d": "^3.0.6",
     "katex": "^0.16.45",
     "next": "^16.2.4",
     "react": "18.3.1",
