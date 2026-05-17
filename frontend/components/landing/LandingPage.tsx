@@ -311,7 +311,6 @@ function Hero() {
 const YOUTUBE_VIDEO_ID = "rM3WsTKg8_0";
 
 function VideoSlot() {
-  const [playing, setPlaying] = useState(false);
   return (
     <div className="video-slot">
       <div className="video-slot-chrome">
@@ -324,43 +323,23 @@ function VideoSlot() {
         </div>
         <div
           className="video-slot-body"
-          style={playing ? { padding: 0, position: "relative", overflow: "hidden" } : undefined}
+          style={{ padding: 0, position: "relative", overflow: "hidden" }}
         >
-          {playing ? (
-            <iframe
-              src={`https://www.youtube.com/embed/${YOUTUBE_VIDEO_ID}?autoplay=1&rel=0`}
-              title="Confluex walkthrough"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                border: 0,
-              }}
-            />
-          ) : (
-            <>
-              <button
-                className="play-btn"
-                aria-label="Play walkthrough"
-                onClick={() => setPlaying(true)}
-              >
-                <svg width="22" height="24" viewBox="0 0 22 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M21 11.27a2 2 0 0 1 0 3.46l-18 10.39A2 2 0 0 1 0 23.39V2.61A2 2 0 0 1 3 .88l18 10.39Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </button>
-              <div className="note">A two-minute walkthrough lives here.</div>
-              <div className="hint">Watch a full Confluex run from topic to defended survey.</div>
-            </>
-          )}
+          <iframe
+            src={`https://www.youtube.com/embed/${YOUTUBE_VIDEO_ID}?rel=0`}
+            title="Confluex walkthrough"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              border: 0,
+            }}
+          />
         </div>
       </div>
-      <div className="video-timecode">{playing ? "Now playing" : "00:00 / 02:14"}</div>
     </div>
   );
 }
