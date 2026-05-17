@@ -2,7 +2,13 @@
 
 > An AI-powered research assistant that automates the end-to-end literature review workflow — from paper discovery to grounded writing — so researchers spend their time thinking, not chasing PDFs.
 
-**Live demo:** _Coming soon — link will be added here._
+**Live demo:** https://drive.google.com/file/d/1PIsv3ITGsUUzvPko0TeNsiu7sbARx5qi/view?usp=drive_link
+
+
+ 
+**Pitch Deck:** https://drive.google.com/drive/folders/1GzQfuykHJA0NnhzvhFHNg2X22m1UqkAX?usp=drive_link
+
+**URL:** https://a20-app-143.vercel.app
 
 ## Table of contents
 
