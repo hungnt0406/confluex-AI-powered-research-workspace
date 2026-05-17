@@ -729,7 +729,12 @@ function AgentBubble({
         ) : isStatus ? (
           message.content
         ) : (
-          <MarkdownContent text={message.content} sources={message.sources ?? []} />
+          <div className="flex flex-col group/message">
+            <MarkdownContent text={message.content} sources={message.sources ?? []} />
+            <div className="opacity-0 group-hover/message:opacity-100 transition-opacity">
+              <MessageActions text={message.content} />
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -1887,4 +1892,54 @@ function isPdfFile(file: File) {
 
 function isUploadedPaper(paper: ProjectPaper) {
   return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
+}
+
+function MessageActions({ text }: { text: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState("copied");
+      setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("failed");
+      setTimeout(() => setCopyState("idle"), 2000);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1 mt-2 text-on-surface-variant">
+      <button
+        type="button"
+        onClick={() => setFeedback(feedback === "like" ? null : "like")}
+        className={`p-1.5 rounded-lg hover:bg-surface-container-high transition-colors ${feedback === "like" ? "text-primary" : ""}`}
+        title="Helpful"
+        aria-label="Helpful"
+      >
+        <span className="material-symbols-outlined text-[16px]">thumb_up</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
+        className={`p-1.5 rounded-lg hover:bg-surface-container-high transition-colors ${feedback === "dislike" ? "text-rose-500" : ""}`}
+        title="Not helpful"
+        aria-label="Not helpful"
+      >
+        <span className="material-symbols-outlined text-[16px]">thumb_down</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => void copyToClipboard()}
+        className="p-1.5 rounded-lg hover:bg-surface-container-high transition-colors flex items-center gap-1"
+        title="Copy"
+        aria-label="Copy"
+      >
+        <span className="material-symbols-outlined text-[16px]">
+          {copyState === "copied" ? "check" : "content_copy"}
+        </span>
+      </button>
+    </div>
+  );
 }
