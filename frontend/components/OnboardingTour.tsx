@@ -441,13 +441,12 @@ export default function OnboardingTour({ variant }: OnboardingTourProps) {
         <button
           type="button"
           onClick={restart}
-          className="fixed right-6 bottom-6 z-[55] inline-flex items-center gap-2 rounded-full bg-[#1d2d18] px-3.5 py-2.5 text-xs font-semibold text-white shadow-lg transition-colors hover:bg-[#32432c]"
+          className="fixed right-6 bottom-6 z-[55] inline-flex items-center rounded-full bg-[#1d2d18] p-2.5 text-white shadow-lg transition-colors hover:bg-[#32432c]"
           aria-label="Restart tour"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 20" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 0,'wght' 300,'GRAD' 0,'opsz' 20", marginLeft: "4px" }}>
             tips_and_updates
           </span>
-          Restart tour
         </button>
       )}
     </>
