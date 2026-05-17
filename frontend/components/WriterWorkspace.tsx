@@ -330,7 +330,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
   const [inlineFlashKey, setInlineFlashKey] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatButtonY, setChatButtonY] = useState<number | null>(null);
-  const chatButtonDragRef = useRef<{ startY: number; startOffsetY: number } | null>(null);
+  const chatButtonDragRef = useRef<{ startY: number; startOffsetY: number; didDrag: boolean } | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1158,7 +1158,8 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
               <button
                 type="button"
                 onClick={() => {
-                  if (!chatButtonDragRef.current) setChatOpen(true);
+                  if (!chatButtonDragRef.current?.didDrag) setChatOpen(true);
+                  chatButtonDragRef.current = null;
                 }}
                 onMouseDown={(e) => {
                   const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
@@ -1166,10 +1167,14 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                   chatButtonDragRef.current = {
                     startY: e.clientY,
                     startOffsetY: btnRect.top - rect.top + btnRect.height / 2,
+                    didDrag: false,
                   };
+                  const DRAG_THRESHOLD_PX = 4;
                   const onMove = (me: MouseEvent) => {
                     if (!chatButtonDragRef.current) return;
                     const delta = me.clientY - chatButtonDragRef.current.startY;
+                    if (!chatButtonDragRef.current.didDrag && Math.abs(delta) < DRAG_THRESHOLD_PX) return;
+                    chatButtonDragRef.current.didDrag = true;
                     const newY = chatButtonDragRef.current.startOffsetY + delta;
                     const clampedY = Math.max(20, Math.min(rect.height - 20, newY));
                     setChatButtonY(clampedY);
@@ -1177,7 +1182,6 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                   const onUp = () => {
                     window.removeEventListener("mousemove", onMove);
                     window.removeEventListener("mouseup", onUp);
-                    setTimeout(() => { chatButtonDragRef.current = null; }, 0);
                   };
                   window.addEventListener("mousemove", onMove);
                   window.addEventListener("mouseup", onUp);
