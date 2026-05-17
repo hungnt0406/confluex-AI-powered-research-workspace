@@ -1669,3 +1669,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Add more animation to the landing page.
 - Files changed: frontend/components/landing/LandingPage.tsx, frontend/components/landing/useRevealOnScroll.ts (new), frontend/app/landing.css
 - Current status: Added IntersectionObserver-based scroll-reveal (fade + slide-up) for hero, video, sources, sample, pricing, and footer CTA, with staggered delays on source cells and plan cards. Respects prefers-reduced-motion. tsc passes.
+
+## 2026-05-17T18:24:02+07:00
+- Request: Wire like/dislike/copy buttons to backend for analysis and telemetry.
+- Files changed: backend/db/models.py, backend/db/migrations/versions/20260517_01_message_feedback_events.py (new), backend/api/schemas/telemetry.py (new), backend/api/routers/telemetry.py (new), backend/main.py, database_schema.sql, frontend/lib/api.ts, frontend/components/ChatWorkspace.tsx, tests/test_telemetry.py (new)
+- Current status: New `message_feedback_events` table + `POST /telemetry/message-feedback` endpoint. MessageActions in chat now fires best-effort feedback events on like/dislike toggles and successful copy, carrying message_id, project_id, surface, 500-char content preview, and metadata. Ruff/mypy clean, frontend tsc clean, 4 new pytest cases pass.

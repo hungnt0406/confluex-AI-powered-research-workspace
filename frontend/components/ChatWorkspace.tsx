@@ -24,7 +24,12 @@ import {
   type DeepSearchThinkingState,
   useChat,
 } from "@/components/ChatProvider";
-import { ProjectPaper } from "@/lib/api";
+import {
+  ProjectPaper,
+  recordMessageFeedback,
+  type MessageFeedbackSurface,
+} from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 import Logo from "@/components/Logo";
 
 const SUGGESTIONS = [
@@ -323,6 +328,7 @@ export default function ChatWorkspace() {
                   <AgentBubble
                     key={message.id}
                     message={message}
+                    projectId={activeProject?.id ?? null}
                     disabled={composerBusy}
                     isActiveStatus={busy && message.kind === "status" && index === messages.length - 1}
                     onStartDeepSearchPlan={(planId) => void startDeepSearchPlan(planId)}
@@ -679,6 +685,7 @@ function UserBubble({ text }: { text: string }) {
 
 function AgentBubble({
   message,
+  projectId,
   disabled,
   isActiveStatus = false,
   onStartDeepSearchPlan,
@@ -686,6 +693,7 @@ function AgentBubble({
   onReviseDeepSearchPlan,
 }: {
   message: ChatMessage;
+  projectId: string | null;
   disabled: boolean;
   isActiveStatus?: boolean;
   onStartDeepSearchPlan: (planId: string) => void;
@@ -732,7 +740,11 @@ function AgentBubble({
           <div className="flex flex-col group/message">
             <MarkdownContent text={message.content} sources={message.sources ?? []} />
             <div className="opacity-0 group-hover/message:opacity-100 transition-opacity">
-              <MessageActions text={message.content} />
+              <MessageActions
+                text={message.content}
+                messageId={message.id}
+                projectId={projectId}
+              />
             </div>
           </div>
         )}
@@ -1894,9 +1906,43 @@ function isUploadedPaper(paper: ProjectPaper) {
   return Boolean(paper.reference_file_id) || paper.source.trim().toLowerCase() === "user_upload";
 }
 
-function MessageActions({ text }: { text: string }) {
+function MessageActions({
+  text,
+  messageId,
+  projectId,
+  surface = "chat",
+}: {
+  text: string;
+  messageId?: string | null;
+  projectId?: string | null;
+  surface?: MessageFeedbackSurface;
+}) {
+  const { token } = useAuth();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
+
+  const sendFeedback = (action: "like" | "dislike" | "copy") => {
+    if (!token) return;
+    const payload = {
+      action,
+      surface,
+      message_id: messageId ?? null,
+      project_id: projectId ?? null,
+      content_preview: text.slice(0, 500),
+      metadata: { length: text.length },
+    };
+    void recordMessageFeedback(payload, token).catch(() => {
+      /* telemetry is best-effort; never disrupt the UI */
+    });
+  };
+
+  const toggleFeedback = (next: "like" | "dislike") => {
+    setFeedback((current) => {
+      const updated = current === next ? null : next;
+      if (updated !== null) sendFeedback(updated);
+      return updated;
+    });
+  };
 
   const copyToClipboard = async () => {
     const fallbackCopy = (value: string) => {
@@ -1933,6 +1979,7 @@ function MessageActions({ text }: { text: string }) {
       succeeded = fallbackCopy(text);
     }
     setCopyState(succeeded ? "copied" : "failed");
+    if (succeeded) sendFeedback("copy");
     setTimeout(() => setCopyState("idle"), 2000);
   };
 
@@ -1940,7 +1987,7 @@ function MessageActions({ text }: { text: string }) {
     <div className="flex items-center gap-1 mt-2 text-on-surface-variant">
       <button
         type="button"
-        onClick={() => setFeedback(feedback === "like" ? null : "like")}
+        onClick={() => toggleFeedback("like")}
         className={`p-1 rounded-md transition-colors active:scale-95 ${feedback === "like" ? "bg-primary/15 text-primary ring-1 ring-primary/40" : "hover:bg-surface-container-high"}`}
         title={feedback === "like" ? "Marked helpful" : "Helpful"}
         aria-label="Helpful"
@@ -1955,7 +2002,7 @@ function MessageActions({ text }: { text: string }) {
       </button>
       <button
         type="button"
-        onClick={() => setFeedback(feedback === "dislike" ? null : "dislike")}
+        onClick={() => toggleFeedback("dislike")}
         className={`p-1 rounded-md transition-colors active:scale-95 ${feedback === "dislike" ? "bg-rose-500/15 text-rose-500 ring-1 ring-rose-500/40" : "hover:bg-surface-container-high"}`}
         title={feedback === "dislike" ? "Marked not helpful" : "Not helpful"}
         aria-label="Not helpful"
