@@ -12,6 +12,7 @@ from backend.api.routers import (
     payments,
     pipeline,
     projects,
+    telemetry,
     webhooks,
     writer_documents,
 )
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router)
     app.include_router(pipeline.router)
     app.include_router(writer_documents.router)
+    app.include_router(telemetry.router)
     return app
 
 
