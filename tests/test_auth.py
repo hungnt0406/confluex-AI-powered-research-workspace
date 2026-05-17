@@ -27,7 +27,7 @@ async def test_register_requires_terms_agreement(client) -> None:
     )
 
     assert response.status_code == 400
-    assert "Terms of Usage" in response.json()["detail"]
+    assert "Terms of Service" in response.json()["detail"]
 
 
 @pytest.mark.asyncio

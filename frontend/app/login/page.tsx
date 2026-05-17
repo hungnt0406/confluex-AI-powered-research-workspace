@@ -34,7 +34,7 @@ export default function LoginPage() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (mode === "register" && !agreedToTerms) {
-      setError("You must agree to the Terms of Usage to create an account.");
+      setError("You must agree to the Terms of Service to create an account.");
       return;
     }
     setBusy(true);
@@ -54,7 +54,7 @@ export default function LoginPage() {
     async (credential: string) => {
       // Catch clicks from register mode when terms are unchecked, though the button should be disabled anyway.
       if (mode === "register" && !agreedToTerms) {
-        setError("You must agree to the Terms of Usage to create an account.");
+        setError("You must agree to the Terms of Service to create an account.");
         return;
       }
       setBusy(true);
@@ -63,8 +63,8 @@ export default function LoginPage() {
         await loginWithGoogle(credential, mode === "register" ? agreedToTerms : false);
         router.replace(safeNextPath());
       } catch (err) {
-        if (err instanceof ApiError && err.status === 400 && err.message.includes("Terms of Usage")) {
-          setError("Account not found. Please switch to Register, agree to the Terms of Usage, and try again.");
+        if (err instanceof ApiError && err.status === 400 && err.message.includes("Terms of Service")) {
+          setError("Account not found. Please switch to Register, agree to the Terms of Service, and try again.");
           setMode("register");
         } else {
           setError(err instanceof ApiError ? err.message : "Google sign-in failed.");
@@ -135,7 +135,16 @@ export default function LoginPage() {
                 rel="noreferrer"
                 className="text-primary hover:underline"
               >
-                Terms of Usage
+                Terms of Service
+              </a>{" "}
+              and{" "}
+              <a
+                href="/privacy"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                Privacy Policy
               </a>
               .
             </span>

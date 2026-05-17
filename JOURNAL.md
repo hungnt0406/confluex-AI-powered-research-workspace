@@ -52,6 +52,21 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 
 ---
 
+### 2026-05-17T18:02:55+07:00
+- **Request:** Rename "Terms of Usage" → "Terms of Service" everywhere, and add a Privacy Policy (we didn't have one). Earlier in the session: LAN dev access (frontend `.env.local`, backend `--host 0.0.0.0`, `CORS_ALLOWED_ORIGINS`, Next.js `allowedDevOrigins`), admin allowlist update, clipboard fallback for non-secure contexts in chat message actions, smaller + clearer like/dislike toggles, and replacing the demo-video placeholder with the YouTube embed (`rM3WsTKg8_0`) on the landing page.
+- **Files changed:**
+  - `frontend/.env.local` (new — LAN API base URL).
+  - `.env` (added `CORS_ALLOWED_ORIGINS`, added `nguyenlamtung2005@gmail.com` to `ADMIN_EMAILS`).
+  - `frontend/next.config.mjs` (added LAN IP to `allowedDevOrigins`).
+  - `frontend/components/ChatWorkspace.tsx` (Clipboard API fallback + visible failure state; smaller like/dislike with filled-icon active state, ring, `active:scale-95`, `aria-pressed`).
+  - `frontend/components/landing/LandingPage.tsx` (`VideoSlot` now embeds the YouTube video directly).
+  - `frontend/app/login/page.tsx` (Terms of Service label + Privacy Policy link in signup agreement; updated error strings).
+  - `frontend/app/terms/page.tsx` (renamed EN/VN titles).
+  - `backend/api/routers/auth.py` (rename in HTTP 400 details).
+  - `tests/test_auth.py` (assertion).
+  - `frontend/app/privacy/page.tsx` (new — bilingual EN/VN Privacy Policy mirroring `/terms` layout; 11 sections including a free-tier telemetry consent clause and rights under Vietnam Decree 13/2023 + GDPR).
+- **Current status:** signup now references both Terms of Service and Privacy Policy. Backend/frontend strings consistent; one auth test updated. Like/dislike buttons remain cosmetic stubs (no backend persistence yet).
+
 ### 2026-05-17T16:20:53+07:00
 - **Request:** Follow `PULL_REQUEST.md` to commit and merge changes from `copyfail` branch.
 - **Files changed:** `frontend/components/ChatWorkspace.tsx`, `frontend/pnpm-workspace.yaml`, `frontend/tsconfig.tsbuildinfo`.
