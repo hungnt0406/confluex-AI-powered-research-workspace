@@ -3,6 +3,11 @@
 Ghi lại hành trình xây dựng sản phẩm mỗi tuần — những gì đã làm, học được gì, AI giúp như thế nào.
 Ngoài phần tổng kết tuần, file này cũng được dùng để log các thay đổi trong repo theo từng phiên làm việc.
 
+## 2026-05-17T17:23:08+07:00
+- Request: chat message copy button silently did nothing when the dev server is loaded from a LAN URL (http://192.168.1.12:3000) because `navigator.clipboard` is unavailable outside secure contexts.
+- Files changed: `frontend/components/ChatWorkspace.tsx` (MessageActions: added hidden-textarea + `execCommand("copy")` fallback when Clipboard API is missing or non-secure, and made the "failed" state visible with a red error icon).
+- Current status: copy works on both localhost/HTTPS and LAN HTTP; like/dislike remain cosmetic stubs (no backend wiring yet).
+
 > **Cập nhật mỗi cuối tuần** (trước khi tạo PR). Không cần dài, chỉ cần thật.
 
 ---
