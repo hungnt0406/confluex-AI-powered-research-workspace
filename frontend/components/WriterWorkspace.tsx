@@ -1356,6 +1356,7 @@ export function WriterWorkspace({ initialDocument, token }: WriterWorkspaceProps
                 activeSection={activeSection}
                 token={token}
                 onSectionUpdate={handleSectionUpdate}
+                onAfterDraft={refreshDocument}
               />
             )}
             {rightTab === "sources" && (
