@@ -33,7 +33,7 @@ MAX_SELECTED_DEEP_SEARCH_PAPERS = 10
 MAX_SOURCE_SNIPPET_CHARS = 900
 MAX_SOURCE_TITLE_CHARS = 500
 MAX_CHUNKS_PER_SELECTED_PAPER = 2
-MAX_REPORT_TOKENS = 8_000
+MAX_REPORT_TOKENS = 16_000
 MAX_ADAPTIVE_LOOP_ITERATIONS = 4
 MAX_DECIDER_NEXT_QUERIES = 3
 MAX_DECIDER_CONTEXT_CANDIDATES = 40
@@ -780,7 +780,7 @@ class DeepSearchService:
                     "required": ["questions", "seed_queries"],
                     "additionalProperties": False,
                 },
-                max_tokens=900 if is_max else 700,
+                max_tokens=4096 if is_max else 3072,
             )
             raw_questions = parsed.get("questions", [])
             raw_seeds = parsed.get("seed_queries", [])
@@ -858,7 +858,7 @@ class DeepSearchService:
                 "required": ["reasoning", "gaps", "next_queries", "done"],
                 "additionalProperties": False,
             },
-            max_tokens=400,
+            max_tokens=2048,
         )
         return DecisionPayload(
             reasoning=str(parsed.get("reasoning", "")).strip(),
@@ -1381,7 +1381,7 @@ class DeepSearchService:
                     "required": ["sources"],
                     "additionalProperties": False,
                 },
-                max_tokens=1_000,
+                max_tokens=4096,
             )
         except StructuredOutputError as error:
             return (
@@ -1594,7 +1594,7 @@ class DeepSearchService:
                     "required": ["qa_flags"],
                     "additionalProperties": False,
                 },
-                max_tokens=900,
+                max_tokens=4096,
             )
         except StructuredOutputError as error:
             return local_flags, f"Deep Search verifier fell back to local QA checks: {error}"

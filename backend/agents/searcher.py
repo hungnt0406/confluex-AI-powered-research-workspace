@@ -377,6 +377,7 @@ class SearcherAgent:
                 user_prompt=user_prompt,
                 schema=SEARCH_QUERY_SCHEMA,
                 feature="query_expansion",
+                max_tokens=4096,
             )
             queries = self._coerce_query_payload(payload, topic)
             query_batch = SearchQueryBatch(queries=queries)

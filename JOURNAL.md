@@ -3,6 +3,15 @@
 Ghi lại hành trình xây dựng sản phẩm mỗi tuần — những gì đã làm, học được gì, AI giúp như thế nào.
 Ngoài phần tổng kết tuần, file này cũng được dùng để log các thay đổi trong repo theo từng phiên làm việc.
 
+## 2026-05-17T23:45:00+07:00
+- Request: discovery + Deep Search runs were returning 0 papers because (a) arxiv ReadTimeouts within a short budget, (b) Semantic Scholar HTTP 429s under the default 20s timeout, and (c) `mimo-v2.5-pro` reasoning model consumed `max_tokens=1024` on internal reasoning and truncated the JSON output (`finish_reason="length"`) — searcher fell back to "topic + suffix" queries that matched nothing.
+- Files changed:
+  - `backend/services/arxiv.py` (search timeout 15.0 → 45.0; PDF timeout 30.0 → 60.0)
+  - `backend/config.py` (`EXTERNAL_API_TIMEOUT_SECONDS` default 20.0 → 45.0; covers Semantic Scholar client)
+  - `backend/agents/searcher.py` (query-expansion `generate_json` now passes explicit `max_tokens=4096` so the reasoning model has room for both reasoning and the JSON output)
+  - `backend/services/deep_search.py` (`MAX_REPORT_TOKENS` 8_000 → 16_000; planner 900/700 → 4096/3072; decider 400 → 2048; source summarizer 1_000 → 4096; QA verifier 900 → 4096)
+- Current status: 36 relevant tests pass (`tests/test_deep_search.py`, `tests/test_searcher_reader.py`, `tests/test_pipeline.py`). `ruff check` and `mypy` clean on touched files. Pre-existing Tavily payload test (`test_tavily_search_uses_expected_payload_and_bearer_auth`) still fails on main and unrelated to this change.
+
 ## 2026-05-17T17:23:08+07:00
 - Request: chat message copy button silently did nothing when the dev server is loaded from a LAN URL (http://192.168.1.12:3000) because `navigator.clipboard` is unavailable outside secure contexts.
 - Files changed: `frontend/components/ChatWorkspace.tsx` (MessageActions: added hidden-textarea + `execCommand("copy")` fallback when Clipboard API is missing or non-secure, and made the "failed" state visible with a red error icon).

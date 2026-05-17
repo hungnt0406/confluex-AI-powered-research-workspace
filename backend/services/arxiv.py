@@ -103,7 +103,7 @@ async def download_pdf(
 
     pdf_url = f"{ARXIV_PDF_BASE}{arxiv_id}"
     owns_client = http_client is None
-    client = http_client or httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+    client = http_client or httpx.AsyncClient(timeout=60.0, follow_redirects=True)
 
     try:
         response = await client.get(pdf_url)
@@ -133,7 +133,7 @@ async def search_papers(
     }
 
     owns_client = http_client is None
-    client = http_client or httpx.AsyncClient(timeout=15.0, follow_redirects=True)
+    client = http_client or httpx.AsyncClient(timeout=45.0, follow_redirects=True)
 
     try:
         response = await client.get(ARXIV_URL, params=params)
