@@ -1293,6 +1293,45 @@ export async function assembleDocument(
   );
 }
 
+// ---- Message feedback telemetry -------------------------------------------
+
+export type MessageFeedbackAction = "like" | "dislike" | "copy";
+export type MessageFeedbackSurface =
+  | "chat"
+  | "deep_search"
+  | "deep_research_max"
+  | "writer"
+  | "paper_conversation";
+
+export interface MessageFeedbackPayload {
+  action: MessageFeedbackAction;
+  surface: MessageFeedbackSurface;
+  message_id?: string | null;
+  project_id?: string | null;
+  content_preview?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MessageFeedbackRead {
+  id: string;
+  action: MessageFeedbackAction;
+  surface: string;
+  message_id: string | null;
+  project_id: string | null;
+  created_at: string;
+}
+
+export async function recordMessageFeedback(
+  payload: MessageFeedbackPayload,
+  token: string,
+): Promise<MessageFeedbackRead> {
+  return api<MessageFeedbackRead>(`/telemetry/message-feedback`, {
+    method: "POST",
+    token,
+    json: payload,
+  });
+}
+
 export async function exportDocument(documentId: string, token: string): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/writer/documents/${documentId}/export`, {
     headers: { Authorization: `Bearer ${token}` },
