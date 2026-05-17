@@ -1,72 +1,139 @@
 # Automated Literature Review
 
-[![CI](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml/badge.svg)](https://github.com/a20-ai-thuc-chien/A20-App-143/actions/workflows/ci.yml)
+> An AI-powered research assistant that automates the end-to-end literature review workflow — from paper discovery to grounded writing — so researchers spend their time thinking, not chasing PDFs.
 
-The repository now contains an async FastAPI backend, PostgreSQL/Alembic schema, multi-source paper search, relevance ranking, structured paper summaries, persisted PDF grounding chunks, persisted multi-turn paper conversations, persisted grounded writer outputs with QA validation, pytest coverage, and a minimal Next.js 14 frontend shell.
+**Live demo:** _Coming soon — link will be added here._
 
-## Current scope
+## Table of contents
 
-- Async FastAPI backend with `/auth`, `/projects`, and `/pipeline`
-- JWT register/login flow and project CRUD
-- SQLAlchemy 2.0 models plus Alembic migrations for project search settings, paper status, and summary error tracking
-- Semantic Scholar and arXiv search across expanded queries with deduplication and filtering
-- Relevance ranking via embeddings and structured summaries for top papers
-- Discovery pipeline with `searcher -> reader` plus a warning branch when ranking returns too few papers
-- Paginated `GET /projects/{id}/papers` endpoint for inspecting ranked/summarized papers
-- On-demand `GET /projects/{id}/papers/{paper_id}/citation-graph` for exact-paper cited-by and reference lists via Semantic Scholar
-- `POST /projects/{id}/papers/import-citation` for adding missing citation-graph papers to a project with project-scoped dedupe
-- Grounded paper conversations with persisted first-turn and follow-up Q&A
-- Project-scoped multi-paper grounded conversations for the main chat workspace
-- Project-scoped Deep Search mode with plan approval, visible thinking/progress, persisted runs, Tavily web search fallback, academic/project evidence, report streaming, source capture, and QA flags
-- User-invoked writer generation over selected papers with deterministic citation formatting, persisted outputs, and QA flags
-- User-owned writer documents that can start without a project, attach their own sources, upload PDFs, approve section outlines, and optionally import project papers as document sources
-- Sepay/VietQR credit top-ups with payment orders, webhook confirmation, user credit ledger, signup credit grants, and quota enforcement on expensive research operations
-- Project-scoped OpenRouter token usage telemetry with aggregate API
-- Admin-only OpenRouter token usage monitoring across all users/projects
-- Pytest fixtures for auth, projects, pipeline, services, graph flow, and searcher/reader behavior
-- GitHub Actions CI for migrations, linting, type-checking, and tests
+- [Description](#description)
+- [Problem & purpose](#problem--purpose)
+- [Main features](#main-features)
+- [Tech stack](#tech-stack)
+- [Installation & setup](#installation--setup)
+- [API surface](#api-surface)
+- [Quality gates](#quality-gates)
+- [Documentation map](#documentation-map)
+- [Notes & operational details](#notes--operational-details)
 
-## Documentation map
+## Description
 
-- `README.md` is the current-state overview and setup entry point.
-- `docs/feature-map.md` is the canonical feature-to-code/test/doc/config traceability map.
-- `docs/backend-diagram.md` explains backend wiring, route ownership, and data flow.
-- `docs/TEST_POSTMAN.md` covers manual API verification in Postman.
-- `docs/features/upload_reference_file.md`, `docs/features/paper_citation_graph.md`, `docs/features/paper_conversations.md`, and `docs/features/writer_outputs.md` are feature deep dives.
-- `docs/user-journey.md` describes the shipped and planned UX journey.
-- `plans/` contains historical phase plans and roadmap material, not the canonical current-state docs.
+Automated Literature Review is a full-stack research workspace built around a multi-agent LangGraph pipeline (**Searcher → Reader → Writer → QA**). It searches Semantic Scholar and arXiv, ranks results by topic relevance, summarizes selected papers, supports grounded chat over a single paper or a set of papers, runs Deep Search reports backed by web + academic sources, and produces citation-formatted drafts the user can refine inside a Monaco-based writer editor.
 
-## Repository layout
+The system is split into an async FastAPI backend and a Next.js 14 frontend, with PostgreSQL for persistence, OpenRouter for LLM/embeddings, Tavily for web search, and SePay/VietQR for credit top-ups.
 
-```text
-backend/
-  agents/      LangGraph state and dummy pipeline nodes
-  api/         FastAPI routers, dependencies, and schemas
-  db/          SQLAlchemy models, sessions, and Alembic files
-  services/    External API clients for paper search
-frontend/      Next.js 14 App Router shell
-plans/         Delivery plans for each phase
-scripts/       AI logging and repository utility scripts
-tests/         Async pytest suite and fixtures
-```
+## Problem & purpose
 
-## Local setup
+Researchers, graduate students, and engineering teams who write surveys or related-work sections face the same friction every time:
 
-### 1. Install repository hooks
+- **Discovery is noisy.** Keyword search on Google Scholar, Semantic Scholar, and arXiv returns hundreds of candidates that have to be triaged by hand.
+- **Reading is slow.** Skimming PDFs to extract problem/method/result for dozens of papers takes hours per topic.
+- **Synthesis is error-prone.** Hand-assembled related-work sections drift from sources, miscite, or omit the strongest evidence.
+- **Tooling is fragmented.** Search, note-taking, PDF chat, and writing usually live in four different apps with no shared state.
+
+This project collapses those steps into a single workspace:
+
+1. The Searcher agent expands queries, hits multiple databases, deduplicates, and ranks by embedding-based relevance.
+2. The Reader agent produces structured per-paper summaries (problem / method / result / relevance).
+3. Grounded chat and Deep Search let users interrogate the corpus with citations.
+4. The Writer agent + editor produces a draft in IEEE / APA / Chicago / IMRAD format with reference lists ready for export.
+
+The goal is to take a literature-review effort from days to hours while keeping every claim traceable to a source.
+
+## Main features
+
+### Discovery & ingestion
+- Multi-source paper search across Semantic Scholar and arXiv with query expansion, dedupe, and year/relevance filtering.
+- Embedding-based relevance ranking and structured summaries (problem / method / result / topic relevance) for top papers.
+- Citation-graph exploration: pull cited-by / references for any paper and import missing neighbors into the project.
+- User-uploaded reference PDFs with local PyMuPDF extraction and chunked storage for grounding.
+
+### Grounded conversations
+- **Paper chat** — multi-turn grounded Q&A scoped to a single paper, with persisted PDF chunks and conversation history.
+- **Project chat** — multi-paper conversations across 0–5 selected papers, streamed over SSE.
+- **Deep Search** — plan-approval flow that combines academic search, Tavily web search, and the project library into a streamed report with visible thinking, source capture, warnings, and QA flags.
+
+### Writer & editor
+- One-shot writer generation over selected papers with deterministic citation formatting (IEEE / APA / Chicago).
+- User-owned writer documents that survive without a project, can import project papers or upload their own PDFs, and approve outlines before drafting.
+- Monaco-based section editor with targeted edit/insert operations, low-confidence span highlighting, versioned history, and stale-preview guards.
+- BibTeX + `\thebibliography` export.
+
+### Billing & admin
+- SePay/VietQR credit top-ups with payment orders, webhook settlement, signup credit grants, and quota enforcement on paid endpoints.
+- Append-only credit ledger with feature-tagged debits and refunds.
+- Admin allowlist (`ADMIN_EMAILS`) that bypasses credit gating and unlocks a global token-usage dashboard with daily / feature / model / per-user breakdowns.
+
+### Reliability
+- Deterministic offline fallbacks for LLM and embedding calls so local/dev/CI runs succeed without API keys.
+- Server-sent events for discovery, project chat, Deep Search, and writer streaming.
+- Pytest + Alembic + Ruff + mypy gates in CI on every PR.
+
+## Tech stack
+
+### Backend
+- **Python 3.11+**, **FastAPI** (async), **uvicorn**
+- **LangGraph** for the Searcher → Reader → Writer → QA pipeline
+- **SQLAlchemy 2.0** (async) + **Alembic** migrations
+- **PostgreSQL** (asyncpg) in production; SQLite for fast local tests
+- **PyMuPDF** for local PDF extraction
+- **pydantic-settings** for typed config, **python-jose** for JWT
+
+### Frontend
+- **Next.js 14** App Router, **React 18**, **TypeScript**
+- **Tailwind CSS** for styling
+- **Monaco Editor** for the writer surface
+- **d3-force-3d** for the citation neighborhood graph
+- Server-sent events for streaming chat, discovery, and Deep Search
+
+### AI & external services
+- **OpenRouter** — chat completions (`openai/gpt-*`, configurable per stage) and embeddings (`openai/text-embedding-3-small`)
+- **Semantic Scholar** + **arXiv** APIs for paper discovery
+- **Tavily** for Deep Search web evidence
+- **SePay / VietQR** for credit top-ups (optional Xiaomi MiMo for writer source ranking)
+
+### Tooling & ops
+- **uv** for Python dependency management (pip shim available via `requirements.txt`)
+- **Ruff**, **mypy** (`strict`), **pytest** + **pytest-asyncio**
+- **GitHub Actions** for CI (migrations, lint, type-check, tests)
+- Intended deployment: **Vercel** (frontend), **Render** Web Service (backend), **Render Postgres**, Render persistent disk for reference uploads
+
+## Installation & setup
+
+### Prerequisites
+- Python **3.11+**
+- Node.js **18+** and npm
+- PostgreSQL **14+** (or use SQLite locally — the default fallback)
+- [`uv`](https://docs.astral.sh/uv/) installed (`pip install uv` if needed)
+
+### 1. Clone and install repository hooks
 
 ```bash
+git clone https://github.com/a20-ai-thuc-chien/A20-App-143.git
+cd A20-App-143
 bash scripts/setup_hooks.sh
 ```
 
-### 2. Configure the environment
+### 2. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in the values you need locally, especially `DATABASE_URL`, `JWT_SECRET_KEY`, and `OPENROUTER_API_KEY`.
-`CORS_ALLOWED_ORIGINS` is comma-separated and defaults to local frontend origins; set it to the Vercel production URL for the deployed backend.
-For credit top-ups, set `SEPAY_WEBHOOK_API_KEY`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_ACCOUNT_BANK_BIN`, and optionally `USD_TO_VND_RATE`; missing Sepay credentials still allow deterministic local/test QR payload generation.
+Fill in at minimum:
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres or SQLite connection string |
+| `JWT_SECRET_KEY` | Secret for issuing JWT auth tokens |
+| `OPENROUTER_API_KEY` | LLM + embeddings (optional — offline fallback exists) |
+| `TAVILY_API_KEY` | Deep Search web evidence (optional) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated; defaults to local frontend origins |
+| `ADMIN_EMAILS` | Comma-separated allowlist for admin features and credit bypass |
+| `SEPAY_WEBHOOK_API_KEY`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_ACCOUNT_BANK_BIN` | SePay/VietQR top-ups (optional) |
+| `USD_TO_VND_RATE` | Override the FX snapshot used at order creation |
+
+Missing optional keys are fine — services degrade gracefully to deterministic offline behavior.
 
 ### 3. Install Python dependencies
 
@@ -74,18 +141,20 @@ For credit top-ups, set `SEPAY_WEBHOOK_API_KEY`, `SEPAY_ACCOUNT_NUMBER`, `SEPAY_
 uv sync --extra dev
 ```
 
-If you prefer `pip`, the compatibility entrypoint remains available:
+`pip` is also supported:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Run the backend
+### 4. Run database migrations and start the backend
 
 ```bash
 uv run alembic upgrade head
 uv run uvicorn backend.main:app --reload
 ```
+
+Backend listens on `http://localhost:8000`.
 
 ### 5. Run the frontend
 
@@ -95,80 +164,41 @@ npm install
 npm run dev
 ```
 
+Frontend runs on `http://localhost:3000`. Open it, register an account (signup grants 100 credits), and start a project.
+
+### 6. (Optional) Seed admin access
+
+Add your email to `ADMIN_EMAILS` in `.env` to unlock the admin token-usage dashboard at `/admin/usage` and bypass credit gating.
+
 ## API surface
 
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /admin/access`
-- `GET /admin/token-usage`
-- `GET /payments/packs`
-- `POST /payments/orders`
-- `GET /payments/orders/{order_id}`
-- `GET /payments/balance`
-- `POST /webhooks/sepay`
-- `POST /projects`
-- `GET /projects`
-- `GET /projects/{id}`
-- `GET /projects/{id}/token-usage`
-- `PATCH /projects/{id}`
-- `DELETE /projects/{id}`
-- `POST /projects/{id}/run`
-- `POST /projects/{id}/run/stream`
-- `GET /projects/{id}/papers`
-- `GET /projects/{id}/papers/{paper_id}/citation-graph`
-- `POST /projects/{id}/papers/import-citation`
-- `POST /projects/{id}/papers/{paper_id}/conversations`
-- `GET /projects/{id}/papers/{paper_id}/conversations`
-- `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}`
-- `POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages`
-- `POST /projects/{id}/conversations`
-- `POST /projects/{id}/conversations/stream`
-- `GET /projects/{id}/conversations`
-- `GET /projects/{id}/conversations/{conversation_id}`
-- `POST /projects/{id}/conversations/{conversation_id}/messages`
-- `POST /projects/{id}/conversations/{conversation_id}/messages/stream`
-- `POST /projects/{id}/writer/generate`
-- `GET /projects/{id}/writer/outputs/{output_id}`
-- `POST /writer/documents`
-- `GET /writer/documents`
-- `POST /projects/{id}/writer/documents`
-- `GET /projects/{id}/writer/documents`
-- `GET /writer/documents/{document_id}`
-- `PATCH /writer/documents/{document_id}`
-- `DELETE /writer/documents/{document_id}`
-- `POST /writer/documents/{document_id}/sources/upload`
-- `POST /writer/documents/{document_id}/sources/import-project`
-- `POST /writer/documents/{document_id}/sources/attach`
-- `POST /writer/documents/{document_id}/sources/attach-paper`
-- `POST /writer/documents/{document_id}/sections/{section_id}/edit`
-- `POST /writer/documents/{document_id}/sections/{section_id}/edit/apply`
-- `POST /projects/{id}/deep-search/stream`
-- `GET /projects/{id}/deep-search-runs`
-- `GET /projects/{id}/deep-search-runs/{run_id}`
-- `GET /pipeline/health`
+Selected endpoints — see `docs/feature-map.md` and `docs/TEST_POSTMAN.md` for the full traceability matrix.
 
-`POST /projects/{id}/run` now executes the phase-2 Searcher + Reader flow and returns query/count metadata for the completed run.
-`POST /projects/{id}/run/stream` runs the same discovery pipeline over `text/event-stream`, emitting `status`, `papers`, `summary`, `done`, and `error` events so ranked related papers can appear before all summaries finish. The `papers` event is emitted after ranking commits, and each `summary` event reflects one newly persisted paper summary or summary error.
-`PATCH /projects/{id}` renames an owned project without changing any of its persisted papers, conversations, or writer outputs.
-`DELETE /projects/{id}` removes an owned project and cascades its persisted papers, conversations, writer outputs, and uploaded reference files; any stored PDF uploads are also unlinked from local disk on a best-effort basis.
-`GET /admin/access` reports whether the authenticated user's email is included in the `ADMIN_EMAILS` allowlist. The same allowlist bypasses credit debits for paid research endpoints.
-`GET /admin/token-usage` returns admin-only global token usage totals, daily/feature/model breakdowns, user/project drilldowns, and all matching user log rows for the selected range with optional `date_from`, `date_to`, `user_id`, and `project_id` filters. Project chat usage rows include the persisted user prompt that produced the chat answer.
-`GET /payments/packs` returns the static credit pack catalog with USD cents, credit amounts, and current VND conversions. `POST /payments/orders` creates a pending Sepay/VietQR order for one pack and snapshots the VND amount, FX rate, reference code, receiving account, and QR URL. `GET /payments/orders/{order_id}` polls one owned order, while `GET /payments/balance` returns the authenticated user's balance, admin unlimited-credit flag, and recent ledger rows. `POST /webhooks/sepay` verifies `Authorization: Apikey <SEPAY_WEBHOOK_API_KEY>`, matches `ORD...` reference codes from incoming transfers, and credits paid orders idempotently.
-`GET /projects/{id}/token-usage` returns provider-reported token totals plus breakdowns by feature, model, and day for the authenticated user's project.
-`GET /projects/{id}/papers/{paper_id}/citation-graph` resolves the exact paper in Semantic Scholar using its stored provider metadata, then returns both the papers that cite it and the papers it references; each related paper includes its own `citation_count` so the frontend can render a Connected-Papers-style citation neighborhood graph in the right-hand context panel. The frontend caches graph payloads while the workspace is open, shows in-app node previews, marks nodes already in the project, offers an accessible list view, and can import missing related papers through `POST /projects/{id}/papers/import-citation`.
-`POST /projects/{id}/papers/{paper_id}/conversations` starts the first grounded paper-Q&A conversation, extracting PDF chunks on demand and falling back to metadata when chunk grounding is unavailable.
-`POST /projects/{id}/papers/{paper_id}/conversations/{conversation_id}/messages` appends a grounded follow-up turn using the latest persisted conversation history plus newly retrieved paper chunks.
-`GET /projects/{id}/papers/{paper_id}/conversations` and `GET /projects/{id}/papers/{paper_id}/conversations/{conversation_id}` expose summary/detail reads for the persisted paper-conversation state.
-`POST /projects/{id}/conversations` starts a project-scoped chat over 0 to 5 selected papers, answering generally when no papers are selected and retrieving evidence across the selected set once papers are selected.
-`POST /projects/{id}/conversations/stream` provides the same first-turn behavior over backend-proxied `text/event-stream`, emitting status, conversation, token, done, and error events for the main chat UI.
-`POST /projects/{id}/conversations/{conversation_id}/messages` appends a follow-up turn for the current selected paper set; when the selected set changes, including being cleared, the conversation stores a system message describing the new selection before the user turn.
-`POST /projects/{id}/conversations/{conversation_id}/messages/stream` provides the same follow-up behavior over `text/event-stream` while preserving usage telemetry and persisted message semantics.
-`GET /projects/{id}/conversations` and `GET /projects/{id}/conversations/{conversation_id}` expose summary/detail reads for the persisted project-scoped multi-paper chat state.
-`POST /projects/{id}/deep-search/stream` creates a persisted Deep Search run, streams `run`, `status`, `source`, `token`, `done`, and `error` SSE events, uses selected project papers when provided, searches Semantic Scholar/arXiv, and uses Tavily web search when `TAVILY_API_KEY` is configured. The frontend shows a plan approval card before calling this endpoint and renders stream phases as an expandable thinking panel.
-`GET /projects/{id}/deep-search-runs` and `GET /projects/{id}/deep-search-runs/{run_id}` expose persisted Deep Search run summaries, sources, reports, warnings, and QA flags.
-`POST /projects/{id}/writer/generate` takes selected paper ids plus a free-form instruction, then returns a grounded writer artifact with format-aware citations, warnings, and QA flags.
-`GET /projects/{id}/writer/outputs/{output_id}` rehydrates a persisted writer artifact without regenerating it.
-Writer document routes under `/writer/documents` are user-owned and do not require an active project. Project-scoped writer document routes remain for compatibility and optional project association. Document sources live in `writer_document_sources`; source PDFs and search/manual attachments can create user-owned papers without a project, while `/sources/import-project` copies selected papers from an owned project into the writer document source set. Section drafts require an approved section outline first. Research-paper Methods and Results outlines use explicit LaTeX subsections for empirical protocol, baselines, metrics, findings, comparisons, errors, runtime, and robustness; survey-paper Methods and Results outlines use review-protocol and comparative-synthesis subsections for scope, literature selection, taxonomy, benchmark coverage, evaluation dimensions, cross-method findings, domain evidence, trade-offs, and gaps. Section editor previews at `/writer/documents/{document_id}/sections/{section_id}/edit` support `fix_error`, `generate_paragraph`, and `incorporate_results`; `/edit/apply` applies the accepted patch through the normal section-save path so `WriterSectionVersion` history is preserved and stale spans return HTTP 409.
+**Auth & billing**
+- `POST /auth/register`, `POST /auth/login`
+- `GET /admin/access`, `GET /admin/token-usage`
+- `GET /payments/packs`, `POST /payments/orders`, `GET /payments/balance`, `POST /webhooks/sepay`
+
+**Projects & discovery**
+- `POST /projects`, `GET /projects`, `GET /projects/{id}`, `PATCH /projects/{id}`, `DELETE /projects/{id}`
+- `POST /projects/{id}/run`, `POST /projects/{id}/run/stream`
+- `GET /projects/{id}/papers`, `GET /projects/{id}/papers/{paper_id}/citation-graph`
+- `POST /projects/{id}/papers/import-citation`
+
+**Conversations**
+- `POST /projects/{id}/papers/{paper_id}/conversations` (+ messages, GET endpoints)
+- `POST /projects/{id}/conversations`, `POST /projects/{id}/conversations/stream`
+- `POST /projects/{id}/conversations/{conversation_id}/messages[/stream]`
+
+**Deep Search**
+- `POST /projects/{id}/deep-search/stream`
+- `GET /projects/{id}/deep-search-runs[/{run_id}]`
+
+**Writer**
+- `POST /projects/{id}/writer/generate`, `GET /projects/{id}/writer/outputs/{output_id}`
+- `POST /writer/documents`, `GET /writer/documents`, `GET|PATCH|DELETE /writer/documents/{id}`
+- `POST /writer/documents/{id}/sources/{upload|import-project|attach|attach-paper}`
+- `POST /writer/documents/{id}/sections/{section_id}/edit[/apply]`
 
 ## Quality gates
 
@@ -178,43 +208,38 @@ uv run mypy backend/
 uv run pytest tests/ -x
 ```
 
-Tests use temporary SQLite databases by default for quick local runs. To run the same pytest suite against a dedicated PostgreSQL database, set `TEST_DATABASE_URL`; the test fixture refuses to reset Postgres databases whose name does not include `test` or `pytest`.
+Tests use temporary SQLite databases by default. Point at a dedicated Postgres database via `TEST_DATABASE_URL` (must include `test` or `pytest` in the database name — the fixture refuses to reset unrelated databases):
 
 ```bash
 TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/literature_review_test \
   uv run pytest tests/ -x
 ```
 
-## Notes
-
-- The intended split deployment is Vercel for `frontend/`, Render Web Service for the FastAPI backend, Render Postgres for `DATABASE_URL`, and a Render persistent disk mounted at `/var/data` with `REFERENCE_UPLOAD_DIR=/var/data/reference_uploads`. See `plans/vercel-render-deployment-plan.md` for the provider-dashboard steps and smoke tests.
-- Query expansion and structured summaries use OpenRouter chat completions when `OPENROUTER_API_KEY` is configured.
-- Reference PDF uploads prefer local PyMuPDF text extraction and only fall back to the live PDF parser when local extraction cannot produce usable text.
-- Project chat streaming waits up to `PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS` seconds for the first live answer token before falling back to the deterministic local answer; the default is 60 seconds.
-- Deep Search uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. The stream also emits user-facing `activity` events so the thinking panel can show planned research paths, source counts, and source references while the run is in progress. Final reports ask the writer to attach URL-backed Markdown citations to factual sentences, and the chat UI renders those links as compact source buttons with hover previews. If `TAVILY_API_KEY` is missing, web search is skipped with a persisted warning while academic/project evidence still runs.
-- Writer workspace source suggestions and auto-draft source fetching locally filter, dedupe, and rank candidates before drafting. Manual suggestions fetch 7 arXiv candidates plus 12 Tavily web candidates, auto-draft fetches 12 Tavily candidates for the active section and falls back to 7 arXiv candidates when no Tavily source can be used; both keep at most 7 sources. Writer documents are owned by the user, not by project chat state; projects are optional source providers. Section drafting is gated on an approved section outline, and research/survey Methods and Results drafts preserve approved LaTeX subsection structure. When `XIAOMI_MIMO_API_KEY` is set, source ranking uses Xiaomi MiMo through `WRITER_SOURCE_RANKER_MODEL` and `XIAOMI_MIMO_BASE_URL`; missing credentials or provider failures fall back to deterministic local ranking without OpenRouter.
-- Writer generation uses `WRITER_GENERATION_TIMEOUT_SECONDS` for live draft requests; the default is 60 seconds because section drafts can include several source abstracts and take longer than smaller structured-output calls.
-- Credit costs default to 20 credits for discovery pipeline runs, 80 for Deep Search, 40 for writer output, 2 for paper-chat follow-ups, and 5 for reference PDF uploads. Writer editor previews cost 1 credit for fix, 2 for paragraph generation, 3 for result incorporation, with Tavily-backed web search raising generation/incorporation to 4/5 credits; accepted apply calls are free. Insufficient balances return HTTP 402 with `required` and `balance` fields.
-- Embeddings use OpenRouter's embeddings endpoint with `openai/text-embedding-3-small` by default.
-- Live OpenRouter responses with provider usage metadata are persisted as compact project-scoped `ai_usage_events`; raw prompts, responses, abstracts, and PDF text are not stored in usage telemetry. The admin user log reads chat prompts from already-persisted project messages for display.
-- `ADMIN_EMAILS` is a comma-separated allowlist for the admin usage monitor and credit enforcement bypass. Allowlisted admins can run gated paid features with zero balance, and those requests do not create credit ledger debits.
-- When those API keys are missing in local/dev/test environments, the pipeline falls back to deterministic offline behavior so the app and tests still run.
-- Live API smoke tests for Semantic Scholar and arXiv are opt-in:
+Opt-in suites:
 
 ```bash
 RUN_LIVE_API_TESTS=1 uv run pytest tests/test_services.py -m integration
+RUN_EVAL_TESTS=1     uv run pytest tests/test_search_quality.py -m eval
 ```
 
-- The search-quality evaluation harness is also opt-in:
+## Documentation map
 
-```bash
-RUN_EVAL_TESTS=1 uv run pytest tests/test_search_quality.py -m eval
-```
+- `README.md` — current-state overview and setup entry point (this file).
+- `docs/database.md` — full database schema with Mermaid ERD.
+- `docs/backend-diagram.md` — backend wiring, route ownership, data flow.
+- `docs/feature-map.md` — feature-to-code/test/doc/config traceability.
+- `docs/user-journey.md` — shipped and planned UX journey.
+- `docs/TEST_POSTMAN.md` — manual API verification recipes.
+- `docs/features/` — per-feature deep dives (reference upload, citation graph, paper conversations, writer outputs, etc.).
+- `plans/` — historical phase plans and roadmap material (not canonical current state).
 
-- Deterministic agent and chat evaluation helpers (Reader summary coverage, Deep Search citation hygiene, paper-chat format and grounding proxies, Writer QA rollups) live in `backend/eval/metrics.py` with CI-safe coverage in `tests/test_eval_metrics.py`. To print sample metric outputs locally (no DB/API): `uv run python scripts/run_eval_metric_samples.py`.
+## Notes & operational details
 
-## Project hygiene
-
-- Update `JOURNAL.md` before each PR with weekly learnings and shipped work.
-- Update `WORKLOG.md` when the team makes meaningful technical decisions.
-- AI tool prompts are logged automatically. See `AGENTS.md` for repository rules.
+- **Deployment target.** Vercel for `frontend/`, Render Web Service for FastAPI, Render Postgres for `DATABASE_URL`, Render persistent disk at `/var/data` with `REFERENCE_UPLOAD_DIR=/var/data/reference_uploads`. See `plans/vercel-render-deployment-plan.md`.
+- **Offline fallbacks.** When `OPENROUTER_API_KEY` / external keys are missing, `llm.py`, `embeddings.py`, and Tavily integration return deterministic results so the app and tests still run.
+- **Credit costs (defaults).** Discovery run 20, Deep Search 80, writer generation 40, paper-chat follow-up 2, reference PDF upload 5. Writer editor previews: 1 (fix), 2 (paragraph), 3 (incorporate); web search raises generation/incorporation to 4/5. Insufficient balance returns HTTP 402 with `required` and `balance` fields.
+- **Token telemetry.** Provider-reported usage is persisted as compact `ai_usage_events`; raw prompts and PDF text are never stored in telemetry.
+- **Project chat streaming** waits up to `PROJECT_CHAT_FIRST_TOKEN_TIMEOUT_SECONDS` (default 60s) for the first live token before falling back to the deterministic local answer.
+- **Deep Search** uses `DEEP_SEARCH_*` model settings for planning, evidence compression, report writing, and verification. Missing `TAVILY_API_KEY` skips web search with a persisted warning while academic/project evidence still runs.
+- **Writer source ranking.** When `XIAOMI_MIMO_API_KEY` is set, ranking uses Xiaomi MiMo via `WRITER_SOURCE_RANKER_MODEL` and `XIAOMI_MIMO_BASE_URL`; otherwise it falls back to deterministic local ranking.
+- **Project hygiene.** Update `JOURNAL.md` before each PR with weekly learnings and shipped work; update `WORKLOG.md` for meaningful technical decisions. AI tool prompts are logged automatically — see `AGENTS.md`.
