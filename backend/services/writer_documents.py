@@ -1711,7 +1711,8 @@ class WriterDocumentService:
             section.outline_text or "",
             *[value for value in user_inputs.values() if value],
         ]
-        return " ".join(part.strip() for part in query_parts if part and part.strip())[:500]
+        # Tavily rejects queries longer than 400 chars; keep a small safety margin.
+        return " ".join(part.strip() for part in query_parts if part and part.strip())[:380]
 
     def _public_source_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         return {
