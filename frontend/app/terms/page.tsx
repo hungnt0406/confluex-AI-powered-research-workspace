@@ -21,7 +21,7 @@ const INTRO: Section["body"] = {
     "Welcome to Confluex (the “Service”), an automated literature review platform that searches scholarly sources, summarizes papers, and helps you draft research writing. By creating an account, signing in with Google, or otherwise using the Service, you agree to be bound by these Terms of Service (the “Terms”). If you do not agree, do not use the Service.",
   ],
   vi: [
-    "Chào mừng bạn đến với Confluex (“Dịch vụ”) — nền tảng tổng quan tài liệu khoa học tự động, hỗ trợ tìm kiếm nguồn học thuật, tóm tắt bài báo và soạn thảo nội dung nghiên cứu. Khi tạo tài khoản, đăng nhập bằng Google hoặc sử dụng Dịch vụ theo bất kỳ hình thức nào, bạn xác nhận đã đồng ý với các Điều khoản Dịch vụ này (“Điều khoản”). Nếu không đồng ý, vui lòng không sử dụng Dịch vụ.",
+    "Chào mừng bạn đến với Confluex (“Dịch vụ”) - nền tảng tổng quan tài liệu khoa học tự động, hỗ trợ tìm kiếm nguồn học thuật, tóm tắt bài báo và soạn thảo nội dung nghiên cứu. Khi tạo tài khoản, đăng nhập bằng Google hoặc sử dụng Dịch vụ theo bất kỳ hình thức nào, bạn xác nhận đã đồng ý với các Điều khoản Dịch vụ này (“Điều khoản”). Nếu không đồng ý, vui lòng không sử dụng Dịch vụ.",
   ],
 };
 
