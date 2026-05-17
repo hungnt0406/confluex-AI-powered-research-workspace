@@ -18,10 +18,10 @@ const LAST_UPDATED = {
 
 const INTRO: Section["body"] = {
   en: [
-    "Welcome to Confluex (the “Service”), an automated literature review platform that searches scholarly sources, summarizes papers, and helps you draft research writing. By creating an account, signing in with Google, or otherwise using the Service, you agree to be bound by these Terms of Usage (the “Terms”). If you do not agree, do not use the Service.",
+    "Welcome to Confluex (the “Service”), an automated literature review platform that searches scholarly sources, summarizes papers, and helps you draft research writing. By creating an account, signing in with Google, or otherwise using the Service, you agree to be bound by these Terms of Service (the “Terms”). If you do not agree, do not use the Service.",
   ],
   vi: [
-    "Chào mừng bạn đến với Confluex (“Dịch vụ”) — nền tảng tổng quan tài liệu khoa học tự động, hỗ trợ tìm kiếm nguồn học thuật, tóm tắt bài báo và soạn thảo nội dung nghiên cứu. Khi tạo tài khoản, đăng nhập bằng Google hoặc sử dụng Dịch vụ theo bất kỳ hình thức nào, bạn xác nhận đã đồng ý với các Điều khoản Sử dụng này (“Điều khoản”). Nếu không đồng ý, vui lòng không sử dụng Dịch vụ.",
+    "Chào mừng bạn đến với Confluex (“Dịch vụ”) — nền tảng tổng quan tài liệu khoa học tự động, hỗ trợ tìm kiếm nguồn học thuật, tóm tắt bài báo và soạn thảo nội dung nghiên cứu. Khi tạo tài khoản, đăng nhập bằng Google hoặc sử dụng Dịch vụ theo bất kỳ hình thức nào, bạn xác nhận đã đồng ý với các Điều khoản Dịch vụ này (“Điều khoản”). Nếu không đồng ý, vui lòng không sử dụng Dịch vụ.",
   ],
 };
 
@@ -33,7 +33,7 @@ const SECTIONS: Section[] = [
         "You must be at least 16 years old, or the age of digital consent in your jurisdiction, to use the Service. By using the Service, you represent that the information you provide at registration is accurate and that you have the authority to accept these Terms on behalf of yourself or the organization you represent.",
       ],
       vi: [
-        "Bạn phải đủ 16 tuổi trở lên, hoặc đạt độ tuổi đồng thuận số theo quy định pháp luật nơi bạn sinh sống, để sử dụng Dịch vụ. Khi sử dụng Dịch vụ, bạn cam đoan rằng các thông tin đăng ký là chính xác và bạn có thẩm quyền chấp nhận các Điều khoản này cho chính mình hoặc tổ chức mà bạn đại diện.",
+        "Bạn phải đủ 16 tuổi trở lên, hoặc đạt độ tuổi đồng thuận số theo quy định pháp luật nơi bạn sinh sống, để sử dụng Dịch vụ. Khi sử dụng Dịch vụ, bạn cam đoan rằng các thông tin đăng ký là chính xác và bạn có thẩm quyền chấp nhận các Điều khoản Dịch vụ này cho chính mình hoặc tổ chức mà bạn đại diện.",
       ],
     },
   },
@@ -126,7 +126,7 @@ const SECTIONS: Section[] = [
         "We may suspend or terminate your access if you violate these Terms, fail to pay for credits, or use the Service in a way that risks harm to other users or the platform. You may stop using the Service at any time; remaining unused credits do not become refundable to cash upon termination unless required by law.",
       ],
       vi: [
-        "Chúng tôi có quyền tạm ngừng hoặc chấm dứt quyền truy cập của bạn nếu bạn vi phạm các Điều khoản này, không thanh toán cho tín dụng, hoặc sử dụng Dịch vụ theo cách gây rủi ro cho người dùng khác hoặc cho nền tảng. Bạn có thể ngừng sử dụng Dịch vụ bất kỳ lúc nào; số tín dụng chưa sử dụng còn lại sẽ không được hoàn lại bằng tiền mặt khi chấm dứt, trừ khi pháp luật yêu cầu.",
+        "Chúng tôi có quyền tạm ngừng hoặc chấm dứt quyền truy cập của bạn nếu bạn vi phạm các Điều khoản Dịch vụ này, không thanh toán cho tín dụng, hoặc sử dụng Dịch vụ theo cách gây rủi ro cho người dùng khác hoặc cho nền tảng. Bạn có thể ngừng sử dụng Dịch vụ bất kỳ lúc nào; số tín dụng chưa sử dụng còn lại sẽ không được hoàn lại bằng tiền mặt khi chấm dứt, trừ khi pháp luật yêu cầu.",
       ],
     },
   },
@@ -150,7 +150,7 @@ const SECTIONS: Section[] = [
         "We may update these Terms to reflect changes in the Service, the law, or our business. Material changes will be announced through the app or by email at least 14 days before they take effect. Continued use of the Service after the effective date constitutes acceptance of the revised Terms.",
       ],
       vi: [
-        "Chúng tôi có thể cập nhật các Điều khoản này để phản ánh thay đổi trong Dịch vụ, pháp luật hoặc hoạt động kinh doanh. Các thay đổi quan trọng sẽ được thông báo qua ứng dụng hoặc email ít nhất 14 ngày trước khi có hiệu lực. Việc bạn tiếp tục sử dụng Dịch vụ sau ngày có hiệu lực được xem là chấp nhận các Điều khoản đã sửa đổi.",
+        "Chúng tôi có thể cập nhật các Điều khoản Dịch vụ này để phản ánh thay đổi trong Dịch vụ, pháp luật hoặc hoạt động kinh doanh. Các thay đổi quan trọng sẽ được thông báo qua ứng dụng hoặc email ít nhất 14 ngày trước khi có hiệu lực. Việc bạn tiếp tục sử dụng Dịch vụ sau ngày có hiệu lực được xem là chấp nhận các Điều khoản đã sửa đổi.",
       ],
     },
   },
@@ -161,7 +161,7 @@ const SECTIONS: Section[] = [
         "These Terms are governed by the laws of the Socialist Republic of Vietnam, without regard to conflict-of-laws principles. Disputes will be resolved in the competent courts of Hanoi, unless mandatory consumer-protection rules in your jurisdiction provide otherwise.",
       ],
       vi: [
-        "Các Điều khoản này được điều chỉnh theo pháp luật nước Cộng hòa Xã hội Chủ nghĩa Việt Nam, không áp dụng các nguyên tắc xung đột pháp luật. Tranh chấp sẽ được giải quyết tại tòa án có thẩm quyền tại Hà Nội, trừ trường hợp các quy định bảo vệ người tiêu dùng mang tính bắt buộc tại nơi cư trú của bạn quy định khác.",
+        "Các Điều khoản Dịch vụ này được điều chỉnh theo pháp luật nước Cộng hòa Xã hội Chủ nghĩa Việt Nam, không áp dụng các nguyên tắc xung đột pháp luật. Tranh chấp sẽ được giải quyết tại tòa án có thẩm quyền tại Hà Nội, trừ trường hợp các quy định bảo vệ người tiêu dùng mang tính bắt buộc tại nơi cư trú của bạn quy định khác.",
       ],
     },
   },
@@ -172,7 +172,7 @@ const SECTIONS: Section[] = [
         "Questions about these Terms can be sent to support@confluex.app. For data-deletion or privacy requests, please use the same address and include the email associated with your account.",
       ],
       vi: [
-        "Mọi câu hỏi về Điều khoản này có thể gửi đến support@confluex.app. Với yêu cầu xóa dữ liệu hoặc liên quan đến quyền riêng tư, vui lòng dùng cùng địa chỉ trên và kèm email tài khoản của bạn.",
+        "Mọi câu hỏi về Điều khoản Dịch vụ này có thể gửi đến support@confluex.app. Với yêu cầu xóa dữ liệu hoặc liên quan đến quyền riêng tư, vui lòng dùng cùng địa chỉ trên và kèm email tài khoản của bạn.",
       ],
     },
   },
@@ -180,12 +180,12 @@ const SECTIONS: Section[] = [
 
 const UI = {
   en: {
-    title: "Terms of Usage",
+    title: "Terms of Service",
     toggle: "Tiếng Việt",
     backToSignup: "Back to sign up",
   },
   vi: {
-    title: "Điều khoản Sử dụng",
+    title: "Điều khoản Dịch vụ",
     toggle: "English",
     backToSignup: "Quay lại đăng ký",
   },
