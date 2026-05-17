@@ -1659,3 +1659,8 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: After generating a Writer draft with citations, the Sources panel still shows 0 attached sources until a page refresh.
 - Files changed: `frontend/components/WriterQuestionsPanel.tsx`, `frontend/components/WriterWorkspace.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Root cause was a frontend state-sync gap. The draft endpoint `_auto_fetch_source_papers` persists new Papers and inserts WriterDocumentSource rows, but `WriterSectionDraftResponse` returns only `(section, warnings)`. The UI handler called `onSectionUpdate(section)` and never refetched the document, so `document.source_papers` and `source_paper_ids_json` stayed stale even though the draft contained `\cite{...}` macros for the freshly attached papers. Threaded an `onAfterDraft` callback through `WriterQuestionsPanel`, wired it to `WriterWorkspace.refreshDocument`, and invoked it after a successful `draftSection` call so the Sources panel reflects auto-attached papers without a page reload. `npm run typecheck` → clean.
+
+## 2026-05-17T18:13:26+07:00
+- Request: Add more animation to the landing page.
+- Files changed: frontend/components/landing/LandingPage.tsx, frontend/components/landing/useRevealOnScroll.ts (new), frontend/app/landing.css
+- Current status: Added IntersectionObserver-based scroll-reveal (fade + slide-up) for hero, video, sources, sample, pricing, and footer CTA, with staggered delays on source cells and plan cards. Respects prefers-reduced-motion. tsc passes.
