@@ -52,6 +52,24 @@ CREATE INDEX IF NOT EXISTS ix_ai_usage_events_user_id ON ai_usage_events (user_i
 CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_id ON ai_usage_events (project_id);
 CREATE INDEX IF NOT EXISTS ix_ai_usage_events_project_created_at ON ai_usage_events (project_id, created_at);
 
+CREATE TABLE IF NOT EXISTS message_feedback_events (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(36) REFERENCES projects(id) ON DELETE SET NULL,
+    message_id VARCHAR(64),
+    surface VARCHAR(32) NOT NULL,
+    action VARCHAR(16) NOT NULL,
+    content_preview TEXT,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_message_feedback_events_user_id ON message_feedback_events (user_id);
+CREATE INDEX IF NOT EXISTS ix_message_feedback_events_project_id ON message_feedback_events (project_id);
+CREATE INDEX IF NOT EXISTS ix_message_feedback_events_message_id ON message_feedback_events (message_id);
+CREATE INDEX IF NOT EXISTS ix_message_feedback_events_user_created_at ON message_feedback_events (user_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_message_feedback_events_surface_action ON message_feedback_events (surface, action);
+
 CREATE TABLE IF NOT EXISTS credit_transactions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
