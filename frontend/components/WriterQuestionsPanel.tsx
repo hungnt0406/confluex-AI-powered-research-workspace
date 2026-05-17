@@ -16,6 +16,7 @@ interface WriterQuestionsPanelProps {
   activeSection: WriterSectionRead | null;
   token: string;
   onSectionUpdate: (section: WriterSectionRead) => void;
+  onAfterDraft?: () => void | Promise<void>;
 }
 
 function isApprovedSectionOutline(
@@ -42,6 +43,7 @@ export function WriterQuestionsPanel({
   activeSection,
   token,
   onSectionUpdate,
+  onAfterDraft,
 }: WriterQuestionsPanelProps) {
   const [questions, setQuestions] = useState<string[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -170,6 +172,15 @@ export function WriterQuestionsPanel({
     try {
       const { section, warnings: ws } = await draftSection(documentId, activeSection.id, token);
       onSectionUpdate(section);
+      // Drafting may have auto-attached new source papers (Tavily/arXiv fallback);
+      // refresh the parent document so the Sources panel reflects them.
+      if (onAfterDraft) {
+        try {
+          await onAfterDraft();
+        } catch {
+          /* refresh failure is non-fatal; the section update already landed. */
+        }
+      }
       warningDelayTimerRef.current = window.setTimeout(() => {
         setWarnings(ws);
         warningDelayTimerRef.current = null;
@@ -179,7 +190,7 @@ export function WriterQuestionsPanel({
     } finally {
       setDrafting(false);
     }
-  }, [activeSection, documentId, token, onSectionUpdate, clearWarningDelay, hasApprovedOutline]);
+  }, [activeSection, documentId, token, onSectionUpdate, clearWarningDelay, hasApprovedOutline, onAfterDraft]);
 
   if (!activeSection) {
     return (

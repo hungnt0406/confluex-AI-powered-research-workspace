@@ -1625,3 +1625,18 @@ Ngoài phần tổng kết tuần, file này cũng được dùng để log các
 - Request: Test each of these feature sequentially, do the items in the test sequentially (Prompt 1, 2, 3 browser tests).
 - Files changed: `JOURNAL.md`, `AI_WORKLOG.md`.
 - Current status: Executed the BROWSER TEST (antigravity) scenarios for Writer Workspace features using the browser_subagent. Verified the prompt-echo rejection on the revise path, the live section metadata header (word count and relative time), and the discoverable keyboard shortcuts (?, Cmd+E, Cmd+Shift+E, Undo/Redo) with the cheatsheet modal. All UI flows behave as expected.
+
+## 2026-05-17T13:43:27+07:00
+- Request: Diagnose "Tavily web search failed" + "No source papers attached — cannot draft grounded content" when generating a Writer section draft with no attached sources.
+- Files changed: `backend/services/writer_documents.py`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Root cause — `_build_section_source_query` truncated the auto-search query to 500 chars, but Tavily rejects queries longer than 400 chars with an HTTP error, so auto-search always failed when topic+thesis+title+outline exceeded 400 chars. With no attached papers and a failing Tavily call, `_auto_fetch_source_papers` returned no Papers and the section agent emitted "No source papers attached — cannot draft grounded content." Capped the query at 380 chars to stay under Tavily's 400-char ceiling with a safety margin.
+
+## 2026-05-17T13:56:05+07:00
+- Request: Writer chat side-tab is draggable but no longer clickable — clicking does nothing.
+- Files changed: `frontend/components/WriterWorkspace.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: The chat side-tab's onMouseDown always populated `chatButtonDragRef.current`, and onMouseUp only cleared it via setTimeout(0). The `click` event fires synchronously between `mouseup` and the next macrotask, so the onClick guard `if (!chatButtonDragRef.current)` was always false and the chat never opened. Added a `didDrag` flag on the drag ref that only flips true after the pointer moves past a 4px threshold; click now only ignores when the user actually dragged.
+
+## 2026-05-17T14:14:18+07:00
+- Request: After generating a Writer draft with citations, the Sources panel still shows 0 attached sources until a page refresh.
+- Files changed: `frontend/components/WriterQuestionsPanel.tsx`, `frontend/components/WriterWorkspace.tsx`, `JOURNAL.md`, `AI_WORKLOG.md`.
+- Current status: Root cause was a frontend state-sync gap. The draft endpoint `_auto_fetch_source_papers` persists new Papers and inserts WriterDocumentSource rows, but `WriterSectionDraftResponse` returns only `(section, warnings)`. The UI handler called `onSectionUpdate(section)` and never refetched the document, so `document.source_papers` and `source_paper_ids_json` stayed stale even though the draft contained `\cite{...}` macros for the freshly attached papers. Threaded an `onAfterDraft` callback through `WriterQuestionsPanel`, wired it to `WriterWorkspace.refreshDocument`, and invoked it after a successful `draftSection` call so the Sources panel reflects auto-attached papers without a page reload. `npm run typecheck` → clean.
