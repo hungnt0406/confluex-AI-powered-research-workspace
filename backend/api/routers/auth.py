@@ -47,7 +47,7 @@ async def register_user(payload: AuthRequest, session: DbSession) -> AuthRespons
     await credit(
         session,
         user_id=user.id,
-        delta=100,
+        delta=get_settings().signup_bonus_credits,
         kind="grant",
         metadata={"reason": "signup_bonus"},
     )
@@ -149,7 +149,7 @@ async def google_login(payload: GoogleAuthRequest, session: DbSession) -> AuthRe
             await credit(
                 session,
                 user_id=user.id,
-                delta=100,
+                delta=settings.signup_bonus_credits,
                 kind="grant",
                 metadata={"reason": "signup_bonus"},
             )

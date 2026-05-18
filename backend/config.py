@@ -188,6 +188,7 @@ class Settings(BaseSettings):
     credit_cost_paper_chat: int = Field(default=2, alias="CREDIT_COST_PAPER_CHAT")
     credit_cost_pdf_upload: int = Field(default=5, alias="CREDIT_COST_PDF_UPLOAD")
     credit_cost_pipeline_run: int = Field(default=20, alias="CREDIT_COST_PIPELINE_RUN")
+    signup_bonus_credits: int = Field(default=1600, alias="SIGNUP_BONUS_CREDITS")
     xiaomi_chat_model: str = Field(default="mimo-v2.5-pro", alias="XIAOMI_CHAT_MODEL")
     writer_editor_vision_model: str = Field(default="mimo-v2.5", alias="WRITER_EDITOR_VISION_MODEL")
     writer_chat_provider: LlmProvider = Field(
