@@ -4,10 +4,6 @@
 
 **Live demo:** https://drive.google.com/file/d/1PIsv3ITGsUUzvPko0TeNsiu7sbARx5qi/view?usp=drive_link
 
-
- 
-**Pitch Deck:** https://drive.google.com/drive/folders/1GzQfuykHJA0NnhzvhFHNg2X22m1UqkAX?usp=drive_link
-
 ## Table of contents
 
 - [Description](#description)
