@@ -55,4 +55,4 @@ jobs:
         run: uv run mypy backend/
 
       - name: Run tests
-        run: uv run pytest tests/ -x
+        run: uv run pytest tests/
