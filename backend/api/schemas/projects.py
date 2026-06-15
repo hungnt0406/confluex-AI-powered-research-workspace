@@ -130,7 +130,7 @@ class ProjectPaperRead(BaseModel):
     """Serialized paper payload for project-level listings."""
 
     id: str
-    project_id: str
+    project_id: str | None
     reference_file_id: str | None
     title: str
     authors: list[str]
