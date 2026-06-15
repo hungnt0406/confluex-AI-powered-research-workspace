@@ -48,3 +48,32 @@ AI_WORKLOG.md
 
 
 logo.png
+
+# --- Clean production repo exclusions ---
+# Design-tool exports / UI handoffs (reference mockups, not shipping code)
+setting_page/
+ui_design_chat_page/
+ui_design_pricing_page/
+user_onboarding/
+frontend/landing-page/
+
+# AI agent tooling / harness configs (kept local, not shipped)
+.claude/
+.codex/
+.agents/
+.cursor/
+.gemini/
+.agent/
+.github/hooks/
+skills-lock.json
+AGENTS.md
+WORKFLOW.md
+
+# Internal team logs / planning (kept local, not shipped)
+JOURNAL.md
+WORKLOG.md
+plans/
+
+# Stray runtime / build artifacts
+*.pid
+*.tsbuildinfo
