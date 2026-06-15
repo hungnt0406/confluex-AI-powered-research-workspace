@@ -19,9 +19,6 @@ htmlcov/
 # OS
 .DS_Store
 
-# AI logs — tracked structure, ignored content
-.ai-log/*.jsonl
-
 # Data — large files, downloaded datasets
 data/arxiv-metadata/
 data/chroma_db/

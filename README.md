@@ -112,12 +112,11 @@ The goal is to take a literature-review effort from days to hours while keeping 
 - PostgreSQL **14+** (or use SQLite locally — the default fallback)
 - [`uv`](https://docs.astral.sh/uv/) installed (`pip install uv` if needed)
 
-### 1. Clone and install repository hooks
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/a20-ai-thuc-chien/A20-App-143.git
 cd A20-App-143
-bash scripts/setup_hooks.sh
 ```
 
 ### 2. Configure environment variables
@@ -170,7 +169,7 @@ npm install
 npm run dev
 ```
 
-Frontend runs on `http://localhost:3000`. Open it, register an account (signup grants 100 credits), and start a project.
+Frontend runs on `http://localhost:3000`. Open it, register an account (signup grants 1600 credits), and start a project.
 
 ### 6. (Optional) Seed admin access
 
