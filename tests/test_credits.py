@@ -140,9 +140,9 @@ async def test_register_grants_signup_bonus_and_ledgers_it(client, session_facto
         )
 
     assert user is not None
-    assert user.credit_balance == 100
+    assert user.credit_balance == 1600
     assert len(transactions) == 1
     assert transactions[0].kind == "grant"
-    assert transactions[0].delta == 100
-    assert transactions[0].balance_after == 100
+    assert transactions[0].delta == 1600
+    assert transactions[0].balance_after == 1600
     assert transactions[0].metadata_json == {"reason": "signup_bonus"}
