@@ -541,7 +541,7 @@ async def test_tavily_search_uses_expected_payload_and_bearer_auth() -> None:
     assert captured_payloads == [
         {
             "query": "deep search question",
-            "search_depth": "basic",
+            "search_depth": "advanced",
             "include_answer": False,
             "include_raw_content": False,
             "max_results": 3,
