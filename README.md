@@ -8,8 +8,6 @@
  
 **Pitch Deck:** https://drive.google.com/drive/folders/1GzQfuykHJA0NnhzvhFHNg2X22m1UqkAX?usp=drive_link
 
-**URL:** https://a20-app-143.vercel.app
-
 ## Table of contents
 
 - [Description](#description)
@@ -115,8 +113,8 @@ The goal is to take a literature-review effort from days to hours while keeping 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/a20-ai-thuc-chien/A20-App-143.git
-cd A20-App-143
+git clone https://github.com/hungnt0406/confluex-AI-powered-research-workspace.git
+cd confluex-AI-powered-research-workspace
 ```
 
 ### 2. Configure environment variables
